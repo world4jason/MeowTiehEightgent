@@ -173,6 +173,13 @@
   #send-btn { width: 30px; height: 30px; border-radius: 6px; border: none; background: var(--text); color: #111; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
   #send-btn:hover { opacity: 0.85; }
   .hint-text { text-align: center; font-size: 0.68rem; color: var(--text-muted); }
+  /* Attachment chips */
+  #attach-preview { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 0 4px; }
+  #attach-preview:empty { display: none; }
+  .attach-chip { display: flex; align-items: center; gap: 5px; padding: 3px 8px 3px 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); font-size: 0.74rem; color: var(--text-muted); max-width: 200px; }
+  .attach-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .attach-chip-del { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; padding: 0; line-height: 1; flex-shrink: 0; }
+  .attach-chip-del:hover { color: #f87171; }
 
   /* ── Members Panel ── */
   #chat-body { display: flex; flex: 1; overflow: hidden; }
@@ -579,11 +586,16 @@
       <div id="input-inner">
         <div id="skill-picker"></div>
         <div id="agent-picker"></div>
+        <!-- Attachment preview chips -->
+        <div id="attach-preview"></div>
         <div id="input-box">
           <textarea id="msg-input" rows="1" placeholder="Interrupt the discussion… (/ for skills, @ for agents)" oninput="onMsgInput(this)" onkeydown="msgKey(event)" onblur="setTimeout(()=>{hideSkillPicker();hideAgentPicker();},150)"></textarea>
           <div class="bar-actions">
             <button class="bar-btn" id="next-btn" onclick="sendNext()">Next →</button>
             <button class="bar-btn" id="stop-btn" onclick="stopSession()">■ Stop</button>
+            <button class="bar-btn" id="attach-btn" onclick="triggerChatAttach()" title="附加檔案">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
             <button class="bar-btn" id="enter-send-btn" onclick="toggleEnterToSend()" title="切換 Enter 送出">↵</button>
             <button id="send-btn" onclick="sendHuman()">
               <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -591,6 +603,7 @@
           </div>
         </div>
         <p class="hint-text" id="input-hint">Shift+Enter to send · Enter for newline · Your message resets turn order</p>
+        <input type="file" id="chat-file-input" style="display:none" multiple onchange="handleChatAttach(event)">
       </div>
     </div>
   </div>
@@ -1664,27 +1677,78 @@ function addSystem(text) {
   msgs.scrollTop = msgs.scrollHeight;
 }
 
+// ── Chat attachments ──────────────────────────────────────────
+let chatAttachments = [];  // [{name, content}]
+
+function triggerChatAttach() {
+  document.getElementById('chat-file-input').value = '';
+  document.getElementById('chat-file-input').click();
+}
+
+function handleChatAttach(event) {
+  const files = [...event.target.files];
+  const MAX_SIZE = 200 * 1024; // 200 KB per file
+  files.forEach(file => {
+    if (file.size > MAX_SIZE) { alert(`${file.name} 超過 200 KB 限制`); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      chatAttachments.push({ name: file.name, content: e.target.result });
+      renderAttachChips();
+    };
+    reader.readAsText(file);
+  });
+}
+
+function renderAttachChips() {
+  const preview = document.getElementById('attach-preview');
+  preview.innerHTML = chatAttachments.map((a, i) => `
+    <div class="attach-chip">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+      <span class="attach-chip-name" title="${esc(a.name)}">${esc(a.name)}</span>
+      <button class="attach-chip-del" onclick="removeAttach(${i})">✕</button>
+    </div>`).join('');
+}
+
+function removeAttach(i) {
+  chatAttachments.splice(i, 1);
+  renderAttachChips();
+}
+
+function buildMessageWithAttachments(text) {
+  if (!chatAttachments.length) return text;
+  const blocks = chatAttachments.map(a => {
+    const ext = a.name.split('.').pop().toLowerCase();
+    return `**[附件: ${a.name}]**\n\`\`\`${ext}\n${a.content}\n\`\`\``;
+  }).join('\n\n');
+  return text ? `${blocks}\n\n${text}` : blocks;
+}
+
 // ── User actions ──────────────────────────────────────────────
 function sendHuman() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
+  const hasAttach = chatAttachments.length > 0;
+  if (!text && !hasAttach) return;
+
   input.value = ''; autoResize(input);
   document.getElementById('next-btn').classList.remove('visible');
+
+  const fullText = buildMessageWithAttachments(text);
+  chatAttachments = [];
+  renderAttachChips();
 
   // If viewing history and no active ws, trigger continuation (with or without message)
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     if (historySessionId) {
-      continueSessionWith(text);
+      continueSessionWith(fullText);
     }
     return;
   }
 
-  if (!text) return;
-
   // Show queued indicator if an agent is currently thinking
   const isQueued = !!thinkingEl;
-  addMessage('Human', text, '#60a5fa', new Date().toISOString(), null, isQueued);
-  ws.send(JSON.stringify({ type: 'human', text }));
+  addMessage('Human', fullText, '#60a5fa', new Date().toISOString(), null, isQueued);
+  ws.send(JSON.stringify({ type: 'human', text: fullText }));
 }
 function sendNext() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
