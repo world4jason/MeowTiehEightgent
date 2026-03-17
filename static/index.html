@@ -584,12 +584,13 @@
           <div class="bar-actions">
             <button class="bar-btn" id="next-btn" onclick="sendNext()">Next →</button>
             <button class="bar-btn" id="stop-btn" onclick="stopSession()">■ Stop</button>
+            <button class="bar-btn" id="enter-send-btn" onclick="toggleEnterToSend()" title="切換 Enter 送出">↵</button>
             <button id="send-btn" onclick="sendHuman()">
               <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
             </button>
           </div>
         </div>
-        <p class="hint-text">Enter to send · Shift+Enter for newline · Your message resets turn order</p>
+        <p class="hint-text" id="input-hint">Shift+Enter to send · Enter for newline · Your message resets turn order</p>
       </div>
     </div>
   </div>
@@ -803,6 +804,7 @@ function renderMarkdown(text) {
 let ws = null;
 let thinkingEl = null;
 let currentMode = 'auto';
+let enterToSend = false;  // default: Enter = newline, Shift+Enter = send
 let agentData = [];   // persona agents from /agents
 let modelData = [];   // LLM connections from /models
 let skillData = [];
@@ -2630,7 +2632,18 @@ function msgKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); selectFocusedSkill(); return; }
     if (e.key === 'Escape') { e.preventDefault(); hideSkillPicker(); return; }
   }
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendHuman(); }
+  if (enterToSend && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendHuman(); return; }
+  if (!enterToSend && e.key === 'Enter' && e.shiftKey) { e.preventDefault(); sendHuman(); return; }
+}
+function toggleEnterToSend() {
+  enterToSend = !enterToSend;
+  const btn = document.getElementById('enter-send-btn');
+  const hint = document.getElementById('input-hint');
+  btn.style.color = enterToSend ? 'var(--accent)' : '';
+  btn.style.borderColor = enterToSend ? 'var(--accent)' : '';
+  hint.textContent = enterToSend
+    ? 'Enter to send · Shift+Enter for newline · Your message resets turn order'
+    : 'Shift+Enter to send · Enter for newline · Your message resets turn order';
 }
 function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,120)+'px'; }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
