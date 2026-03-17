@@ -9,7 +9,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -403,3 +403,116 @@ class TestFindSkillFile:
     def test_returns_none_when_missing(self, tmp_path):
         from app import find_skill_file
         assert find_skill_file(tmp_path) is None
+
+
+# ── Ollama endpoints ───────────────────────────────────────────────────────────
+
+class TestOllamaModels:
+    def _mock_httpx_get(self, json_data):
+        """Returns (mock_cls, mock_client) where get() is awaitable and returns a sync-method response."""
+        # The response object uses sync .json() and .raise_for_status() in app code
+        mock_response = MagicMock()
+        mock_response.json.return_value = json_data
+
+        # client.get() is awaited, so it must be an AsyncMock
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        mock_cls = MagicMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        return mock_cls, mock_client
+
+    def test_local_models_ok(self, client):
+        mock_cls, mock_client = self._mock_httpx_get(
+            {"models": [{"name": "llama3.2"}, {"name": "qwen3.5:27b"}]}
+        )
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/models")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert "llama3.2" in data["models"]
+
+    def test_local_models_unreachable(self, client):
+        import httpx
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        mock_cls = MagicMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/models")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert data["models"] == []
+
+    def test_local_models_accepts_base_url_param(self, client):
+        mock_cls, mock_client = self._mock_httpx_get({"models": [{"name": "phi3"}]})
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/models?base_url=http://remote:11434")
+        assert r.status_code == 200
+        call_url = mock_client.get.call_args[0][0]
+        assert "remote:11434" in call_url
+
+    def test_cloud_models_ok(self, client):
+        mock_cls, mock_client = self._mock_httpx_get(
+            {"models": [{"name": "llama3.3"}, {"name": "gemma3:27b"}]}
+        )
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/cloud-models")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert "llama3.3" in data["models"]
+
+    def test_cloud_models_passes_cloud_param(self, client):
+        mock_cls, mock_client = self._mock_httpx_get({"models": []})
+        with patch("app.httpx.AsyncClient", mock_cls):
+            client.get("/providers/ollama/cloud-models")
+        call_kwargs = mock_client.get.call_args[1]
+        assert call_kwargs.get("params", {}).get("cloud") == "true"
+
+    def test_cloud_models_unreachable(self, client):
+        import httpx
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        mock_cls = MagicMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/cloud-models")
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+    def test_pull_missing_model_name(self, client):
+        r = client.post("/providers/ollama/pull", json={"base_url": "http://localhost:11434"})
+        assert r.status_code == 400
+
+    def test_pull_streams_sse(self, client):
+        class FakeStreamResp:
+            async def aiter_lines(self):
+                yield '{"status":"pulling manifest"}'
+                yield '{"status":"success"}'
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+
+        mock_client = MagicMock()
+        mock_client.stream.return_value = FakeStreamResp()
+        mock_cls = MagicMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.post("/providers/ollama/pull",
+                            json={"model": "llama3.2", "base_url": "http://localhost:11434"})
+
+        assert r.status_code == 200
+        assert "text/event-stream" in r.headers["content-type"]
+        body = r.text
+        assert "pulling manifest" in body
+        assert "[DONE]" in body
