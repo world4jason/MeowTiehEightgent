@@ -178,6 +178,13 @@
   #next-btn { display: none; }
   #next-btn.visible { display: flex; }
   #stop-btn:hover { background: #dc262615; color: #f87171; border-color: #dc2626; }
+  #msg-queue-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; margin-bottom: 5px; }
+  .mq-header { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; letter-spacing: 0.04em; }
+  .mq-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .mq-dot { font-size: 0.65rem; color: var(--text-muted); flex-shrink: 0; }
+  .mq-text { flex: 1; font-size: 0.82rem; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .mq-btn { border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; padding: 2px 5px; border-radius: 4px; line-height: 1; flex-shrink: 0; }
+  .mq-btn:hover { background: var(--surface3,#3a3a3a); color: var(--text); }
   #send-btn { width: 28px; height: 28px; border-radius: 6px; border: none; background: var(--text); color: #111; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
   #send-btn:hover { opacity: 0.85; }
   .hint-text { text-align: center; font-size: 0.68rem; color: var(--text-muted); }
@@ -602,6 +609,8 @@
       <div id="input-inner">
         <div id="skill-picker"></div>
         <div id="agent-picker"></div>
+        <!-- Queued messages panel -->
+        <div id="msg-queue-panel" style="display:none"></div>
         <!-- Attachment preview chips -->
         <div id="attach-preview"></div>
         <div id="input-box">
@@ -832,6 +841,8 @@ function renderMarkdown(text) {
 
 let ws = null;
 let thinkingEl = null;
+let msgQueue = []; // [{id, text}] — client-side buffer while agent is thinking
+let _mqIdCounter = 0;
 let currentMode = 'auto';
 let enterToSend = false;  // default: Enter = newline, Shift+Enter = send
 let agentData = [];   // persona agents from /agents
@@ -1668,6 +1679,7 @@ function handleMessage(data) {
     appendChunk(data.agent, data.text);
   } else if (data.type === 'message_end') {
     finalizeStreamingMessage(data.agent, data.timestamp, data.duration_ms);
+    flushMsgQueue();
   } else if (data.type === 'message') {
     removeThinking(); addMessage(data.agent, data.text, data.color, data.timestamp, data.duration_ms, false, data.skill || null);
   } else if (data.type === 'system') {
@@ -1682,7 +1694,7 @@ function formatDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function addMessage(agent, text, color, ts, duration, queued = false, skill = null) {
+function addMessage(agent, text, color, ts, duration, queued = false, skill = null, queueId = null) {
   if (!queued) removeThinking();
   const msgs = document.getElementById('messages');
   const isHuman = agent === 'Human';
@@ -1696,6 +1708,7 @@ function addMessage(agent, text, color, ts, duration, queued = false, skill = nu
     row.innerHTML = `<div class="system-text">🎯 Skill invoked: <strong>/${esc(skill)}</strong>${timeStr ? ` · ${timeStr}` : ''}</div>`;
   } else if (isHuman) {
     row.className = 'msg-row human-row';
+    if (queueId) row.dataset.queueId = queueId;
     row.innerHTML = `
       <div class="msg-content">
         <div>
@@ -1879,10 +1892,72 @@ function sendHuman() {
     return;
   }
 
-  // Show queued indicator if an agent is currently thinking
-  const isQueued = !!thinkingEl;
-  addMessage('Human', fullText, '#60a5fa', new Date().toISOString(), null, isQueued);
+  // If agent is thinking, buffer client-side (Cursor-style queue)
+  if (thinkingEl || streamingRows && Object.keys(streamingRows).length > 0) {
+    const qid = ++_mqIdCounter;
+    msgQueue.push({ id: qid, text: fullText });
+    addMessage('Human', fullText, '#60a5fa', new Date().toISOString(), null, true, null, qid);
+    renderQueuePanel();
+    return;
+  }
+
+  addMessage('Human', fullText, '#60a5fa', new Date().toISOString(), null, false);
   ws.send(JSON.stringify({ type: 'human', text: fullText }));
+}
+
+function renderQueuePanel() {
+  const panel = document.getElementById('msg-queue-panel');
+  if (!panel) return;
+  if (msgQueue.length === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  panel.innerHTML = `<div class="mq-header">↓ ${msgQueue.length} Queued</div>` +
+    msgQueue.map((item, i) => `
+      <div class="mq-item">
+        <span class="mq-dot">○</span>
+        <span class="mq-text">${esc(item.text.substring(0,80))}${item.text.length>80?'…':''}</span>
+        <button class="mq-btn" onclick="editQueueItem(${i})" title="編輯">✏</button>
+        ${i > 0 ? `<button class="mq-btn" onclick="promoteQueueItem(${i})" title="提前">↑</button>` : ''}
+        <button class="mq-btn" onclick="deleteQueueItem(${i})" title="刪除">✕</button>
+      </div>`).join('');
+}
+
+function editQueueItem(i) {
+  const item = msgQueue[i];
+  if (!item) return;
+  const newText = prompt('編輯訊息：', item.text);
+  if (newText === null || !newText.trim()) return;
+  item.text = newText.trim();
+  const el = document.querySelector(`[data-queue-id="${item.id}"]`);
+  if (el) el.querySelector('.human-bubble').innerHTML = renderMentions(item.text);
+  renderQueuePanel();
+}
+
+function promoteQueueItem(i) {
+  if (i <= 0) return;
+  [msgQueue[i-1], msgQueue[i]] = [msgQueue[i], msgQueue[i-1]];
+  renderQueuePanel();
+}
+
+function deleteQueueItem(i) {
+  const item = msgQueue[i];
+  if (!item) return;
+  const el = document.querySelector(`[data-queue-id="${item.id}"]`);
+  el?.closest('.msg-row')?.remove();
+  msgQueue.splice(i, 1);
+  renderQueuePanel();
+}
+
+function flushMsgQueue() {
+  if (msgQueue.length === 0 || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const { id, text } = msgQueue.shift();
+  // Mark the bubble as no longer queued
+  const el = document.querySelector(`[data-queue-id="${id}"]`);
+  if (el) {
+    el.querySelector('.human-bubble')?.classList.remove('queued');
+    el.querySelector('.msg-queued')?.remove();
+  }
+  renderQueuePanel();
+  ws.send(JSON.stringify({ type: 'human', text }));
 }
 function sendNext() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -1955,6 +2030,9 @@ function renderModelConfig(id) {
   if (!m) { body.innerHTML = ''; return; }
   const isCli = m.type === 'cli';
   const cmd = (m.cmd || []).join(' ');
+  const extraFlags = m.extra_flags || [];
+  const modelFlagIdx = extraFlags.indexOf('--model');
+  const modelVariant = modelFlagIdx >= 0 ? (extraFlags[modelFlagIdx + 1] || '') : '';
   let html = `
     <div class="model-config-header">
       <span class="model-config-emoji">${m.emoji || '🤖'}</span>
@@ -1969,7 +2047,8 @@ function renderModelConfig(id) {
       <div class="field-row"><span class="field-label">Emoji</span><input class="field-input" id="mcfg-emoji" value="${esc(m.emoji || '🤖')}"></div>
       <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="mcfg-color" value="${esc(m.color || '#888')}"></div>`;
   if (isCli) {
-    html += `<div class="field-row"><span class="field-label">Command</span><input class="field-input" id="mcfg-cmd" value="${esc(cmd)}" placeholder="e.g. claude --print"></div>`;
+    html += `<div class="field-row"><span class="field-label">Command</span><input class="field-input" id="mcfg-cmd" value="${esc(cmd)}" placeholder="e.g. claude --print"></div>
+      <div class="field-row"><span class="field-label">Model Variant</span><input class="field-input" id="mcfg-model-variant" value="${esc(modelVariant)}" placeholder="e.g. gemini-2.0-flash · claude-opus-4-5（空白=不傳）"></div>`;
   } else {
     html += `
       <div class="field-row"><span class="field-label">Base URL</span><input class="field-input" id="mcfg-baseUrl" value="${esc(m.baseUrl || 'http://127.0.0.1:11434')}"></div>
@@ -2103,8 +2182,11 @@ async function saveModelConfig(id) {
     emoji: document.getElementById('mcfg-emoji')?.value.trim() || m.emoji,
     color: document.getElementById('mcfg-color')?.value.trim() || m.color,
   };
-  if (isCli) body.cmd = (document.getElementById('mcfg-cmd')?.value.trim() || '').split(/\s+/);
-  else {
+  if (isCli) {
+    body.cmd = (document.getElementById('mcfg-cmd')?.value.trim() || '').split(/\s+/);
+    const variant = document.getElementById('mcfg-model-variant')?.value.trim();
+    body.extra_flags = variant ? ['--model', variant] : [];
+  } else {
     body.baseUrl = document.getElementById('mcfg-baseUrl')?.value.trim();
     body.apiModel = document.getElementById('mcfg-model-sel')?.value;
   }
