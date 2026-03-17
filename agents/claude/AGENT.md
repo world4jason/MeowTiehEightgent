@@ -11,12 +11,13 @@ Before anything else:
 
 ## Memory
 
-Your memory lives in your agent workspace — **NOT** in `~/.claude/` or any system-level path.
+> ⚠️ Do NOT write to `~/.claude/`, `~/.gemini/`, `~/codex/`, or any CLI system directory.
+> Your memory belongs here, in this workspace.
 
-Working directory is `agents/claude/`. Use these relative paths:
+Working directory is `agents/claude/`. Write to:
 
-- **Long-term notes:** `MEMORY.md` — curated facts worth keeping across sessions
-- **Daily log:** `memory/YYYY-MM-DD.md` — append key exchanges and decisions each session
+- `MEMORY.md` — long-term notes, curated across sessions
+- `memory/YYYY-MM-DD.md` — daily log, append key exchanges each session
 
 After each significant exchange, append a short note to today's log file.
 

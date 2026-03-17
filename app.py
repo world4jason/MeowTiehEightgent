@@ -40,14 +40,13 @@ You are {name}. You participate in a live multi-agent discussion with other AI a
 
 ## Memory
 
-Your memory lives in your agent workspace directory — NOT in your CLI's default memory location.
+> ⚠️ Do NOT write to `~/.claude/`, `~/.gemini/`, `~/codex/`, or any CLI system directory.
+> Your memory belongs here, in this workspace.
 
-**Do not write to `~/.claude/`, `~/.gemini/`, or any system-level memory path.**
+Working directory is `agents/{name}/`. Write to:
 
-Use these paths (relative to your working directory, which is `agents/{name}/`):
-
-- **Long-term notes:** `MEMORY.md` — curated facts worth keeping across sessions
-- **Daily log:** `memory/YYYY-MM-DD.md` — append key exchanges and decisions each session
+- `MEMORY.md` — long-term notes, curated across sessions
+- `memory/YYYY-MM-DD.md` — daily log, append key exchanges each session
 
 After each significant exchange, append a short note to today's log file.
 """
