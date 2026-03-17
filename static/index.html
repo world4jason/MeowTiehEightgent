@@ -839,6 +839,20 @@ function toggleAddDropdown() {
   dd.classList.add('open');
 }
 
+function renderHeaderPills() {
+  const pillsEl = document.getElementById('chat-agents');
+  pillsEl.innerHTML = '';
+  activeSessionAgents.forEach(name => {
+    const a = agentData.find(x => x.name === name);
+    if (!a) return;
+    const p = document.createElement('span');
+    p.className = 'agent-pill';
+    p.style.cssText = `background:${a.color}22;color:${a.color};border:1px solid ${a.color}44`;
+    p.textContent = `${a.emoji} ${a.name}`;
+    pillsEl.appendChild(p);
+  });
+}
+
 function addMemberToSession(name) {
   document.getElementById('members-add-dropdown').classList.remove('open');
   if (activeSessionAgents.includes(name)) return;
@@ -847,6 +861,7 @@ function addMemberToSession(name) {
   }
   activeSessionAgents.push(name);
   renderMembersPanel();
+  renderHeaderPills();
 }
 
 function removeMemberFromSession(name) {
@@ -857,6 +872,7 @@ function removeMemberFromSession(name) {
   }
   activeSessionAgents = activeSessionAgents.filter(n => n !== name);
   renderMembersPanel();
+  renderHeaderPills();
 }
 
 // Close add-dropdown when clicking outside
