@@ -46,7 +46,8 @@
   #welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 40px; }
   #welcome h2 { font-size: 1.7rem; font-weight: 600; background: linear-gradient(135deg, #a78bfa, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 4px; }
   .welcome-section { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; max-width: 540px; }
-  .welcome-section-label { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; opacity: 0.6; align-self: flex-start; padding-left: 2px; }
+  .welcome-section-label { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; opacity: 0.6; align-self: flex-start; padding-left: 2px; display: flex; gap: 5px; align-items: baseline; }
+  .welcome-section-label .participants-names { font-size: 0.72rem; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-muted); opacity: 0.85; }
   #agent-select { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-start; width: 100%; }
   .mode-divider { width: 1px; height: 16px; background: var(--border); margin: 0 2px; }
   .agent-chip { display: flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 20px; border: 2px solid var(--border); background: var(--surface); cursor: pointer; font-size: 0.82rem; font-weight: 500; transition: border-color 0.15s; user-select: none; }
@@ -341,7 +342,7 @@
     <h2>Agent Chat Room</h2>
 
     <div class="welcome-section">
-      <div class="welcome-section-label">參與成員</div>
+      <div class="welcome-section-label">參與成員<span id="participants-names" class="participants-names"></span></div>
       <div id="agent-select"></div>
     </div>
 
@@ -575,6 +576,13 @@ async function loadAgents() {
   } catch(e) { console.error(e); }
 }
 
+function updateParticipantsLabel() {
+  const selected = getSelectedAgents();
+  const el = document.getElementById('participants-names');
+  if (!el) return;
+  el.textContent = selected.length ? '：' + selected.join('、') : '';
+}
+
 function renderAgentChips() {
   const container = document.getElementById('agent-select');
   container.innerHTML = '';
@@ -588,10 +596,12 @@ function renderAgentChips() {
       const cb = chip.querySelector('input');
       cb.checked = !cb.checked;
       chip.classList.toggle('checked', cb.checked);
+      updateParticipantsLabel();
     });
     chip.querySelector('input').addEventListener('click', e => e.preventDefault());
     container.appendChild(chip);
   });
+  updateParticipantsLabel();
 }
 
 async function loadSessions() {
@@ -749,6 +759,12 @@ function startSession() {
   document.getElementById('chat-topic').textContent = topic;
   document.getElementById('msg-input').focus();
   document.getElementById('next-btn').classList.remove('visible');
+
+  // Join messages
+  selected.forEach(name => {
+    const a = agentData.find(x => x.name === name);
+    addSystem(`${a ? a.emoji + ' ' : ''}${name} 加入聊天室`);
+  });
 
   // Agent pills in header
   const pillsEl = document.getElementById('chat-agents');
