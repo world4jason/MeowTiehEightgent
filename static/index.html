@@ -916,8 +916,7 @@ function renderModelConfig(id) {
         <span class="field-label" style="padding-top:6px">Pull</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:6px">
           <div style="display:flex;gap:6px">
-            <select class="model-select" id="mcfg-pull-sel" style="flex:1"><option value="">— 選擇雲端模型 —</option></select>
-            <button class="refresh-btn" onclick="loadOllamaCloudModels()" title="載入可用雲端模型">⟳</button>
+            <input class="field-input" id="mcfg-pull-model" placeholder="模型名稱，e.g. llama3.2（從 ollama.com/library 查）" style="flex:1">
             <button class="refresh-btn" style="white-space:nowrap;padding:4px 10px" onclick="startOllamaPull()">⬇ Pull</button>
           </div>
           <div id="pull-progress" style="display:none;font-size:0.75rem;color:var(--text-muted)">
@@ -935,7 +934,7 @@ function renderModelConfig(id) {
       <button class="model-del-btn" onclick="deleteModel('${esc(id)}')">刪除</button>
     </div>`;
   body.innerHTML = html;
-  if (!isCli) { loadOllamaModelsForCfg(); loadOllamaCloudModels(); }
+  if (!isCli) loadOllamaModelsForCfg();
 }
 
 async function loadOllamaModelsForCfg() {
@@ -949,6 +948,8 @@ async function loadOllamaModelsForCfg() {
   sel.disabled = false;
   const list = r.models || [];
   sel.innerHTML = list.map(m => `<option value="${esc(m)}" ${m===custom?'selected':''}>${esc(m)}</option>`).join('') || `<option>${esc(custom)}</option>`;
+  const pullInput = document.getElementById('mcfg-pull-model');
+  if (pullInput && !pullInput.value) pullInput.value = custom;
   if (r.ok && list.length && !list.includes(custom)) {
     const hint = document.getElementById('pull-not-found-hint');
     if (!hint) {
@@ -956,31 +957,16 @@ async function loadOllamaModelsForCfg() {
       const msg = document.createElement('div');
       msg.id = 'pull-not-found-hint';
       msg.style.cssText = 'font-size:0.72rem;color:#fbbf24;margin-top:2px';
-      msg.textContent = `"${custom}" 尚未下載 — 可以用下方 Pull 拉取`;
+      msg.textContent = `"${custom}" 尚未下載 — 可在下方輸入名稱後 Pull`;
       prog.parentNode.insertBefore(msg, prog);
     }
   }
 }
 
-async function loadOllamaCloudModels() {
-  const sel = document.getElementById('mcfg-pull-sel');
-  if (!sel) return;
-  const baseUrl = document.getElementById('mcfg-baseUrl')?.value.trim() || '';
-  sel.disabled = true; sel.innerHTML = `<option>載入中…</option>`;
-  const params = baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : '';
-  const r = await fetch(`/providers/ollama/cloud-models${params}`).then(x => x.json()).catch(() => ({ok: false, models: []}));
-  sel.disabled = false;
-  if (!r.ok || !r.models?.length) {
-    sel.innerHTML = `<option value="">— 無法載入（請確認 Ollama 版本）—</option>`;
-    return;
-  }
-  sel.innerHTML = `<option value="">— 選擇雲端模型 —</option>` +
-    r.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
-}
 
 async function startOllamaPull() {
-  const modelName = document.getElementById('mcfg-pull-sel')?.value.trim();
-  if (!modelName) { alert('請先選擇一個雲端模型'); return; }
+  const modelName = document.getElementById('mcfg-pull-model')?.value.trim();
+  if (!modelName) { alert('請輸入要 pull 的模型名稱'); return; }
   const baseUrl = document.getElementById('mcfg-baseUrl')?.value.trim() || '';
   const progress = document.getElementById('pull-progress');
   const statusText = document.getElementById('pull-status-text');

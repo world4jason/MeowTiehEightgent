@@ -458,37 +458,6 @@ class TestOllamaModels:
         call_url = mock_client.get.call_args[0][0]
         assert "remote:11434" in call_url
 
-    def test_cloud_models_ok(self, client):
-        mock_cls, mock_client = self._mock_httpx_get(
-            {"models": [{"name": "llama3.3"}, {"name": "gemma3:27b"}]}
-        )
-        with patch("app.httpx.AsyncClient", mock_cls):
-            r = client.get("/providers/ollama/cloud-models")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["ok"] is True
-        assert "llama3.3" in data["models"]
-
-    def test_cloud_models_passes_cloud_param(self, client):
-        mock_cls, mock_client = self._mock_httpx_get({"models": []})
-        with patch("app.httpx.AsyncClient", mock_cls):
-            client.get("/providers/ollama/cloud-models")
-        call_kwargs = mock_client.get.call_args[1]
-        assert call_kwargs.get("params", {}).get("cloud") == "true"
-
-    def test_cloud_models_unreachable(self, client):
-        import httpx
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        mock_cls = MagicMock()
-        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.httpx.AsyncClient", mock_cls):
-            r = client.get("/providers/ollama/cloud-models")
-        assert r.status_code == 200
-        assert r.json()["ok"] is False
-
     def test_pull_missing_model_name(self, client):
         r = client.post("/providers/ollama/pull", json={"base_url": "http://localhost:11434"})
         assert r.status_code == 400

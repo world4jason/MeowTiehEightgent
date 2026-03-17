@@ -853,19 +853,6 @@ async def ollama_models(base_url: str = ""):
         return {"ok": False, "models": [], "error": str(e)}
 
 
-@app.get("/providers/ollama/cloud-models")
-async def ollama_cloud_models(base_url: str = ""):
-    if not base_url:
-        models = load_models()
-        base_url = models.get("ollama", {}).get("baseUrl", "http://127.0.0.1:11434")
-    try:
-        async with httpx.AsyncClient(timeout=8) as client:
-            r = await client.get(f"{base_url}/api/tags", params={"cloud": "true"})
-            r.raise_for_status()
-            result = [m["name"] for m in r.json().get("models", [])]
-            return {"ok": True, "models": result}
-    except Exception as e:
-        return {"ok": False, "models": [], "error": str(e)}
 
 
 @app.post("/providers/ollama/pull")
