@@ -293,7 +293,7 @@ def get_agent_registry() -> dict[str, dict]:
 
 # ── Skill resolver ────────────────────────────────────────────────────────────
 
-def resolve_human_text(text: str) -> tuple[str, str | None]:
+def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str, str | None]:
     if text.startswith("/"):
         skill_name = text[1:].strip().lower()
         skill_file = find_skill_file(PROJECT_DIR / "skills" / skill_name)
@@ -301,6 +301,22 @@ def resolve_human_text(text: str) -> tuple[str, str | None]:
             s = parse_skill(skill_file)
             history_entry = f"[Skill invoked: {s['name']}]\n\n{s['body']}\n\nAll agents: apply this skill now in your next response."
             return history_entry, s["name"]
+
+    # @filename.ext injection
+    if workspace_id:
+        files_dir = WORKSPACES_DIR / workspace_id / "files"
+        def inject_file(m):
+            fname = m.group(1)
+            fpath = files_dir / fname
+            if fpath.is_file():
+                try:
+                    content = fpath.read_text(errors='replace')
+                    return f"[File: {fname}]\n```\n{content}\n```"
+                except Exception:
+                    pass
+            return m.group(0)
+        text = re.sub(r'@([\w\-]+\.\w+)', inject_file, text)
+
     return text, None
 
 
@@ -402,6 +418,56 @@ async def call_agent(agent: dict, prompt: str) -> str:
     if agent.get("type") == "api":
         return await call_api_agent(agent, prompt)
     return await call_cli_agent(agent, prompt)
+
+
+async def stream_cli_agent(agent: dict, prompt: str):
+    """Async generator: yield text chunks from CLI stdout."""
+    proc = await asyncio.create_subprocess_exec(
+        *agent["cmd"], prompt,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        cwd=agent["workspace"],
+    )
+    try:
+        while True:
+            chunk = await proc.stdout.read(256)
+            if not chunk:
+                break
+            yield chunk.decode(errors='replace')
+        await proc.wait()
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.wait()
+        raise
+
+
+async def stream_api_agent(agent: dict, prompt: str):
+    """Async generator: yield text chunks from Ollama HTTP stream."""
+    base = agent.get("baseUrl", "http://127.0.0.1:11434")
+    model = agent.get("model", "llama3.2")
+    async with httpx.AsyncClient(timeout=120) as client:
+        async with client.stream(
+            "POST", f"{base}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": True},
+        ) as resp:
+            async for line in resp.aiter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        if chunk := data.get("response", ""):
+                            yield chunk
+                    except json.JSONDecodeError:
+                        pass
+
+
+async def stream_agent(agent: dict, prompt: str):
+    """Dispatch to streaming implementation."""
+    if agent.get("type") == "api":
+        async for chunk in stream_api_agent(agent, prompt):
+            yield chunk
+    else:
+        async for chunk in stream_cli_agent(agent, prompt):
+            yield chunk
 
 
 def append_memory(agent: dict, topic: str, response: str):
@@ -1313,30 +1379,57 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.send_json({"type": "thinking", "agent": agent["name"], "color": agent["color"]})
 
             t_start = asyncio.get_event_loop().time()
-            agent_task = asyncio.create_task(
-                call_agent(agent, build_prompt(agent, history_text, workspace_id))
-            )
+            chunk_parts: list[str] = []
+            chunk_q: asyncio.Queue[str | None] = asyncio.Queue()
+            cancelled = False
 
-            while not agent_task.done():
-                evt = await next_event(timeout=0.3)
+            async def _produce():
+                try:
+                    async for chunk in stream_agent(agent, build_prompt(agent, history_text, workspace_id)):
+                        await chunk_q.put(chunk)
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    await chunk_q.put(None)
+
+            agent_task = asyncio.create_task(_produce())
+            agent_done = False
+            await ws.send_json({"type": "stream_start", "agent": agent["name"], "color": agent["color"]})
+
+            while not agent_done:
+                # Drain all ready chunks
+                while True:
+                    try:
+                        chunk = chunk_q.get_nowait()
+                        if chunk is None:
+                            agent_done = True
+                            break
+                        chunk_parts.append(chunk)
+                        await ws.send_json({"type": "chunk", "agent": agent["name"], "color": agent["color"], "text": chunk})
+                    except asyncio.QueueEmpty:
+                        break
+
+                if agent_done:
+                    break
+
+                # Wait briefly for events or more chunks
+                evt = await next_event(timeout=0.05)
                 if evt:
                     t = evt.get("type")
                     if t == "stop":
                         agent_task.cancel()
                         running = False
+                        cancelled = True
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
                     elif t == "human":
-                        pending_humans.append(evt)  # buffer locally, don't re-queue
+                        pending_humans.append(evt)
 
-            if not running:
+            if cancelled:
                 break
 
-            try:
-                response = await agent_task
-            except asyncio.CancelledError:
-                break
+            response = "".join(chunk_parts).strip() if chunk_parts else None
 
             duration_ms = int((asyncio.get_event_loop().time() - t_start) * 1000)
 
@@ -1346,15 +1439,16 @@ async def websocket_endpoint(ws: WebSocket):
             history_text += f"\n[{agent['name']}]: {response}\n"
             append_memory(agent, topic, response)
 
+            ts = datetime.now().isoformat()
             msg = {
                 "type": "message",
                 "agent": agent["name"],
                 "color": agent["color"],
                 "text": response,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": ts,
                 "duration_ms": duration_ms,
             }
-            await ws.send_json(msg)
+            await ws.send_json({"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms})
             log(msg)
             batch_turns += 1
 
@@ -1362,7 +1456,7 @@ async def websocket_endpoint(ws: WebSocket):
             if pending_humans:
                 for ph in pending_humans:
                     text = ph["text"]
-                    history_entry, skill_name = resolve_human_text(text)
+                    history_entry, skill_name = resolve_human_text(text, workspace_id)
                     history_text += f"\n[Human]: {history_entry}\n"
                     hmsg = {
                         "type": "message", "agent": "Human",
@@ -1394,7 +1488,7 @@ async def websocket_endpoint(ws: WebSocket):
                         await handle_member_event(evt)
                     elif t == "human":
                         text = evt["text"]
-                        history_entry, skill_name = resolve_human_text(text)
+                        history_entry, skill_name = resolve_human_text(text, workspace_id)
                         history_text += f"\n[Human]: {history_entry}\n"
                         hmsg = {
                             "type": "message", "agent": "Human",
@@ -1426,7 +1520,7 @@ async def websocket_endpoint(ws: WebSocket):
                         await handle_member_event(evt)
                     elif t == "human":
                         text = evt["text"]
-                        history_entry, skill_name = resolve_human_text(text)
+                        history_entry, skill_name = resolve_human_text(text, workspace_id)
                         history_text += f"\n[Human]: {history_entry}\n"
                         hmsg = {
                             "type": "message", "agent": "Human",
