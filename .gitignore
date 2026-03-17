@@ -4,3 +4,4 @@ __pycache__/
 history/
 hidden_sessions.json
 config.json
+docs/analysis/

@@ -1,5 +1,5 @@
 import asyncio
-import itertools
+from conversation_engine import ConversationEngine
 import json
 import re
 import uuid
@@ -404,10 +404,35 @@ async def write_daily_summary(agent: dict):
         pass
 
 
+def session_dir(session_id: str) -> Path:
+    """Return (and create) the folder for a session."""
+    d = HISTORY_DIR / session_id
+    d.mkdir(exist_ok=True)
+    (d / "workspace").mkdir(exist_ok=True)   # pre-create workspace for future use
+    return d
+
+
+def session_messages_path(session_id: str) -> Path:
+    return HISTORY_DIR / session_id / "messages.json"
+
+
 def save_history(session_id: str, messages: list[dict]):
-    (HISTORY_DIR / f"{session_id}.json").write_text(
+    session_dir(session_id)   # ensure folder exists
+    session_messages_path(session_id).write_text(
         json.dumps(messages, ensure_ascii=False, indent=2)
     )
+
+
+def migrate_history_to_folders():
+    """One-time migration: move history/*.json → history/<id>/messages.json."""
+    for f in list(HISTORY_DIR.glob("*.json")):
+        sid = f.stem
+        target_dir = HISTORY_DIR / sid
+        target_dir.mkdir(exist_ok=True)
+        target = target_dir / "messages.json"
+        if not target.exists():
+            target.write_text(f.read_text())
+        f.unlink()
 
 
 HIDDEN_FILE = PROJECT_DIR / "hidden_sessions.json"
@@ -561,22 +586,27 @@ async def install_marketplace_agent(agent_id: str, body: dict = {}):
     src = MARKETPLACE_DIR / agent_id
     if not src.is_dir():
         raise HTTPException(status_code=404, detail="Agent not found in marketplace")
-    dst = AGENTS_DIR / agent_id
+    # Allow caller to override the destination name (e.g. to install same template twice)
+    dest_name = (body.get("name") or agent_id).strip()
+    if not dest_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    dst = AGENTS_DIR / dest_name
     if dst.exists():
-        raise HTTPException(status_code=409, detail="Agent already installed")
+        raise HTTPException(status_code=409, detail=f"Agent '{dest_name}' already exists")
     dst.mkdir(parents=True)
     (dst / "memory").mkdir()
     for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
         src_file = src / fname
         if src_file.exists():
             (dst / fname).write_text(src_file.read_text())
-    # Merge marketplace config with chosen model
+    # Merge marketplace config with chosen model and custom name
     cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
     if body.get("model"):
         cfg["model"] = body["model"]
+    cfg["name"] = dest_name
     (dst / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
     (dst / "MEMORY.md").write_text(DEFAULT_MEMORY_MD)
-    return {"ok": True, "name": agent_id}
+    return {"ok": True, "name": dest_name}
 
 
 # ── Agents ────────────────────────────────────────────────────────────────────
@@ -873,14 +903,19 @@ async def upload_skills(file: UploadFile = File(...)):
 async def list_sessions():
     hidden = load_hidden()
     sessions = []
-    for f in sorted(HISTORY_DIR.glob("*.json"), reverse=True):
-        if f.stem in hidden:
+    for d in sorted(HISTORY_DIR.iterdir(), key=lambda x: x.name, reverse=True):
+        if not d.is_dir():
+            continue
+        if d.name in hidden:
+            continue
+        mf = d / "messages.json"
+        if not mf.exists():
             continue
         try:
-            msgs = json.loads(f.read_text())
+            msgs = json.loads(mf.read_text())
             sys_msg = next((m for m in msgs if m.get("type") == "system"), None)
             sessions.append({
-                "id": f.stem,
+                "id": d.name,
                 "message_count": len([m for m in msgs if m.get("type") == "message"]),
                 "first_message": (sys_msg["text"] if sys_msg else "")[:60],
             })
@@ -899,7 +934,7 @@ async def hide_session(session_id: str):
 
 @app.get("/sessions/{session_id}")
 async def get_session(session_id: str):
-    f = HISTORY_DIR / f"{session_id}.json"
+    f = session_messages_path(session_id)
     if not f.exists():
         return []
     return json.loads(f.read_text())
@@ -960,6 +995,7 @@ async def websocket_endpoint(ws: WebSocket):
     selected: list[str] = data.get("agents", [])
     auto_mode: bool = data.get("auto", True)
     manual_rounds: int = int(data.get("rounds", 2))
+    silence_mode: bool = data.get("silence", False)   # probabilistic silence on/off
     resume_id: str | None = data.get("resume_from")
 
     session_id = resume_id if resume_id else (
@@ -968,7 +1004,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     messages: list[dict] = []
     if resume_id:
-        f = HISTORY_DIR / f"{resume_id}.json"
+        f = session_messages_path(resume_id)
         if f.exists():
             messages = json.loads(f.read_text())
 
@@ -990,7 +1026,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     # Build history_text
     if resume_id:
-        f = HISTORY_DIR / f"{resume_id}.json"
+        f = session_messages_path(resume_id)
         if f.exists():
             past = json.loads(f.read_text())
             lines = [f"Topic: {topic}"]
@@ -1032,7 +1068,7 @@ async def websocket_endpoint(ws: WebSocket):
     })
     log({"type": "system", "text": f"Topic: {topic}", "timestamp": datetime.now().isoformat()})
 
-    agent_cycle = itertools.cycle(active_agents)
+    engine = ConversationEngine(active_agents, silence=silence_mode)
 
     async def receive_loop():
         while True:
@@ -1057,7 +1093,7 @@ async def websocket_endpoint(ws: WebSocket):
         running = True
         batch_turns = 0
         while running:
-            agent = next(agent_cycle)
+            agent = engine.next_speaker()
             await ws.send_json({"type": "thinking", "agent": agent["name"], "color": agent["color"]})
 
             t_start = asyncio.get_event_loop().time()
@@ -1126,7 +1162,11 @@ async def websocket_endpoint(ws: WebSocket):
                         }
                         await ws.send_json(hmsg)
                         log(hmsg)
-                        agent_cycle = itertools.cycle(active_agents)
+                        mention = ConversationEngine.extract_mention(text)
+                        if mention and engine.on_mention(mention) is not None:
+                            pass  # engine reordered; next next_speaker() returns @target
+                        else:
+                            engine.on_human()
                         batch_turns = 0
             else:
                 batch_turns = 0
@@ -1152,7 +1192,11 @@ async def websocket_endpoint(ws: WebSocket):
                         }
                         await ws.send_json(hmsg)
                         log(hmsg)
-                        agent_cycle = itertools.cycle(active_agents)
+                        mention = ConversationEngine.extract_mention(text)
+                        if mention and engine.on_mention(mention) is not None:
+                            pass  # engine reordered; next next_speaker() returns @target
+                        else:
+                            engine.on_human()
                         break
 
     except WebSocketDisconnect:
@@ -1173,6 +1217,7 @@ async def websocket_endpoint(ws: WebSocket):
 @app.on_event("startup")
 async def startup():
     migrate_if_needed()
+    migrate_history_to_folders()
     ensure_agent_configs()
     ensure_default_template()
 

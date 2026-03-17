@@ -43,15 +43,17 @@
   #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 
   /* ── Welcome ── */
-  #welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 40px; }
-  #welcome h2 { font-size: 1.7rem; font-weight: 600; background: linear-gradient(135deg, #a78bfa, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-  #welcome p { color: var(--text-muted); font-size: 0.88rem; }
-  #agent-select { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  #welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 40px; }
+  #welcome h2 { font-size: 1.7rem; font-weight: 600; background: linear-gradient(135deg, #a78bfa, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 4px; }
+  .welcome-section { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; max-width: 540px; }
+  .welcome-section-label { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; opacity: 0.6; align-self: flex-start; padding-left: 2px; }
+  #agent-select { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-start; width: 100%; }
+  .mode-divider { width: 1px; height: 16px; background: var(--border); margin: 0 2px; }
   .agent-chip { display: flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 20px; border: 2px solid var(--border); background: var(--surface); cursor: pointer; font-size: 0.82rem; font-weight: 500; transition: border-color 0.15s; user-select: none; }
   .agent-chip input { display: none; }
   .agent-chip.checked { border-color: #555; background: #1e1e2e; }
   .agent-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  #mode-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  #mode-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; width: 100%; box-sizing: border-box; }
   #mode-toggle { display: flex; gap: 3px; background: var(--surface); border-radius: 7px; padding: 3px; border: 1px solid var(--border); }
   .mode-btn { padding: 5px 14px; border-radius: 5px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; font-weight: 500; transition: background 0.12s, color 0.12s; }
   .mode-btn.active { background: var(--surface2); color: var(--text); }
@@ -65,7 +67,7 @@
   .tooltip-box { display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: 220px; background: #111; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 0.76rem; line-height: 1.6; color: var(--text); z-index: 50; pointer-events: none; }
   .tooltip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--border); }
   .tooltip-wrap:hover .tooltip-box { display: block; }
-  #welcome-input-wrap { width: 100%; max-width: 540px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 11px 12px; display: flex; align-items: flex-end; gap: 8px; transition: border-color 0.2s; }
+  #welcome-input-wrap { width: 100%; max-width: 540px; margin-top: 4px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 11px 12px; display: flex; align-items: flex-end; gap: 8px; transition: border-color 0.2s; }
   #welcome-input-wrap:focus-within { border-color: #555; }
   #topic-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.9rem; resize: none; line-height: 1.5; max-height: 160px; }
   #topic-input::placeholder { color: var(--text-muted); }
@@ -337,26 +339,46 @@
   <!-- Welcome -->
   <div id="welcome">
     <h2>Agent Chat Room</h2>
-    <p>Pick agents, choose a mode, then start.</p>
-    <div id="agent-select"></div>
-    <div id="mode-row">
-      <div id="mode-toggle">
-        <button class="mode-btn active" id="btn-auto" onclick="setMode('auto')">Auto</button>
-        <button class="mode-btn" id="btn-manual" onclick="setMode('manual')">Manual</button>
-      </div>
-      <div id="rounds-wrap">
-        每 <input id="rounds-input" type="number" min="1" max="20" value="2"> 輪暫停
-      </div>
-      <div class="tooltip-wrap">
-        <span class="tooltip-icon">?</span>
-        <div class="tooltip-box">
-          <b>Auto</b> — Agents take turns automatically. You can type anytime to interrupt.<br><br>
-          <b>Manual</b> — Each turn pauses after the agent responds. Press <b>Next →</b> to advance, or type to interrupt.
+
+    <div class="welcome-section">
+      <div class="welcome-section-label">參與成員</div>
+      <div id="agent-select"></div>
+    </div>
+
+    <div class="welcome-section">
+      <div class="welcome-section-label">對話模式</div>
+      <div id="mode-row">
+        <div id="mode-toggle">
+          <button class="mode-btn active" id="btn-auto" onclick="setMode('auto')">Auto</button>
+          <button class="mode-btn" id="btn-manual" onclick="setMode('manual')">Manual</button>
         </div>
+        <div id="rounds-wrap">
+          每 <input id="rounds-input" type="number" min="1" max="20" value="2"> 輪暫停
+        </div>
+        <div class="tooltip-wrap">
+          <span class="tooltip-icon">?</span>
+          <div class="tooltip-box">
+            <b>Auto</b> — Agents take turns automatically. You can type anytime to interrupt.<br><br>
+            <b>Manual</b> — Each turn pauses after the agent responds. Press <b>Next →</b> to advance, or type to interrupt.
+          </div>
+        </div>
+        <div class="mode-divider"></div>
+        <label id="silence-toggle" style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);cursor:pointer;user-select:none">
+          <input type="checkbox" id="silence-check" style="accent-color:var(--accent);width:14px;height:14px">
+          機率性沈默
+          <div class="tooltip-wrap" style="margin-left:2px">
+            <span class="tooltip-icon" style="font-size:0.68rem">?</span>
+            <div class="tooltip-box" style="width:200px">
+              3+ 個 agents 時，每位 agent 有一定機率在某輪沈默不說話，讓對話更自然。<br><br>
+              沈默越多次，下次說話機率越高（保底機制）。
+            </div>
+          </div>
+        </label>
       </div>
     </div>
+
     <div id="welcome-input-wrap">
-      <textarea id="topic-input" rows="1" placeholder="What should they discuss?" oninput="autoResize(this)" onkeydown="topicKey(event)"></textarea>
+      <textarea id="topic-input" rows="1" placeholder="輸入討論主題…" oninput="autoResize(this)" onkeydown="topicKey(event)"></textarea>
       <button id="start-btn" onclick="startSession()">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       </button>
@@ -746,6 +768,7 @@ function startSession() {
     type: 'start', topic, agents: selected,
     auto: currentMode === 'auto',
     rounds: getManualRounds(),
+    silence: document.getElementById('silence-check')?.checked ?? false,
   }));
   ws.onmessage = e => handleMessage(JSON.parse(e.data));
   ws.onclose = () => { addSystem('Disconnected.'); loadSessions(); };
@@ -1288,12 +1311,17 @@ async function submitAddPersona() {
     description: document.getElementById('new-pdesc')?.value.trim() || '',
     enabled: true,
   };
-  const r = await fetch('/agents', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).then(x => x.json()).catch(() => ({}));
+  const resp = await fetch('/agents', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(() => null);
+  if (!resp) { alert('建立失敗，請檢查網路連線'); return; }
+  const r = await resp.json().catch(() => ({}));
   if (r.ok) {
     await loadAgents();
     selectedPersonaName = name;
     renderPersonaList();
     renderAgentChips();
+  } else if (resp.status === 409) {
+    alert(`「${name}」已存在！\n請換一個名稱再建立。`);
+    document.getElementById('new-pname')?.focus();
   } else { alert(r.detail || '建立失敗'); }
 }
 
@@ -1415,48 +1443,68 @@ function closeMarketPreview() {
 }
 
 async function installMarketAgent(id, btn) {
-  const model = await pickModel();
-  if (model === null) return; // cancelled
+  const result = await pickInstallOptions(id);
+  if (result === null) return; // cancelled
   btn.disabled = true; btn.textContent = '安裝中…';
-  const r = await fetch(`/marketplace/agents/${encodeURIComponent(id)}/install`, {
+  const resp = await fetch(`/marketplace/agents/${encodeURIComponent(id)}/install`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ model }),
-  }).then(x => x.json()).catch(() => ({ok: false}));
+    body: JSON.stringify({ model: result.model, name: result.name }),
+  }).catch(() => null);
+  if (!resp) { btn.disabled = false; btn.textContent = '安裝'; alert('安裝失敗，請檢查網路連線'); return; }
+  const r = await resp.json().catch(() => ({}));
   if (r.ok) {
     btn.textContent = '✓ 已安裝'; btn.classList.add('installed');
     const card = document.getElementById(`mkt-${id}`);
     if (card) card.querySelector('span').textContent = '✓ 已安裝';
     await loadPersonas();
+  } else if (resp.status === 409) {
+    btn.disabled = false; btn.textContent = '安裝';
+    alert(`「${result.name}」已存在！\n請在安裝時改一個不同的名稱。`);
   } else {
     btn.disabled = false; btn.textContent = '安裝';
     alert(r.detail || '安裝失敗');
   }
 }
 
-function pickModel() {
+function pickInstallOptions(defaultName) {
   return new Promise(resolve => {
     const models = modelData.length ? modelData : [];
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:#0008;z-index:9999;display:flex;align-items:center;justify-content:center';
     overlay.innerHTML = `
-      <div style="background:#1e1e2e;border:1px solid #333;border-radius:12px;padding:24px;min-width:280px;display:flex;flex-direction:column;gap:12px">
-        <div style="font-size:0.9rem;font-weight:600;color:#e2e8f0">選擇使用的模型</div>
-        <select id="pick-model-sel" style="background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:0.84rem;outline:none">
-          ${models.map(m => `<option value="${esc(m.id)}">${esc(m.emoji || '')} ${esc(m.label || m.id)}</option>`).join('')}
-          ${!models.length ? `<option value="">（尚無模型）</option>` : ''}
-        </select>
+      <div style="background:#1e1e2e;border:1px solid #333;border-radius:12px;padding:24px;min-width:300px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:0.9rem;font-weight:600;color:#e2e8f0">安裝代理人</div>
+        <div>
+          <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:4px">代理人名稱</div>
+          <input id="pick-agent-name" value="${esc(defaultName)}" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:0.84rem;outline:none">
+        </div>
+        <div>
+          <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:4px">使用模型</div>
+          <select id="pick-model-sel" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:0.84rem;outline:none">
+            ${models.map(m => `<option value="${esc(m.id)}">${esc(m.emoji || '')} ${esc(m.label || m.id)}</option>`).join('')}
+            ${!models.length ? `<option value="">（尚無模型）</option>` : ''}
+          </select>
+        </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button id="pick-cancel" style="padding:7px 16px;border-radius:7px;border:1px solid #444;background:transparent;color:#aaa;cursor:pointer;font-size:0.84rem">取消</button>
           <button id="pick-confirm" style="padding:7px 16px;border-radius:7px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:0.84rem;font-weight:600">確認安裝</button>
         </div>
       </div>`;
     const close = (val) => { document.body.removeChild(overlay); resolve(val); };
-    overlay.querySelector('#pick-confirm').onclick = () => close(overlay.querySelector('#pick-model-sel').value || '');
+    overlay.querySelector('#pick-confirm').onclick = () => {
+      const name = overlay.querySelector('#pick-agent-name').value.trim();
+      if (!name) { overlay.querySelector('#pick-agent-name').focus(); return; }
+      close({ model: overlay.querySelector('#pick-model-sel').value || '', name });
+    };
     overlay.querySelector('#pick-cancel').onclick = () => close(null);
     overlay.onclick = e => { if (e.target === overlay) close(null); };
     document.body.appendChild(overlay);
   });
+}
+
+function pickModel() {
+  return pickInstallOptions('').then(r => r ? r.model : null);
 }
 
 function renderSkillsTab() {
