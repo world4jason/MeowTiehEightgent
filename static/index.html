@@ -1276,8 +1276,8 @@ function renderModelList() {
     <div class="model-list-item ${selectedModelId === m.id ? 'active' : ''}" onclick="selectModel('${esc(m.id)}')">
       <span class="model-list-emoji">${m.emoji || '🤖'}</span>
       <div class="model-list-info">
-        <div class="model-list-name" style="color:${m.color || '#888'}">${esc(m.id)}</div>
-        <div class="model-list-type">${m.type || 'cli'}</div>
+        <div class="model-list-name" style="color:${m.color || '#888'}">${esc(m.label || m.id)}</div>
+        <div class="model-list-type">${esc(m.id)} · ${m.type || 'cli'}</div>
       </div>
     </div>`).join('') +
     `<div class="model-add-item" onclick="openAddModel()"><span style="font-size:1.1rem">＋</span><span>新增模型</span></div>`;
@@ -1288,9 +1288,7 @@ function renderModelList() {
 
 function selectModel(id) {
   selectedModelId = id;
-  document.querySelectorAll('#models-agent-list-inner .model-list-item').forEach(el => {
-    el.classList.toggle('active', el.querySelector('.model-list-name')?.textContent === id);
-  });
+  renderModelList();
   renderModelConfig(id);
 }
 
@@ -1304,10 +1302,14 @@ function renderModelConfig(id) {
   let html = `
     <div class="model-config-header">
       <span class="model-config-emoji">${m.emoji || '🤖'}</span>
-      <span class="model-config-title" style="color:${m.color || '#888'}">${esc(m.id)}</span>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <span class="model-config-title" style="color:${m.color || '#888'}">${esc(m.label || m.id)}</span>
+        <span style="font-size:0.7rem;color:var(--text-muted);font-family:monospace">ID: ${esc(m.id)}</span>
+      </div>
     </div>
     <div class="model-config-section">
-      <div class="model-config-section-title">連線設定</div>
+      <div class="model-config-section-title">基本資訊</div>
+      <div class="field-row"><span class="field-label">Display Name</span><input class="field-input" id="mcfg-label" value="${esc(m.label || m.id)}" placeholder="${esc(m.id)}"></div>
       <div class="field-row"><span class="field-label">Emoji</span><input class="field-input" id="mcfg-emoji" value="${esc(m.emoji || '🤖')}"></div>
       <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="mcfg-color" value="${esc(m.color || '#888')}"></div>`;
   if (isCli) {
@@ -1441,6 +1443,7 @@ async function saveModelConfig(id) {
   const m = modelData.find(x => x.id === id) || {};
   const isCli = m.type === 'cli';
   const body = {
+    label: document.getElementById('mcfg-label')?.value.trim() || m.label || id,
     emoji: document.getElementById('mcfg-emoji')?.value.trim() || m.emoji,
     color: document.getElementById('mcfg-color')?.value.trim() || m.color,
   };
@@ -1472,6 +1475,7 @@ function openAddModel() {
     <div class="model-config-section">
       <div class="model-config-section-title">基本資訊</div>
       <div class="field-row"><span class="field-label">ID</span><input class="field-input" id="new-mid" placeholder="claude"></div>
+      <div class="field-row"><span class="field-label">Display Name</span><input class="field-input" id="new-label" placeholder="Claude（留空同 ID）"></div>
       <div class="field-row"><span class="field-label">Emoji</span><input class="field-input" id="new-emoji" value="🤖" maxlength="4"></div>
       <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="new-color" value="#888888"></div>
       <div class="field-row"><span class="field-label">類型</span>
@@ -1503,6 +1507,7 @@ async function submitAddModel() {
   const type = document.getElementById('new-type')?.value || 'cli';
   const payload = {
     id, type,
+    label: document.getElementById('new-label')?.value.trim() || id,
     emoji: document.getElementById('new-emoji')?.value.trim() || '🤖',
     color: document.getElementById('new-color')?.value.trim() || '#888888',
     cmd: type === 'cli' ? document.getElementById('new-cmd')?.value.trim().split(/\s+/) : undefined,
@@ -1617,7 +1622,7 @@ async function renderPersonaConfig(name) {
   ]);
 
   const modelOptions = modelData.map(m =>
-    `<option value="${esc(m.id)}" ${m.id === a.model ? 'selected' : ''}>${m.emoji || ''} ${esc(m.id)}</option>`
+    `<option value="${esc(m.id)}" ${m.id === a.model ? 'selected' : ''}>${m.emoji || ''} ${esc(m.label || m.id)}</option>`
   ).join('');
 
   body.innerHTML = `
@@ -1706,7 +1711,7 @@ function openAddPersona() {
   const body = document.getElementById('agents-config-body');
   document.querySelectorAll('#agents-list-inner .model-list-item').forEach(el => el.classList.remove('active'));
   selectedPersonaName = null;
-  const modelOptions = modelData.map(m => `<option value="${esc(m.id)}">${m.emoji || ''} ${esc(m.id)}</option>`).join('');
+  const modelOptions = modelData.map(m => `<option value="${esc(m.id)}">${m.emoji || ''} ${esc(m.label || m.id)}</option>`).join('');
   body.innerHTML = `
     <div class="model-config-header"><span class="model-config-emoji">🤖</span><span class="model-config-title">新增代理人</span></div>
     <div class="model-config-section">

@@ -524,6 +524,7 @@ async def add_model(body: dict):
         "type": body.get("type", "cli"),
         "color": body.get("color", "#888"),
         "emoji": body.get("emoji", "🤖"),
+        "label": body.get("label", "").strip() or mid,
     }
     if entry["type"] == "cli":
         entry["cmd"] = body.get("cmd", [mid])
