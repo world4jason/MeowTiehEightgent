@@ -31,10 +31,19 @@
   .session-item:hover { background: var(--surface); color: var(--text); }
   .session-item.active { background: var(--surface2); color: var(--text); }
   .session-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .session-delete, .session-download { flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
-  .session-item:hover .session-delete, .session-item:hover .session-download { color: var(--text-muted); }
+  .session-delete, .session-download, .session-move { flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
+  .session-item:hover .session-delete, .session-item:hover .session-download, .session-item:hover .session-move { color: var(--text-muted); }
   .session-delete:hover { background: #dc262620 !important; color: #f87171 !important; }
   .session-download:hover { background: var(--surface2) !important; color: var(--text) !important; }
+  .session-move:hover { background: var(--surface2) !important; color: var(--text) !important; }
+  /* Session move dropdown */
+  .session-move-wrap { position: relative; flex-shrink: 0; }
+  .session-move-dropdown { display: none; position: absolute; right: 0; bottom: calc(100% + 2px); background: #1e1e1e; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 50; min-width: 160px; }
+  .session-move-dropdown.open { display: block; }
+  .session-move-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 0.78rem; color: var(--text); transition: background 0.1s; white-space: nowrap; }
+  .session-move-item:hover { background: var(--surface); }
+  .session-move-item.current { opacity: 0.4; cursor: default; pointer-events: none; }
+  .session-move-sep { height: 1px; background: var(--border); margin: 3px 0; }
   /* Workspace sidebar */
   .ws-folder { margin: 0; }
   .ws-folder-header { display: flex; align-items: center; gap: 4px; padding: 5px 4px 5px 6px; font-size: 0.8rem; color: var(--text-muted); font-weight: 500; border-radius: 7px; transition: background 0.1s, color 0.1s; user-select: none; }
@@ -50,7 +59,9 @@
   .ws-new-session-btn { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 24px; font-size: 0.78rem; color: var(--text-muted); cursor: pointer; border-radius: 6px; transition: background 0.1s, color 0.1s; }
   .ws-new-session-btn:hover { background: var(--surface); color: var(--accent); }
   /* Separator between workspaces and standalone sessions */
-  .ws-divider { height: 1px; background: var(--border); margin: 6px 4px; opacity: 0.5; }
+  .ws-divider { display: flex; align-items: center; gap: 6px; margin: 8px 4px 4px; }
+  .ws-divider-line { flex: 1; height: 1px; background: var(--border); }
+  .ws-divider-label { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted); opacity: 0.5; white-space: nowrap; }
   /* Add workspace row */
   .ws-add-row { display: flex; align-items: center; gap: 5px; padding: 5px 6px; font-size: 0.74rem; color: var(--text-muted); cursor: pointer; border-radius: 6px; transition: background 0.1s, color 0.1s; }
   .ws-add-row:hover { background: var(--surface); color: var(--accent); }
@@ -857,12 +868,68 @@ function makeSessionEl(s) {
   el.className = 'session-item';
   el.dataset.id = s.id;
   el.title = s.first_message;
-  el.innerHTML = `
-    <span class="session-item-label">${esc(s.first_message || s.id)}</span>
-    <button class="session-download" title="下載對話" onclick="downloadSession(event,'${s.id}')">⬇</button>
-    <button class="session-delete" title="Hide session" onclick="hideSession(event,'${s.id}')">✕</button>`;
-  el.onclick = (e) => { if (!e.target.classList.contains('session-delete') && !e.target.classList.contains('session-download')) loadSession(s.id, el); };
+  // Move button + dropdown
+  const moveWrap = document.createElement('div');
+  moveWrap.className = 'session-move-wrap';
+  moveWrap.innerHTML = `
+    <button class="session-move" title="移至工作區" onclick="toggleSessionMoveDropdown(event,'${s.id}','${s.workspace_id||''}')">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+    </button>
+    <div class="session-move-dropdown" id="smd-${s.id}"></div>`;
+
+  el.innerHTML = `<span class="session-item-label">${esc(s.first_message || s.id)}</span>`;
+  el.appendChild(moveWrap);
+  const dlBtn = document.createElement('button');
+  dlBtn.className = 'session-download'; dlBtn.title = '下載對話'; dlBtn.textContent = '⬇';
+  dlBtn.onclick = (e) => downloadSession(e, s.id);
+  const delBtn = document.createElement('button');
+  delBtn.className = 'session-delete'; delBtn.title = 'Hide session'; delBtn.textContent = '✕';
+  delBtn.onclick = (e) => hideSession(e, s.id);
+  el.appendChild(dlBtn);
+  el.appendChild(delBtn);
+  el.onclick = (e) => {
+    if (e.target.closest('.session-move-wrap') || e.target.classList.contains('session-delete') || e.target.classList.contains('session-download')) return;
+    loadSession(s.id, el);
+  };
   return el;
+}
+
+function toggleSessionMoveDropdown(e, sessionId, currentWsId) {
+  e.stopPropagation();
+  const dd = document.getElementById(`smd-${sessionId}`);
+  if (!dd) return;
+  const isOpen = dd.classList.contains('open');
+  document.querySelectorAll('.session-move-dropdown.open').forEach(el => el.classList.remove('open'));
+  if (isOpen) return;
+
+  // Build dropdown content
+  const wsItems = workspaceData.map(w => {
+    const isCurrent = w.id === currentWsId;
+    return `<div class="session-move-item${isCurrent ? ' current' : ''}" onclick="moveSessionToWorkspace('${sessionId}','${w.id}')">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      ${esc(w.name)}${isCurrent ? ' ✓' : ''}
+    </div>`;
+  }).join('');
+  const removeItem = currentWsId
+    ? `<div class="session-move-sep"></div><div class="session-move-item" onclick="moveSessionToWorkspace('${sessionId}',null)">移出工作區</div>`
+    : '';
+  dd.innerHTML = wsItems
+    ? wsItems + removeItem
+    : `<div class="session-move-item" style="pointer-events:none;opacity:0.5">尚無工作區</div>`;
+
+  dd.classList.add('open');
+  const close = (ev) => { if (!dd.contains(ev.target)) { dd.classList.remove('open'); document.removeEventListener('click', close); } };
+  setTimeout(() => document.addEventListener('click', close), 10);
+}
+
+async function moveSessionToWorkspace(sessionId, wsId) {
+  document.querySelectorAll('.session-move-dropdown.open').forEach(el => el.classList.remove('open'));
+  await fetch(`/sessions/${sessionId}/workspace`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ workspace_id: wsId }),
+  });
+  await loadSessions();
 }
 
 // ── Workspaces ────────────────────────────────────────────────
@@ -1044,17 +1111,32 @@ async function submitNewWorkspace() {
 async function deleteWorkspace(wsId) {
   if (!confirm(`刪除工作區後，現有對話將變為獨立對話。確定刪除？`)) return;
   await fetch(`/workspaces/${wsId}`, { method: 'DELETE' });
-  if (wsSettingsSelectedId === wsId) wsSettingsSelectedId = null;
+  // Clean sidebar state
+  openFolders.delete(wsId);
   if (selectedWorkspaceId === wsId) selectWorkspace(null);
+  // Clean settings state
+  if (wsSettingsSelectedId === wsId) {
+    wsSettingsSelectedId = null;
+    const empty = document.getElementById('ws-detail-empty');
+    const content = document.getElementById('ws-detail-content');
+    if (empty) empty.style.display = '';
+    if (content) { content.style.display = 'none'; content.innerHTML = ''; }
+  }
   await loadWorkspaces();
   await loadSessions();
-  renderWorkspacesTab();
-  const empty = document.getElementById('ws-detail-empty');
-  const content = document.getElementById('ws-detail-content');
-  if (!wsSettingsSelectedId && empty && content) {
-    empty.style.display = '';
-    content.style.display = 'none';
-    content.innerHTML = '';
+  // Re-render list panel only (don't auto-select anything)
+  const inner = document.getElementById('ws-list-inner');
+  if (inner) {
+    inner.innerHTML = '';
+    workspaceData.forEach(w => {
+      const item = document.createElement('div');
+      item.className = 'ws-list-item';
+      item.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span class="ws-list-item-name">${esc(w.name)}</span>`;
+      item.onclick = () => selectWsInSettings(w.id);
+      inner.appendChild(item);
+    });
+    if (!workspaceData.length) inner.innerHTML = `<div style="color:var(--text-muted);font-size:0.78rem;padding:16px 8px;text-align:center;line-height:1.5">尚無工作區<br>點擊下方新增</div>`;
   }
 }
 
@@ -1234,10 +1316,11 @@ async function loadSessions() {
     addWsRow.onclick = openSidebarAddWorkspace;
     list.appendChild(addWsRow);
 
-    // Divider (only if workspaces exist AND standalone sessions exist)
-    if (workspaceData.length > 0 && standalone.length > 0) {
+    // Divider: always show before standalone sessions
+    if (standalone.length > 0) {
       const divider = document.createElement('div');
       divider.className = 'ws-divider';
+      divider.innerHTML = `<div class="ws-divider-line"></div><span class="ws-divider-label">獨立對話</span><div class="ws-divider-line"></div>`;
       list.appendChild(divider);
     }
 
