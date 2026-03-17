@@ -164,6 +164,10 @@
   .skill-item:hover, .skill-item.focused { background: var(--surface); }
   .skill-item-name { font-size: 0.82rem; font-weight: 600; color: var(--text); }
   .skill-item-desc { font-size: 0.73rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #agent-picker { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: #1e1e1e; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 101; }
+  .agent-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; cursor: pointer; transition: background 0.1s; font-size: 0.84rem; }
+  .agent-item:hover, .agent-item.focused { background: var(--surface); }
+  .agent-item-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   #input-inner { position: relative; }
 
   /* ── Settings Panel (full-page) ── */
@@ -437,8 +441,9 @@
     <div id="input-wrap">
       <div id="input-inner">
         <div id="skill-picker"></div>
+        <div id="agent-picker"></div>
         <div id="input-box">
-          <textarea id="msg-input" rows="1" placeholder="Interrupt the discussion… (/ for skills)" oninput="onMsgInput(this)" onkeydown="msgKey(event)" onblur="setTimeout(hideSkillPicker,150)"></textarea>
+          <textarea id="msg-input" rows="1" placeholder="Interrupt the discussion… (/ for skills, @ for agents)" oninput="onMsgInput(this)" onkeydown="msgKey(event)" onblur="setTimeout(()=>{hideSkillPicker();hideAgentPicker();},150)"></textarea>
           <div class="bar-actions">
             <button class="bar-btn" id="next-btn" onclick="sendNext()">Next →</button>
             <button class="bar-btn" id="stop-btn" onclick="stopSession()">■ Stop</button>
@@ -1861,6 +1866,22 @@ async function hideSession(e, id) {
 
 function topicKey(e) { if (e.key==='Enter'&&!e.shiftKey){e.preventDefault();startSession();} }
 function msgKey(e) {
+  const agentPicker = document.getElementById('agent-picker');
+  if (agentPicker.style.display !== 'none') {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveAgentPickerFocus(1); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); moveAgentPickerFocus(-1); return; }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const focused = agentPicker.querySelector('.agent-item.focused');
+      if (focused) applyMention(focused.dataset.name);
+      else {
+        const items = agentPicker.querySelectorAll('.agent-item');
+        if (items.length === 1) applyMention(items[0].dataset.name);
+      }
+      return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); hideAgentPicker(); return; }
+  }
   const picker = document.getElementById('skill-picker');
   if (picker.style.display !== 'none') {
     if (e.key === 'ArrowDown') { e.preventDefault(); movePickerFocus(1); return; }
@@ -1874,9 +1895,26 @@ function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.sc
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ── Skill picker ──────────────────────────────────────────────
+let agentPickerIndex = -1;
+
 function onMsgInput(el) {
   autoResize(el);
   const val = el.value;
+  const cursor = el.selectionStart;
+
+  // @ picker: detect @word at cursor position
+  const beforeCursor = val.slice(0, cursor);
+  const atMatch = beforeCursor.match(/@(\w*)$/);
+  if (atMatch) {
+    const query = atMatch[1].toLowerCase();
+    const matches = activeSessionAgents
+      .map(n => agentData.find(a => a.name === n))
+      .filter(a => a && a.name.toLowerCase().startsWith(query));
+    if (matches.length) { showAgentPicker(matches); hideSkillPicker(); return; }
+  }
+  hideAgentPicker();
+
+  // / skill picker
   if (val === '/' || (val.startsWith('/') && !val.includes(' '))) {
     const query = val.slice(1).toLowerCase();
     const matches = skillData.filter(s => s.name.startsWith(query));
@@ -1884,6 +1922,45 @@ function onMsgInput(el) {
   } else {
     hideSkillPicker();
   }
+}
+
+function showAgentPicker(agents) {
+  const picker = document.getElementById('agent-picker');
+  agentPickerIndex = -1;
+  picker.innerHTML = agents.map(a => `
+    <div class="agent-item" data-name="${esc(a.name)}" onclick="applyMention('${esc(a.name)}')">
+      <span class="agent-item-dot" style="background:${a.color}"></span>
+      <span>${a.emoji} ${a.name}</span>
+    </div>`).join('');
+  picker.style.display = 'block';
+}
+
+function hideAgentPicker() {
+  document.getElementById('agent-picker').style.display = 'none';
+  agentPickerIndex = -1;
+}
+
+function moveAgentPickerFocus(dir) {
+  const items = document.querySelectorAll('#agent-picker .agent-item');
+  if (!items.length) return;
+  items.forEach(el => el.classList.remove('focused'));
+  agentPickerIndex = Math.max(0, Math.min(items.length - 1, agentPickerIndex + dir));
+  items[agentPickerIndex].classList.add('focused');
+}
+
+function applyMention(name) {
+  const input = document.getElementById('msg-input');
+  const cursor = input.selectionStart;
+  const val = input.value;
+  const beforeCursor = val.slice(0, cursor);
+  const afterCursor = val.slice(cursor);
+  // Replace the @partial at cursor with @Name + space
+  const replaced = beforeCursor.replace(/@(\w*)$/, `@${name} `);
+  input.value = replaced + afterCursor;
+  const newCursor = replaced.length;
+  input.setSelectionRange(newCursor, newCursor);
+  hideAgentPicker();
+  input.focus();
 }
 
 function showSkillPicker(skills) {
