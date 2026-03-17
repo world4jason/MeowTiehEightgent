@@ -114,7 +114,8 @@
   #welcome-input-wrap:focus-within { border-color: #555; }
   #topic-input { width: 100%; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.9rem; resize: none; line-height: 1.5; max-height: 160px; }
   #topic-input::placeholder { color: var(--text-muted); }
-  #welcome-bottom-row { display: flex; justify-content: flex-end; }
+  #welcome-bottom-row { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+  #welcome-attach-preview { display: flex; flex-wrap: wrap; gap: 5px; }
   #start-btn { width: 28px; height: 28px; border-radius: 6px; border: none; background: var(--accent); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
   #start-btn:hover { opacity: 0.85; }
 
@@ -571,12 +572,17 @@
 
     <div id="welcome-input-wrap">
       <textarea id="topic-input" rows="1" placeholder="輸入討論主題…" oninput="autoResize(this)" onkeydown="topicKey(event)"></textarea>
+      <div id="welcome-attach-preview"></div>
       <div id="welcome-bottom-row">
+        <button class="bar-btn" id="welcome-attach-btn" onclick="triggerWelcomeAttach()" title="附加檔案">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
         <button id="start-btn" onclick="startSession()">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </button>
       </div>
     </div>
+    <input type="file" id="welcome-file-input" style="display:none" multiple onchange="handleWelcomeAttach(event)">
     <p class="hint-text" id="welcome-hint">Shift+Enter 送出</p>
   </div>
 
@@ -1626,8 +1632,11 @@ document.addEventListener('click', e => {
 
 // ── Start session ─────────────────────────────────────────────
 function startSession() {
-  const topic = document.getElementById('topic-input').value.trim();
-  if (!topic) return;
+  const topicRaw = document.getElementById('topic-input').value.trim();
+  if (!topicRaw && !chatAttachments.length) return;
+  const topic = buildMessageWithAttachments(topicRaw) || topicRaw;
+  chatAttachments = [];
+  renderWelcomeAttachChips();
   const selected = getSelectedAgents();
   if (!selected.length) { alert('Select at least one agent.'); return; }
 
@@ -1868,6 +1877,41 @@ function buildMessageWithAttachments(text) {
     return `**[附件: ${a.name}]**\n\`\`\`${ext}\n${a.content}\n\`\`\``;
   }).join('\n\n');
   return text ? `${blocks}\n\n${text}` : blocks;
+}
+
+function triggerWelcomeAttach() {
+  document.getElementById('welcome-file-input').value = '';
+  document.getElementById('welcome-file-input').click();
+}
+
+function handleWelcomeAttach(event) {
+  const files = [...event.target.files];
+  const MAX_SIZE = 200 * 1024;
+  files.forEach(file => {
+    if (file.size > MAX_SIZE) { alert(`${file.name} 超過 200 KB 限制`); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      chatAttachments.push({ name: file.name, content: e.target.result });
+      renderWelcomeAttachChips();
+    };
+    reader.readAsText(file);
+  });
+}
+
+function renderWelcomeAttachChips() {
+  const preview = document.getElementById('welcome-attach-preview');
+  if (!preview) return;
+  preview.innerHTML = chatAttachments.map((a, i) => `
+    <div class="attach-chip">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+      <span class="attach-chip-name" title="${esc(a.name)}">${esc(a.name)}</span>
+      <button class="attach-chip-del" onclick="removeWelcomeAttach(${i})">✕</button>
+    </div>`).join('');
+}
+
+function removeWelcomeAttach(i) {
+  chatAttachments.splice(i, 1);
+  renderWelcomeAttachChips();
 }
 
 // ── User actions ──────────────────────────────────────────────
