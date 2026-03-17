@@ -555,6 +555,7 @@
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       </button>
     </div>
+    <p class="hint-text" id="welcome-hint">Shift+Enter 送出</p>
   </div>
 
   <!-- Chat -->
@@ -2671,7 +2672,10 @@ async function hideSession(e, id) {
   if (historySessionId === id) showWelcome();
 }
 
-function topicKey(e) { if (e.key==='Enter'&&!e.shiftKey){e.preventDefault();startSession();} }
+function topicKey(e) {
+  const send = enterToSend ? (e.key==='Enter'&&!e.shiftKey) : (e.key==='Enter'&&e.shiftKey);
+  if (send) { e.preventDefault(); startSession(); }
+}
 function msgKey(e) {
   const agentPicker = document.getElementById('agent-picker');
   if (agentPicker.style.display !== 'none') {
@@ -2702,12 +2706,13 @@ function msgKey(e) {
 function toggleEnterToSend() {
   enterToSend = !enterToSend;
   const btn = document.getElementById('enter-send-btn');
-  const hint = document.getElementById('input-hint');
   btn.style.color = enterToSend ? 'var(--accent)' : '';
   btn.style.borderColor = enterToSend ? 'var(--accent)' : '';
-  hint.textContent = enterToSend
-    ? 'Enter to send · Shift+Enter for newline · Your message resets turn order'
-    : 'Shift+Enter to send · Enter for newline · Your message resets turn order';
+  const chatHint = document.getElementById('input-hint');
+  const welcomeHint = document.getElementById('welcome-hint');
+  const active = enterToSend ? 'Enter 送出 · Shift+Enter 換行' : 'Shift+Enter 送出 · Enter 換行';
+  if (chatHint) chatHint.textContent = active + ' · Your message resets turn order';
+  if (welcomeHint) welcomeHint.textContent = enterToSend ? 'Enter 送出' : 'Shift+Enter 送出';
 }
 function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,120)+'px'; }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
