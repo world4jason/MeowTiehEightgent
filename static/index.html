@@ -215,6 +215,23 @@
   .model-config-emoji { font-size: 2rem; }
   .model-config-title { font-size: 1rem; font-weight: 700; flex: 1; }
   .model-config-section { display: flex; flex-direction: column; gap: 8px; }
+  .skills-section-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .skills-section-header .model-config-section-title { flex: 1; margin-bottom: 0; }
+  .skills-action-btn { padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 0.73rem; cursor: pointer; transition: background 0.12s, color 0.12s; }
+  .skills-action-btn:hover { background: var(--surface2); color: var(--text); }
+  .skills-chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; margin-bottom: 8px; }
+  .skill-chip-tag { font-size: 0.71rem; padding: 2px 9px; border-radius: 12px; background: var(--accent)22; color: var(--accent); border: 1px solid var(--accent)44; font-weight: 500; }
+  .skill-chip-none { font-size: 0.71rem; color: var(--text-muted); font-style: italic; padding: 2px 0; }
+  .skills-checklist { display: flex; flex-direction: column; gap: 1px; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  .skill-check-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; cursor: pointer; transition: background 0.1s; border-radius: 0; }
+  .skill-check-row:hover { background: var(--surface2); }
+  .skill-check-row:first-child { border-radius: 7px 7px 0 0; }
+  .skill-check-row:last-child { border-radius: 0 0 7px 7px; }
+  .skill-check-row:only-child { border-radius: 7px; }
+  .skill-check-row input[type=checkbox] { margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); }
+  .skill-check-info { display: flex; flex-direction: column; gap: 2px; }
+  .skill-check-name { font-size: 0.82rem; font-weight: 600; color: var(--text); }
+  .skill-check-desc { font-size: 0.72rem; color: var(--text-muted); }
   .model-config-section-title { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 2px; }
   .field-row { display: flex; align-items: center; gap: 8px; }
   .field-label { font-size: 0.75rem; color: var(--text-muted); width: 70px; flex-shrink: 0; }
@@ -1327,6 +1344,59 @@ async function submitAddModel() {
 
 // ── 代理人 tab (agent personas) ───────────────────────────────
 let selectedPersonaName = null;
+let currentAgentSkills = null;   // null = all; [] = none; [...] = specific slugs
+
+function renderSkillChips() {
+  const chips = document.getElementById('pcfg-skill-chips');
+  if (!chips) return;
+  if (currentAgentSkills === null) {
+    chips.innerHTML = `<span class="skill-chip-tag">全部技能</span>`;
+  } else if (currentAgentSkills.length === 0) {
+    chips.innerHTML = `<span class="skill-chip-none">未選擇任何技能</span>`;
+  } else {
+    chips.innerHTML = currentAgentSkills.map(s => `<span class="skill-chip-tag">${esc(s)}</span>`).join('');
+  }
+}
+
+function renderSkillChecklist() {
+  const list = document.getElementById('pcfg-skill-list');
+  if (!list) return;
+  if (!skillData.length) { list.innerHTML = `<div class="skill-check-row"><span style="color:var(--text-muted);font-size:0.82rem">尚無技能</span></div>`; return; }
+  list.innerHTML = skillData.map(s => {
+    const checked = currentAgentSkills === null || currentAgentSkills.includes(s.slug);
+    return `<label class="skill-check-row">
+      <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleAgentSkill('${esc(s.slug)}', this.checked)">
+      <div class="skill-check-info">
+        <span class="skill-check-name">${esc(s.name || s.slug)}</span>
+        <span class="skill-check-desc">${esc((s.description || '').slice(0, 80))}${(s.description || '').length > 80 ? '…' : ''}</span>
+      </div>
+    </label>`;
+  }).join('');
+}
+
+function toggleAgentSkill(slug, checked) {
+  if (currentAgentSkills === null) {
+    // Was "all" — switch to explicit list minus this one (or plus)
+    currentAgentSkills = skillData.map(s => s.slug).filter(s => checked ? true : s !== slug);
+  } else if (checked) {
+    if (!currentAgentSkills.includes(slug)) currentAgentSkills = [...currentAgentSkills, slug];
+  } else {
+    currentAgentSkills = currentAgentSkills.filter(s => s !== slug);
+  }
+  renderSkillChips();
+}
+
+function selectAllAgentSkills() {
+  currentAgentSkills = null;  // null = all
+  renderSkillChips();
+  renderSkillChecklist();
+}
+
+function clearAllAgentSkills() {
+  currentAgentSkills = [];
+  renderSkillChips();
+  renderSkillChecklist();
+}
 
 function renderPersonaList() {
   const inner = document.getElementById('agents-list-inner');
@@ -1361,6 +1431,9 @@ async function renderPersonaConfig(name) {
 
   const a = agentData.find(x => x.name === name);
   if (!a) { body.innerHTML = ''; return; }
+
+  // Init skill selection state from agent config
+  currentAgentSkills = Array.isArray(a.skills) ? [...a.skills] : null;
 
   const [agentMdRes, identityRes, soulRes] = await Promise.all([
     fetch(`/agents/${encodeURIComponent(name)}/agent-md`).then(r => r.json()).catch(() => ({content: ''})),
@@ -1399,10 +1472,22 @@ async function renderPersonaConfig(name) {
       <div class="model-config-section-title">SOUL.md</div>
       <textarea class="model-md-editor" id="pcfg-soul" rows="5">${esc(soulRes.content)}</textarea>
     </div>
+    <div class="model-config-section">
+      <div class="skills-section-header">
+        <div class="model-config-section-title">技能</div>
+        <button class="skills-action-btn" onclick="selectAllAgentSkills()">全選</button>
+        <button class="skills-action-btn" onclick="clearAllAgentSkills()">清空</button>
+      </div>
+      <div class="skills-chips" id="pcfg-skill-chips"></div>
+      <div class="skills-checklist" id="pcfg-skill-list"></div>
+    </div>
     <div class="model-save-bar">
       <button class="model-save-btn" onclick="savePersonaConfig('${esc(name)}')">儲存</button>
       <button class="model-del-btn" onclick="deletePersona('${esc(name)}')">停用</button>
     </div>`;
+
+  renderSkillChips();
+  renderSkillChecklist();
 }
 
 function pickPersonaEmoji() {
@@ -1422,7 +1507,7 @@ async function savePersonaConfig(name) {
   const soul = document.getElementById('pcfg-soul')?.value || '';
 
   await Promise.all([
-    fetch(`/agents/${encodeURIComponent(name)}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ emoji, description: desc, color, model }) }),
+    fetch(`/agents/${encodeURIComponent(name)}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ emoji, description: desc, color, model, skills: currentAgentSkills }) }),
     fetch(`/agents/${encodeURIComponent(name)}/agent-md`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: agentMd }) }),
     fetch(`/agents/${encodeURIComponent(name)}/identity`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: identity }) }),
     fetch(`/agents/${encodeURIComponent(name)}/soul`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: soul }) }),
