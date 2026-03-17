@@ -47,11 +47,15 @@ def tmp_project(tmp_path, monkeypatch):
     marketplace_dir = tmp_path / "marketplace"
     marketplace_dir.mkdir()
 
+    workspaces_dir = tmp_path / "workspaces"
+    workspaces_dir.mkdir()
+
     monkeypatch.setattr(a, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(a, "HISTORY_DIR", history_dir)
     monkeypatch.setattr(a, "CONFIG_FILE", config_file)
     monkeypatch.setattr(a, "PROJECT_DIR", tmp_path)
     monkeypatch.setattr(a, "MARKETPLACE_DIR", marketplace_dir)
+    monkeypatch.setattr(a, "WORKSPACES_DIR", workspaces_dir)
 
     # Ensure _default template exists
     default_dir = agents_dir / "_default"
@@ -799,3 +803,93 @@ class TestMarketplaceNameOverride:
         client.post("/marketplace/agents/tmpl/install", json={"name": "taken"})
         r = client.post("/marketplace/agents/tmpl/install", json={"name": "taken"})
         assert r.status_code == 409
+
+
+# ── Workspaces ────────────────────────────────────────────────────────────────
+
+class TestWorkspaces:
+    def test_list_empty(self, client):
+        r = client.get("/workspaces")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_create_workspace(self, client, tmp_project):
+        r = client.post("/workspaces", json={"name": "My Project", "description": "desc", "system_prompt": "focus"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["name"] == "My Project"
+        assert data["description"] == "desc"
+        assert data["system_prompt"] == "focus"
+        assert "id" in data
+        assert (tmp_project / "workspaces" / data["id"]).is_dir()
+        assert (tmp_project / "workspaces" / data["id"] / "files").is_dir()
+
+    def test_create_missing_name_400(self, client):
+        r = client.post("/workspaces", json={})
+        assert r.status_code == 400
+
+    def test_list_after_create(self, client):
+        client.post("/workspaces", json={"name": "WS One"})
+        client.post("/workspaces", json={"name": "WS Two"})
+        r = client.get("/workspaces")
+        names = [w["name"] for w in r.json()]
+        assert "WS One" in names
+        assert "WS Two" in names
+
+    def test_get_workspace(self, client):
+        created = client.post("/workspaces", json={"name": "GetMe"}).json()
+        r = client.get(f"/workspaces/{created['id']}")
+        assert r.status_code == 200
+        assert r.json()["name"] == "GetMe"
+        assert "files" in r.json()
+
+    def test_get_not_found(self, client):
+        r = client.get("/workspaces/no-such-workspace")
+        assert r.status_code == 404
+
+    def test_update_workspace(self, client):
+        created = client.post("/workspaces", json={"name": "Old Name"}).json()
+        r = client.put(f"/workspaces/{created['id']}", json={"name": "New Name", "system_prompt": "updated"})
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+        get = client.get(f"/workspaces/{created['id']}").json()
+        assert get["name"] == "New Name"
+        assert get["system_prompt"] == "updated"
+
+    def test_delete_workspace(self, client, tmp_project):
+        created = client.post("/workspaces", json={"name": "Temp"}).json()
+        ws_path = tmp_project / "workspaces" / created["id"]
+        assert ws_path.exists()
+        r = client.delete(f"/workspaces/{created['id']}")
+        assert r.status_code == 200
+        assert not ws_path.exists()
+        # Should not appear in list
+        names = [w["name"] for w in client.get("/workspaces").json()]
+        assert "Temp" not in names
+
+    def test_delete_detaches_sessions(self, client, tmp_project):
+        import app as a
+        created = client.post("/workspaces", json={"name": "WS"}).json()
+        ws_id = created["id"]
+        # Create a fake session with workspace_id
+        sess_dir = tmp_project / "history" / "test-session"
+        sess_dir.mkdir()
+        msgs = [{"type": "system", "text": "Topic: hello", "workspace_id": ws_id, "timestamp": "2026-01-01"}]
+        (sess_dir / "messages.json").write_text(json.dumps(msgs))
+        # Delete workspace
+        client.delete(f"/workspaces/{ws_id}")
+        # Session's workspace_id should be null
+        updated = json.loads((sess_dir / "messages.json").read_text())
+        assert updated[0]["workspace_id"] is None
+
+    def test_sessions_list_includes_workspace_id(self, client, tmp_project):
+        created = client.post("/workspaces", json={"name": "WS"}).json()
+        ws_id = created["id"]
+        sess_dir = tmp_project / "history" / "2026-test"
+        sess_dir.mkdir()
+        msgs = [{"type": "system", "text": "Topic: t", "workspace_id": ws_id, "timestamp": "2026-01-01"}]
+        (sess_dir / "messages.json").write_text(json.dumps(msgs))
+        sessions = client.get("/sessions").json()
+        found = next((s for s in sessions if s["id"] == "2026-test"), None)
+        assert found is not None
+        assert found["workspace_id"] == ws_id

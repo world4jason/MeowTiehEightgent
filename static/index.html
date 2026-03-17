@@ -38,6 +38,27 @@
   .session-item:hover .session-delete, .session-item:hover .session-download { color: var(--text-muted); }
   .session-delete:hover { background: #dc262620 !important; color: #f87171 !important; }
   .session-download:hover { background: var(--surface2) !important; color: var(--text) !important; }
+  /* Workspace sidebar */
+  .ws-folder { margin-top: 4px; }
+  .ws-folder-header { display: flex; align-items: center; gap: 5px; padding: 5px 6px 3px 8px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); font-weight: 600; cursor: pointer; border-radius: 6px; transition: background 0.1s; user-select: none; }
+  .ws-folder-header:hover { background: var(--surface); color: var(--text); }
+  .ws-folder-header svg { flex-shrink: 0; }
+  .ws-folder-sessions { display: flex; flex-direction: column; gap: 2px; }
+  .ws-folder-sessions .session-item { padding-left: 20px; }
+  .ws-no-workspace { margin-top: 6px; }
+  /* Workspace welcome selector */
+  #workspace-row { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; }
+  #workspace-select { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.82rem; padding: 6px 10px; cursor: pointer; flex: 1; outline: none; }
+  #workspace-select:focus { border-color: var(--accent); }
+  /* Workspace settings tab */
+  #tab-workspaces .ws-list { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+  .ws-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+  .ws-card-header { display: flex; align-items: center; gap: 8px; }
+  .ws-card-name { font-size: 0.9rem; font-weight: 600; flex: 1; }
+  .ws-card-desc { font-size: 0.76rem; color: var(--text-muted); }
+  .ws-card-actions { display: flex; gap: 6px; margin-top: 4px; }
+  .ws-del-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid #78350f; background: transparent; color: #f87171; cursor: pointer; font-size: 0.76rem; }
+  .ws-del-btn:hover { background: #dc262620; }
 
   /* ── Main ── */
   #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
@@ -391,6 +412,16 @@
     <h2>Agent Chat Room</h2>
 
     <div class="welcome-section">
+      <div class="welcome-section-label">工作區</div>
+      <div id="workspace-row">
+        <select id="workspace-select" onchange="onWorkspaceSelect()">
+          <option value="">— 無工作區（獨立對話）—</option>
+        </select>
+        <button class="bar-btn" onclick="switchSettingsTab('workspaces');openSettings()" style="flex-shrink:0">管理</button>
+      </div>
+    </div>
+
+    <div class="welcome-section">
       <div class="welcome-section-label">參與成員<span id="participants-names" class="participants-names"></span></div>
       <div id="agent-select"></div>
     </div>
@@ -489,6 +520,7 @@
         <div class="settings-nav-item" data-tab="agents" onclick="switchSettingsTab('agents')">代理人</div>
         <div class="settings-nav-item" data-tab="market" onclick="switchSettingsTab('market')">市場</div>
         <div class="settings-nav-item" data-tab="skills" onclick="switchSettingsTab('skills')">技能</div>
+        <div class="settings-nav-item" data-tab="workspaces" onclick="switchSettingsTab('workspaces')">工作區</div>
         <div class="settings-nav-item" data-tab="default" onclick="switchSettingsTab('default')">關於你</div>
         <div class="settings-nav-item" data-tab="about" onclick="switchSettingsTab('about')">關於我</div>
         <button id="close-settings" onclick="closeSettings()">← 返回</button>
@@ -576,6 +608,36 @@
             </div>
           </div>
         </div>
+        <!-- 工作區 tab -->
+        <div class="settings-tab" id="tab-workspaces">
+          <div class="settings-tab-header" style="display:flex;align-items:center;gap:8px;padding:12px 16px 0">
+            <span style="flex:1;font-size:0.8rem;color:var(--text-muted)">工作區列表</span>
+            <button class="bar-btn" onclick="openAddWorkspace()">＋ 新增</button>
+          </div>
+          <div class="settings-tab-body" id="tab-workspaces-body"></div>
+          <!-- add workspace form -->
+          <div id="workspace-add-panel" style="display:none;flex-direction:column;gap:0;position:absolute;inset:0;background:var(--panel-bg);z-index:10;overflow-y:auto">
+            <div class="asst-edit-header">
+              <button class="asst-edit-back" onclick="closeAddWorkspace()">← 返回</button>
+              <span class="asst-edit-title">新增工作區</span>
+            </div>
+            <div class="asst-edit-body">
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">名稱</span>
+                <input class="asst-edit-input" id="new-ws-name" placeholder="Data / MLE / Arch">
+              </div>
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">描述（選填）</span>
+                <input class="asst-edit-input" id="new-ws-desc" placeholder="這個工作區的用途…">
+              </div>
+              <div class="asst-edit-field" style="flex:1">
+                <span class="asst-edit-label">System Prompt（對話指引）</span>
+                <textarea class="asst-edit-input asst-edit-textarea" id="new-ws-prompt" placeholder="在這個工作區中，所有 agent 都應該…"></textarea>
+              </div>
+              <button class="asst-edit-save-btn" id="new-ws-save-btn" onclick="submitNewWorkspace()">建立</button>
+            </div>
+          </div>
+        </div>
         <!-- 關於你 tab (edit _default templates) -->
         <div class="settings-tab" id="tab-default">
           <div class="settings-tab-body" id="tab-default-body"></div>
@@ -616,13 +678,14 @@ let currentMode = 'auto';
 let agentData = [];   // persona agents from /agents
 let modelData = [];   // LLM connections from /models
 let skillData = [];
+let workspaceData = [];  // workspace configs
 let skillPickerIndex = -1;
 let configData = {};
 let currentView = 'welcome';
 
 // ── Init ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadAgents(), loadModels(), loadSessions(), loadConfig(), loadSkills()]);
+  await Promise.all([loadAgents(), loadModels(), loadSessions(), loadConfig(), loadSkills(), loadWorkspaces()]);
 }
 
 async function loadModels() {
@@ -672,23 +735,151 @@ function renderAgentChips() {
   updateParticipantsLabel();
 }
 
+function makeSessionEl(s) {
+  const el = document.createElement('div');
+  el.className = 'session-item';
+  el.dataset.id = s.id;
+  el.title = s.first_message;
+  el.innerHTML = `
+    <span class="session-item-label">${esc(s.first_message || s.id)}</span>
+    <button class="session-download" title="下載對話" onclick="downloadSession(event,'${s.id}')">⬇</button>
+    <button class="session-delete" title="Hide session" onclick="hideSession(event,'${s.id}')">✕</button>`;
+  el.onclick = (e) => { if (!e.target.classList.contains('session-delete') && !e.target.classList.contains('session-download')) loadSession(s.id, el); };
+  return el;
+}
+
+// ── Workspaces ────────────────────────────────────────────────
+async function loadWorkspaces() {
+  workspaceData = await fetch('/workspaces').then(r => r.json()).catch(() => []);
+  // Refresh workspace selector in welcome screen
+  const sel = document.getElementById('workspace-select');
+  if (sel) {
+    const prev = sel.value;
+    sel.innerHTML = `<option value="">— 無工作區（獨立對話）—</option>` +
+      workspaceData.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('');
+    if (prev) sel.value = prev;
+  }
+}
+
+function onWorkspaceSelect() {
+  const wsId = document.getElementById('workspace-select').value;
+  if (!wsId) return;
+  const ws = workspaceData.find(w => w.id === wsId);
+  if (ws && ws.default_agents && ws.default_agents.length) {
+    // Pre-check workspace's default agents
+    document.querySelectorAll('.agent-chip').forEach(chip => {
+      chip.classList.toggle('checked', ws.default_agents.includes(chip.dataset.name));
+    });
+    updateParticipantsLabel();
+  }
+}
+
+async function renderWorkspacesTab() {
+  const body = document.getElementById('tab-workspaces-body');
+  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;padding:20px">載入中…</div>`;
+  await loadWorkspaces();
+  if (!workspaceData.length) {
+    body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;text-align:center;padding:40px">尚無工作區 — 點擊右上角「＋ 新增」建立</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="ws-list">${workspaceData.map(w => `
+    <div class="ws-card">
+      <div class="ws-card-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span class="ws-card-name">${esc(w.name)}</span>
+        <button class="ws-del-btn" onclick="deleteWorkspace('${esc(w.id)}')">刪除</button>
+      </div>
+      ${w.description ? `<div class="ws-card-desc">${esc(w.description)}</div>` : ''}
+      ${w.system_prompt ? `<div class="ws-card-desc" style="font-style:italic">${esc(w.system_prompt.slice(0,80))}${w.system_prompt.length>80?'…':''}</div>` : ''}
+    </div>`).join('')}</div>`;
+}
+
+function openAddWorkspace() {
+  document.getElementById('workspace-add-panel').style.display = 'flex';
+  document.getElementById('new-ws-name').value = '';
+  document.getElementById('new-ws-desc').value = '';
+  document.getElementById('new-ws-prompt').value = '';
+  document.getElementById('new-ws-name').focus();
+}
+
+function closeAddWorkspace() {
+  document.getElementById('workspace-add-panel').style.display = 'none';
+}
+
+async function submitNewWorkspace() {
+  const name = document.getElementById('new-ws-name').value.trim();
+  if (!name) { document.getElementById('new-ws-name').focus(); return; }
+  const description = document.getElementById('new-ws-desc').value.trim();
+  const system_prompt = document.getElementById('new-ws-prompt').value.trim();
+  const btn = document.getElementById('new-ws-save-btn');
+  btn.textContent = '建立中…'; btn.disabled = true;
+  const r = await fetch('/workspaces', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, description, system_prompt }),
+  }).then(x => x.json()).catch(() => ({ok: false}));
+  btn.textContent = '建立'; btn.disabled = false;
+  if (r.id) {
+    await loadWorkspaces();
+    await loadSessions();
+    closeAddWorkspace();
+    renderWorkspacesTab();
+  } else {
+    alert(r.detail || '建立失敗');
+  }
+}
+
+async function deleteWorkspace(wsId) {
+  if (!confirm(`刪除工作區後，現有對話將變為獨立對話。確定刪除？`)) return;
+  await fetch(`/workspaces/${wsId}`, { method: 'DELETE' });
+  await loadWorkspaces();
+  await loadSessions();
+  renderWorkspacesTab();
+}
+
 async function loadSessions() {
   try {
     const sessions = await fetch('/sessions').then(r => r.json());
     const list = document.getElementById('session-list');
     list.innerHTML = '';
+
+    // Group sessions by workspace_id
+    const wsMap = {};   // workspace_id → [sessions]
+    const standalone = [];
     sessions.forEach(s => {
-      const el = document.createElement('div');
-      el.className = 'session-item';
-      el.dataset.id = s.id;
-      el.title = s.first_message;
-      el.innerHTML = `
-        <span class="session-item-label">${esc(s.first_message || s.id)}</span>
-        <button class="session-download" title="下載對話" onclick="downloadSession(event,'${s.id}')">⬇</button>
-        <button class="session-delete" title="Hide session" onclick="hideSession(event,'${s.id}')">✕</button>`;
-      el.onclick = (e) => { if (!e.target.classList.contains('session-delete')) loadSession(s.id, el); };
-      list.appendChild(el);
+      if (s.workspace_id) {
+        if (!wsMap[s.workspace_id]) wsMap[s.workspace_id] = [];
+        wsMap[s.workspace_id].push(s);
+      } else {
+        standalone.push(s);
+      }
     });
+
+    // Workspace folders
+    workspaceData.forEach(ws => {
+      const wsSessions = wsMap[ws.id] || [];
+      const folder = document.createElement('div');
+      folder.className = 'ws-folder';
+      const sessionEls = wsSessions.map(s => makeSessionEl(s));
+      folder.innerHTML = `
+        <div class="ws-folder-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none'">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          ${esc(ws.name)}
+          <span style="margin-left:auto;font-size:0.65rem;opacity:.6">${wsSessions.length}</span>
+        </div>
+        <div class="ws-folder-sessions" style="display:flex;flex-direction:column;gap:2px"></div>`;
+      const sessionsDiv = folder.querySelector('.ws-folder-sessions');
+      sessionEls.forEach(el => sessionsDiv.appendChild(el));
+      list.appendChild(folder);
+    });
+
+    // Standalone sessions
+    if (standalone.length) {
+      const section = document.createElement('div');
+      section.className = 'ws-no-workspace';
+      standalone.forEach(s => section.appendChild(makeSessionEl(s)));
+      list.appendChild(section);
+    }
   } catch {}
 }
 
@@ -716,17 +907,12 @@ async function loadSession(id, el) {
   const agentsInSession = [...new Set(
     msgs.filter(m => m.type === 'message' && m.agent !== 'Human').map(m => m.agent)
   )];
-  const pillsEl = document.getElementById('chat-agents');
-  pillsEl.innerHTML = '';
-  agentsInSession.forEach(name => {
-    const a = agentData.find(x => x.name === name);
-    if (!a) return;
-    const p = document.createElement('span');
-    p.className = 'agent-pill';
-    p.style.cssText = `background:${a.color}22;color:${a.color};border:1px solid ${a.color}44`;
-    p.textContent = `${a.emoji} ${a.name}`;
-    pillsEl.appendChild(p);
-  });
+  activeSessionAgents = agentsInSession;
+  membersPanelOpen = false;
+  document.getElementById('members-panel').classList.remove('open');
+  document.getElementById('members-toggle').classList.remove('active');
+  renderHeaderPills();
+  renderMembersPanel();
 
   msgs.forEach(m => {
     if (m.type === 'system') addSystem(m.text);
@@ -743,18 +929,10 @@ function continueSessionWith(text) {
 
   addSystem(`Resuming with: ${selected.join(', ')}`);
 
-  // Update header pills
-  const pillsEl = document.getElementById('chat-agents');
-  pillsEl.innerHTML = '';
-  selected.forEach(name => {
-    const a = agentData.find(x => x.name === name);
-    if (!a) return;
-    const p = document.createElement('span');
-    p.className = 'agent-pill';
-    p.style.cssText = `background:${a.color}22;color:${a.color};border:1px solid ${a.color}44`;
-    p.textContent = `${a.emoji} ${a.name}`;
-    pillsEl.appendChild(p);
-  });
+  // Update members state and header pills
+  activeSessionAgents = selected;
+  renderHeaderPills();
+  renderMembersPanel();
 
   // Capture before clearing (ws.onopen fires async, after historySessionId would be null)
   const resumeId = historySessionId;
@@ -933,17 +1111,7 @@ function startSession() {
   });
 
   // Agent pills in header
-  const pillsEl = document.getElementById('chat-agents');
-  pillsEl.innerHTML = '';
-  selected.forEach(name => {
-    const a = agentData.find(x => x.name === name);
-    if (!a) return;
-    const p = document.createElement('span');
-    p.className = 'agent-pill';
-    p.style.cssText = `background:${a.color}22;color:${a.color};border:1px solid ${a.color}44`;
-    p.textContent = `${a.emoji} ${a.name}`;
-    pillsEl.appendChild(p);
-  });
+  renderHeaderPills();
 
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => ws.send(JSON.stringify({
@@ -951,6 +1119,7 @@ function startSession() {
     auto: currentMode === 'auto',
     rounds: getManualRounds(),
     silence: document.getElementById('silence-check')?.checked ?? false,
+    workspace_id: document.getElementById('workspace-select')?.value || null,
   }));
   ws.onmessage = e => handleMessage(JSON.parse(e.data));
   ws.onclose = () => { addSystem('Disconnected.'); loadSessions(); };
@@ -995,7 +1164,7 @@ function addMessage(agent, text, color, ts, duration, queued = false, skill = nu
     row.innerHTML = `
       <div class="msg-content">
         <div>
-          <div class="human-bubble${queued ? ' queued' : ''}">${esc(text)}</div>
+          <div class="human-bubble${queued ? ' queued' : ''}">${renderMentions(text)}</div>
           <div class="msg-meta-human">${timeStr ? `<span>${timeStr}</span>` : ''}${queued ? ' <span class="msg-queued">queued</span>' : ''}</div>
         </div>
       </div>`;
@@ -1092,6 +1261,7 @@ function switchSettingsTab(tab) {
   if (tab === 'agents') renderPersonaList();
   if (tab === 'market') renderMarketTab();
   if (tab === 'skills') renderSkillsTab();
+  if (tab === 'workspaces') renderWorkspacesTab();
   if (tab === 'default') renderDefaultTab();
   if (tab === 'about') renderAboutTab();
 }
@@ -2003,6 +2173,15 @@ function msgKey(e) {
 }
 function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,120)+'px'; }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function renderMentions(text) {
+  // Escape first, then highlight @AgentName with agent color
+  const escaped = esc(text);
+  return escaped.replace(/@(\w+)/g, (match, name) => {
+    const a = agentData.find(x => x.name.toLowerCase() === name.toLowerCase());
+    if (!a) return match;
+    return `<span style="color:${a.color};font-weight:700">@${esc(name)}</span>`;
+  });
+}
 
 // ── Skill picker ──────────────────────────────────────────────
 let agentPickerIndex = -1;
