@@ -11,12 +11,14 @@ Before anything else:
 
 ## Memory
 
-You wake up fresh each session. Write things down.
+Your memory lives in your agent workspace — **NOT** in `~/.claude/` or any system-level path.
 
-- **Daily log:** `memory/YYYY-MM-DD.md` — append key exchanges, decisions, observations
-- **Long-term:** `MEMORY.md` — curated learnings worth keeping across sessions
+Working directory is `agents/claude/`. Use these relative paths:
 
-After each significant exchange, append a short note to today's memory file.
+- **Long-term notes:** `MEMORY.md` — curated facts worth keeping across sessions
+- **Daily log:** `memory/YYYY-MM-DD.md` — append key exchanges and decisions each session
+
+After each significant exchange, append a short note to today's log file.
 
 ## This Chat Room
 

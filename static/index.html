@@ -2087,12 +2087,12 @@ function renderModelConfig(id) {
     </div>
     <div class="model-config-section">
       <div class="model-config-section-title">基本資訊</div>
-      <div class="field-row"><span class="field-label">Display Name</span><input class="field-input" id="mcfg-label" value="${esc(m.label || m.id)}" placeholder="${esc(m.id)}"></div>
+      <div class="field-row"><span class="field-label">Display Name</span><input class="field-input" id="mcfg-label" value="${esc(m.label || m.id)}" placeholder="顯示名稱 e.g. Claude Opus"></div>
       <div class="field-row"><span class="field-label">Emoji</span><input class="field-input" id="mcfg-emoji" value="${esc(m.emoji || '🤖')}"></div>
-      <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="mcfg-color" value="${esc(m.color || '#888')}"></div>`;
+      <div class="field-row"><span class="field-label">Color</span><input class="field-input" id="mcfg-color" value="${esc(m.color || '#888')}"></div>`;
   if (isCli) {
     html += `<div class="field-row"><span class="field-label">Command</span><input class="field-input" id="mcfg-cmd" value="${esc(cmd)}" placeholder="e.g. claude --print"></div>
-      <div class="field-row"><span class="field-label">Model Variant</span><input class="field-input" id="mcfg-model-variant" value="${esc(modelVariant)}" placeholder="e.g. gemini-2.0-flash · claude-opus-4-5（空白=不傳）"></div>`;
+      <div class="field-row"><span class="field-label">Model Name</span><input class="field-input" id="mcfg-model-variant" value="${esc(modelVariant)}" placeholder="e.g. claude-opus-4-6 · gemini-2.5-pro（傳給 --model，空白=不傳）"></div>`;
   } else {
     html += `
       <div class="field-row"><span class="field-label">Base URL</span><input class="field-input" id="mcfg-baseUrl" value="${esc(m.baseUrl || 'http://127.0.0.1:11434')}"></div>
