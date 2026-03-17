@@ -561,3 +561,205 @@ class TestOllamaModels:
         body = r.text
         assert "pulling manifest" in body
         assert "[DONE]" in body
+
+
+# ── ConversationEngine ────────────────────────────────────────────────────────
+
+class TestConversationEngine:
+    def _agents(self, names):
+        return [{"name": n} for n in names]
+
+    # ── round-robin ──
+
+    def test_two_agents_alternate(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B"]))
+        assert eng.next_speaker()["name"] == "A"
+        assert eng.next_speaker()["name"] == "B"
+        assert eng.next_speaker()["name"] == "A"  # wraps
+
+    def test_three_agents_full_cycle(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B", "C"]))
+        order = [eng.next_speaker()["name"] for _ in range(6)]
+        assert order == ["A", "B", "C", "A", "B", "C"]
+
+    # ── on_human resets ──
+
+    def test_on_human_resets_to_base_order(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B", "C"]))
+        eng.next_speaker()  # A speaks
+        eng.on_human()
+        # next cycle should start from A again
+        assert eng.next_speaker()["name"] == "A"
+
+    # ── @mention ──
+
+    def test_extract_mention_found(self):
+        from conversation_engine import ConversationEngine
+        assert ConversationEngine.extract_mention("hey @Claude what do you think") == "Claude"
+
+    def test_extract_mention_none(self):
+        from conversation_engine import ConversationEngine
+        assert ConversationEngine.extract_mention("no mention here") is None
+
+    def test_on_mention_returns_target(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B", "C"]))
+        target = eng.on_mention("B")
+        assert target is not None
+        assert target["name"] == "B"
+
+    def test_on_mention_unknown_returns_none(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B"]))
+        assert eng.on_mention("Z") is None
+
+    def test_on_mention_drops_rest_of_round(self):
+        from conversation_engine import ConversationEngine
+        # A B C D — after A speaks, @C → drops B; C speaks immediately
+        eng = ConversationEngine(self._agents(["A", "B", "C", "D"]))
+        eng.next_speaker()  # A
+        eng.on_mention("C")
+        # C is the immediate speaker (caller uses returned agent); next cycle starts C
+        assert eng.next_speaker()["name"] == "C"
+
+    def test_on_mention_next_cycle_starts_with_target(self):
+        from conversation_engine import ConversationEngine
+        # base: A B C; @B mid-round → next cycle: B A C; cycle after: A B C
+        eng = ConversationEngine(self._agents(["A", "B", "C"]))
+        eng.next_speaker()  # A
+        eng.on_mention("B")
+        # immediate: B (from on_mention call above, next_speaker gives next in queue)
+        # cycle should be B first
+        first = eng.next_speaker()["name"]
+        assert first == "B"
+        second = eng.next_speaker()["name"]
+        third = eng.next_speaker()["name"]
+        assert set([second, third]) == {"A", "C"}  # rest of first override cycle
+        # cycle after returns to base A B C
+        assert eng.next_speaker()["name"] == "A"
+
+    # ── silence disabled for ≤2 agents ──
+
+    def test_silence_never_passes_with_two_agents(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B"]), silence=True)
+        # With 2 agents, _should_pass must always return False
+        for _ in range(20):
+            assert not eng._should_pass({"name": "A"}, 2)
+
+    def test_silence_disabled_by_default(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B", "C"]))
+        # silence=False → _should_pass always False regardless of agent count
+        for _ in range(20):
+            assert not eng._should_pass({"name": "A"}, 3)
+
+
+# ── Session folder structure ──────────────────────────────────────────────────
+
+class TestSessionFolders:
+    def test_save_history_creates_folder(self, tmp_project):
+        import app as a
+        sid = "test-session-001"
+        msgs = [{"role": "human", "content": "hi"}]
+        a.save_history(sid, msgs)
+        assert (a.HISTORY_DIR / sid).is_dir()
+        assert (a.HISTORY_DIR / sid / "messages.json").exists()
+
+    def test_save_history_creates_workspace_subdir(self, tmp_project):
+        import app as a
+        a.save_history("ws-test", [])
+        assert (a.HISTORY_DIR / "ws-test" / "workspace").is_dir()
+
+    def test_save_and_read_roundtrip(self, tmp_project):
+        import app as a
+        sid = "roundtrip-session"
+        msgs = [{"role": "human", "content": "hello"}, {"role": "agent", "name": "Claude", "content": "hi"}]
+        a.save_history(sid, msgs)
+        loaded = json.loads(a.session_messages_path(sid).read_text())
+        assert loaded == msgs
+
+    def test_list_sessions_finds_folder_sessions(self, client, tmp_project):
+        import app as a
+        a.save_history("folder-session", [{"role": "human", "content": "test"}])
+        r = client.get("/sessions")
+        assert r.status_code == 200
+        assert any(s["id"] == "folder-session" for s in r.json())
+
+    def test_migrate_flat_json_to_folder(self, tmp_project):
+        import app as a
+        # Create old-style flat .json file
+        old_file = a.HISTORY_DIR / "legacy-session.json"
+        msgs = [{"role": "human", "content": "legacy"}]
+        old_file.write_text(json.dumps(msgs))
+        # Run migration
+        a.migrate_history_to_folders()
+        # Old file gone, new folder structure exists
+        assert not old_file.exists()
+        assert (a.HISTORY_DIR / "legacy-session" / "messages.json").exists()
+        loaded = json.loads((a.HISTORY_DIR / "legacy-session" / "messages.json").read_text())
+        assert loaded == msgs
+
+    def test_migrate_is_idempotent(self, tmp_project):
+        import app as a
+        # If messages.json already exists, migration should not overwrite
+        old_file = a.HISTORY_DIR / "idempotent.json"
+        old_content = [{"role": "human", "content": "old"}]
+        old_file.write_text(json.dumps(old_content))
+        # Pre-create the folder with different content
+        folder = a.HISTORY_DIR / "idempotent"
+        folder.mkdir()
+        new_content = [{"role": "human", "content": "new"}]
+        (folder / "messages.json").write_text(json.dumps(new_content))
+        a.migrate_history_to_folders()
+        # messages.json should NOT be overwritten
+        loaded = json.loads((folder / "messages.json").read_text())
+        assert loaded == new_content
+
+
+# ── Marketplace name override ─────────────────────────────────────────────────
+
+class TestMarketplaceNameOverride:
+    def _seed_market(self, tmp_project, agent_id):
+        mkt_dir = tmp_project / "marketplace" / agent_id
+        mkt_dir.mkdir(parents=True, exist_ok=True)
+        (mkt_dir / "config.json").write_text(json.dumps({
+            "emoji": "🧪", "color": "#fff", "description": "Test", "model": "", "skills": [], "enabled": True
+        }))
+        for f in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
+            (mkt_dir / f).write_text(f"# {f}\n")
+
+    def test_install_with_custom_name(self, client, tmp_project):
+        self._seed_market(tmp_project, "base-agent")
+        r = client.post("/marketplace/agents/base-agent/install",
+                        json={"name": "my-custom-agent"})
+        assert r.status_code == 200
+        assert (tmp_project / "agents" / "my-custom-agent").is_dir()
+        assert not (tmp_project / "agents" / "base-agent").exists()
+
+    def test_install_custom_name_in_config(self, client, tmp_project):
+        self._seed_market(tmp_project, "base-agent2")
+        client.post("/marketplace/agents/base-agent2/install",
+                    json={"name": "renamed-agent"})
+        cfg = json.loads((tmp_project / "agents" / "renamed-agent" / "config.json").read_text())
+        assert cfg["name"] == "renamed-agent"
+
+    def test_install_same_template_twice_different_names(self, client, tmp_project):
+        self._seed_market(tmp_project, "template-agent")
+        r1 = client.post("/marketplace/agents/template-agent/install",
+                         json={"name": "instance-one"})
+        r2 = client.post("/marketplace/agents/template-agent/install",
+                         json={"name": "instance-two"})
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        assert (tmp_project / "agents" / "instance-one").is_dir()
+        assert (tmp_project / "agents" / "instance-two").is_dir()
+
+    def test_install_custom_name_duplicate_still_409(self, client, tmp_project):
+        self._seed_market(tmp_project, "tmpl")
+        client.post("/marketplace/agents/tmpl/install", json={"name": "taken"})
+        r = client.post("/marketplace/agents/tmpl/install", json={"name": "taken"})
+        assert r.status_code == 409
