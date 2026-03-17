@@ -352,11 +352,16 @@
   .market-preview-content { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 0.8rem; line-height: 1.7; color: var(--text); white-space: pre-wrap; font-family: ui-monospace, 'Cascadia Code', monospace; max-height: 200px; overflow-y: auto; }
 
   /* 技能 tab */
-  .skill-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; background: var(--surface); border-radius: 10px; }
-  .skill-card-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; }
-  .skill-card-info { flex: 1; min-width: 0; }
-  .skill-card-name { font-size: 0.85rem; font-weight: 600; }
-  .skill-card-desc { font-size: 0.73rem; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
+  .skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px; width: 100%; box-sizing: border-box; overflow-y: auto; }
+  .skill-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; position: relative; }
+  .skill-card:hover { border-color: #555; background: var(--surface2); }
+  .skill-card-top { display: flex; align-items: center; gap: 10px; }
+  .skill-card-icon { width: 40px; height: 40px; border-radius: 9px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+  .skill-card-name { font-size: 0.88rem; font-weight: 600; }
+  .skill-card-desc { font-size: 0.76rem; color: var(--text-muted); line-height: 1.55; flex: 1; }
+  .skill-card-edit { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border-radius: 5px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
+  .skill-card:hover .skill-card-edit { color: var(--text-muted); }
+  .skill-card-edit:hover { background: var(--surface2) !important; color: var(--text) !important; }
 </style>
 </head>
 <body>
@@ -1754,26 +1759,30 @@ function pickModel() {
 
 function renderSkillsTab() {
   const body = document.getElementById('tab-skills-body');
+  // Remove max-width so grid fills full width
+  body.style.maxWidth = 'none';
+  body.style.padding = '0';
+  body.style.gap = '0';
   if (!skillData.length) {
     body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;text-align:center;padding:40px 16px">暫無可用技能</div>`;
     return;
   }
-  body.innerHTML = skillData.map(s => s.missing ? `
-    <div class="skill-card" style="border:1px solid #78350f;background:#1c1007">
-      <div class="skill-card-icon" style="background:#78350f20">⚠️</div>
-      <div class="skill-card-info">
+  body.innerHTML = `<div class="skill-grid">${skillData.map(s => s.missing ? `
+    <div class="skill-card" style="border-color:#78350f;background:#1c1007">
+      <div class="skill-card-top">
+        <div class="skill-card-icon" style="background:#78350f20">⚠️</div>
         <div class="skill-card-name" style="color:#fbbf24">/${esc(s.slug)}</div>
-        <div class="skill-card-desc" style="color:#f59e0b">缺少 SKILL.md — 請在 skills/${esc(s.slug)}/ 底下新增 SKILL.md</div>
       </div>
+      <div class="skill-card-desc" style="color:#f59e0b">缺少 SKILL.md — 請在 skills/${esc(s.slug)}/ 底下新增 SKILL.md</div>
     </div>` : `
-    <div class="skill-card">
-      <div class="skill-card-icon">🔧</div>
-      <div class="skill-card-info">
+    <div class="skill-card" onclick="openSkillEdit('${esc(s.slug)}')">
+      <button class="skill-card-edit" onclick="event.stopPropagation();openSkillEdit('${esc(s.slug)}')" title="編輯">✏</button>
+      <div class="skill-card-top">
+        <div class="skill-card-icon">🔧</div>
         <div class="skill-card-name">/${esc(s.name)}</div>
-        <div class="skill-card-desc">${esc(s.description)}</div>
       </div>
-      <button class="asst-gear-btn" onclick="openSkillEdit('${esc(s.slug)}')" title="編輯">✏</button>
-    </div>`).join('');
+      <div class="skill-card-desc">${esc(s.description || '—')}</div>
+    </div>`).join('')}</div>`;
 }
 
 let editingSkill = null;
