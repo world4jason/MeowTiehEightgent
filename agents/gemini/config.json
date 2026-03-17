@@ -1,8 +1,17 @@
 {
-  "emoji": "\ud83d\udfe2",
+  "emoji": "🟢",
   "color": "#34d399",
   "description": "Gemini agent",
   "model": "gemini",
-  "skills": [],
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
   "enabled": true
 }

@@ -320,14 +320,11 @@ def build_prompt(agent: dict, history_text: str) -> str:
     if mem_file.exists():
         parts.append(f"## Your memory ({today})\n\n{mem_file.read_text().strip()}")
 
-    agent_skills = agent.get("skills")          # None = key missing → inject all
+    agent_skills: list[str] = agent.get("skills") or []
     skills_dir = PROJECT_DIR / "skills"
-    if skills_dir.exists():
+    if skills_dir.exists() and agent_skills:
         for slug_dir in sorted(skills_dir.iterdir()):
-            if not slug_dir.is_dir():
-                continue
-            # None (key missing) → all skills; [] → none; [...] → filter
-            if agent_skills is not None and slug_dir.name not in agent_skills:
+            if not slug_dir.is_dir() or slug_dir.name not in agent_skills:
                 continue
             sf = find_skill_file(slug_dir)
             if sf:
@@ -670,7 +667,7 @@ async def add_agent(body: dict):
         "color": body.get("color", "#888888"),
         "description": body.get("description", ""),
         "model": body.get("model", ""),
-        "skills": body.get("skills", []),
+        "skills": body.get("skills") or list_skill_slugs(),
         "enabled": body.get("enabled", False),
     }
     (agent_dir / "config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False))
@@ -787,6 +784,14 @@ async def trigger_daily_summary(name: str):
 
 
 # ── Skills ────────────────────────────────────────────────────────────────────
+
+def list_skill_slugs() -> list[str]:
+    """Return sorted list of all skill slugs currently installed."""
+    d = PROJECT_DIR / "skills"
+    if not d.exists():
+        return []
+    return sorted(p.name for p in d.iterdir() if p.is_dir())
+
 
 def find_skill_file(slug_dir: Path) -> Path | None:
     """Find SKILL.md or SKILLS.md inside a skill directory."""
