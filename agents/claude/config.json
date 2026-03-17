@@ -4,14 +4,7 @@
   "description": "Claude agent",
   "model": "claude",
   "skills": [
-    "brainstorming",
-    "discussion",
-    "executing-plans",
-    "pua-debugging",
-    "systematic-debugging",
-    "using-superpowers",
-    "verification-before-completion",
-    "writing-plans"
+    "brainstorming"
   ],
   "enabled": true
 }
