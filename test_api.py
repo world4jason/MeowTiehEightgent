@@ -657,6 +657,42 @@ class TestConversationEngine:
         for _ in range(20):
             assert not eng._should_pass({"name": "A"}, 3)
 
+    # ── add_agent / remove_agent ──
+
+    def test_add_agent_speaks_in_cycle(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B"]))
+        eng.next_speaker()  # A
+        eng.add_agent({"name": "C"})
+        # C should appear within the next few turns
+        names = [eng.next_speaker()["name"] for _ in range(4)]
+        assert "C" in names
+
+    def test_add_agent_duplicate_returns_false(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B"]))
+        assert eng.add_agent({"name": "A"}) is False
+        assert len(eng.agents) == 2
+
+    def test_remove_agent_no_longer_speaks(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B", "C"]))
+        eng.remove_agent("B")
+        names = [eng.next_speaker()["name"] for _ in range(6)]
+        assert "B" not in names
+
+    def test_remove_agent_unknown_returns_false(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B"]))
+        assert eng.remove_agent("Z") is False
+
+    def test_remove_agent_updates_agents_list(self):
+        from conversation_engine import ConversationEngine
+        eng = ConversationEngine(self._agents(["A", "B", "C"]))
+        eng.remove_agent("C")
+        assert not any(a["name"] == "C" for a in eng.agents)
+        assert len(eng.agents) == 2
+
 
 # ── Session folder structure ──────────────────────────────────────────────────
 

@@ -96,6 +96,38 @@ class ConversationEngine:
         self._speakers_this_cycle = set()
         return target
 
+    def add_agent(self, agent: dict) -> bool:
+        """
+        Add an agent mid-session.  Returns False if already present.
+        The agent is appended to base_order and queued for the next cycle.
+        """
+        if any(a["name"] == agent["name"] for a in self.agents):
+            return False
+        self.agents.append(agent)
+        self._base_order.append(agent)
+        self._pass_counts[agent["name"]] = 0
+        self._spoke_alone[agent["name"]] = 0
+        # Also append to the current queue so the new agent can speak this cycle
+        self._queue.append(agent)
+        return True
+
+    def remove_agent(self, agent_name: str) -> bool:
+        """
+        Remove an agent mid-session.  Returns False if not found.
+        Drops the agent from every internal list immediately.
+        """
+        if not any(a["name"] == agent_name for a in self.agents):
+            return False
+        self.agents       = [a for a in self.agents       if a["name"] != agent_name]
+        self._base_order  = [a for a in self._base_order  if a["name"] != agent_name]
+        self._queue       = [a for a in self._queue       if a["name"] != agent_name]
+        if self._next_order is not None:
+            self._next_order = [a for a in self._next_order if a["name"] != agent_name]
+        self._pass_counts.pop(agent_name, None)
+        self._spoke_alone.pop(agent_name, None)
+        self._speakers_this_cycle.discard(agent_name)
+        return True
+
     def on_human(self) -> None:
         """
         Human spoke without @: end the current round and resume

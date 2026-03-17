@@ -135,6 +135,29 @@
   #send-btn:hover { opacity: 0.85; }
   .hint-text { text-align: center; font-size: 0.68rem; color: var(--text-muted); }
 
+  /* ── Members Panel ── */
+  #chat-body { display: flex; flex: 1; overflow: hidden; }
+  #members-panel { width: 0; min-width: 0; overflow: hidden; transition: width 0.2s ease, min-width 0.2s ease; border-left: 0px solid var(--border); display: flex; flex-direction: column; background: var(--panel-bg); flex-shrink: 0; }
+  #members-panel.open { width: 220px; min-width: 220px; border-left-width: 1px; }
+  #members-panel-header { padding: 12px 14px 8px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  #members-list { flex: 1; overflow-y: auto; padding: 0 8px; display: flex; flex-direction: column; gap: 2px; }
+  .member-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; transition: background 0.12s; }
+  .member-row:hover { background: var(--surface); }
+  .member-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .member-name { flex: 1; font-size: 0.82rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .member-remove { width: 20px; height: 20px; border-radius: 4px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; flex-shrink: 0; }
+  .member-row:hover .member-remove { color: var(--text-muted); }
+  .member-remove:hover { background: #dc262620 !important; color: #f87171 !important; }
+  #members-add-wrap { padding: 8px; flex-shrink: 0; border-top: 1px solid var(--border); position: relative; }
+  #members-add-btn { width: 100%; padding: 7px 10px; border-radius: 7px; border: 1px dashed var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 6px; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+  #members-add-btn:hover { background: var(--surface); color: var(--text); border-color: #555; }
+  #members-add-dropdown { display: none; position: absolute; bottom: calc(100% + 4px); left: 8px; right: 8px; background: #1e1e1e; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 50; }
+  #members-add-dropdown.open { display: block; }
+  .add-agent-item { padding: 9px 14px; cursor: pointer; font-size: 0.82rem; display: flex; align-items: center; gap: 8px; transition: background 0.1s; }
+  .add-agent-item:hover { background: var(--surface); }
+  #members-toggle { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; flex-shrink: 0; }
+  #members-toggle:hover, #members-toggle.active { background: var(--surface); color: var(--text); }
+
   /* ── Skill Picker ── */
   #skill-picker { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: #1e1e1e; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 100; }
   .skill-item { display: flex; flex-direction: column; gap: 2px; padding: 9px 14px; cursor: pointer; transition: background 0.1s; }
@@ -391,8 +414,26 @@
     <div id="chat-header">
       <span class="topic-text" id="chat-topic"></span>
       <div class="agents-pills" id="chat-agents"></div>
+      <button id="members-toggle" onclick="toggleMembersPanel()" title="成員">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </button>
     </div>
-    <div id="messages"></div>
+    <div id="chat-body">
+      <div id="messages"></div>
+      <div id="members-panel">
+        <div id="members-panel-header">
+          <span>成員</span>
+        </div>
+        <div id="members-list"></div>
+        <div id="members-add-wrap">
+          <div id="members-add-dropdown"></div>
+          <button id="members-add-btn" onclick="toggleAddDropdown()">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            新增成員
+          </button>
+        </div>
+      </div>
+    </div>
     <div id="input-wrap">
       <div id="input-inner">
         <div id="skill-picker"></div>
@@ -747,6 +788,81 @@ function getManualRounds() {
   return parseInt(document.getElementById('rounds-input').value) || 2;
 }
 
+// ── Members panel ─────────────────────────────────────────────
+let membersPanelOpen = false;
+// activeSessionAgents: names of agents currently in this session
+let activeSessionAgents = [];
+
+function toggleMembersPanel() {
+  membersPanelOpen = !membersPanelOpen;
+  document.getElementById('members-panel').classList.toggle('open', membersPanelOpen);
+  document.getElementById('members-toggle').classList.toggle('active', membersPanelOpen);
+}
+
+function renderMembersPanel() {
+  const list = document.getElementById('members-list');
+  list.innerHTML = '';
+  activeSessionAgents.forEach(name => {
+    const a = agentData.find(x => x.name === name);
+    const row = document.createElement('div');
+    row.className = 'member-row';
+    row.innerHTML = `
+      <span class="member-dot" style="background:${a ? a.color : '#888'}"></span>
+      <span class="member-name">${a ? a.emoji + ' ' : ''}${name}</span>
+      <button class="member-remove" title="移除" onclick="removeMemberFromSession('${name}')">✕</button>`;
+    list.appendChild(row);
+  });
+}
+
+function toggleAddDropdown() {
+  const dd = document.getElementById('members-add-dropdown');
+  const isOpen = dd.classList.contains('open');
+  if (isOpen) { dd.classList.remove('open'); return; }
+
+  // Build list of available agents not currently in session
+  const available = agentData.filter(a => a.enabled && !activeSessionAgents.includes(a.name));
+  if (!available.length) {
+    dd.innerHTML = '<div class="add-agent-item" style="color:var(--text-muted);cursor:default">沒有其他成員可加入</div>';
+  } else {
+    dd.innerHTML = available.map(a =>
+      `<div class="add-agent-item" onclick="addMemberToSession('${a.name}')">
+        <span style="width:8px;height:8px;border-radius:50%;background:${a.color};display:inline-block;flex-shrink:0"></span>
+        ${a.emoji} ${a.name}
+      </div>`
+    ).join('');
+  }
+  dd.classList.add('open');
+}
+
+function addMemberToSession(name) {
+  document.getElementById('members-add-dropdown').classList.remove('open');
+  if (activeSessionAgents.includes(name)) return;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'add_agent', agent: name }));
+  }
+  activeSessionAgents.push(name);
+  renderMembersPanel();
+}
+
+function removeMemberFromSession(name) {
+  if (!activeSessionAgents.includes(name)) return;
+  if (activeSessionAgents.length <= 1) { addSystem('至少需要一位成員。'); return; }
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'remove_agent', agent: name }));
+  }
+  activeSessionAgents = activeSessionAgents.filter(n => n !== name);
+  renderMembersPanel();
+}
+
+// Close add-dropdown when clicking outside
+document.addEventListener('click', e => {
+  const dd = document.getElementById('members-add-dropdown');
+  const btn = document.getElementById('members-add-btn');
+  if (dd && btn && !dd.contains(e.target) && !btn.contains(e.target)) {
+    dd.classList.remove('open');
+  }
+});
+
 // ── Start session ─────────────────────────────────────────────
 function startSession() {
   const topic = document.getElementById('topic-input').value.trim();
@@ -759,6 +875,13 @@ function startSession() {
   document.getElementById('chat-topic').textContent = topic;
   document.getElementById('msg-input').focus();
   document.getElementById('next-btn').classList.remove('visible');
+
+  // Reset members panel
+  activeSessionAgents = [...selected];
+  membersPanelOpen = false;
+  document.getElementById('members-panel').classList.remove('open');
+  document.getElementById('members-toggle').classList.remove('active');
+  renderMembersPanel();
 
   // Join messages
   selected.forEach(name => {

@@ -1070,6 +1070,33 @@ async def websocket_endpoint(ws: WebSocket):
 
     engine = ConversationEngine(active_agents, silence=silence_mode)
 
+    async def handle_member_event(evt: dict) -> bool:
+        """Handle add_agent / remove_agent events. Returns True if handled."""
+        t = evt.get("type")
+        if t == "add_agent":
+            name = evt.get("agent", "")
+            registry = get_agent_registry()
+            if name in registry and not any(a["name"] == name for a in active_agents):
+                agent = registry[name]
+                ensure_workspace(agent)
+                active_agents.append(agent)
+                engine.add_agent(agent)
+                smsg = {"type": "system", "text": f"{agent.get('emoji', '')} {name} 加入聊天室"}
+                await ws.send_json(smsg)
+                log({**smsg, "timestamp": datetime.now().isoformat()})
+            return True
+        if t == "remove_agent":
+            name = evt.get("agent", "")
+            removed = next((a for a in active_agents if a["name"] == name), None)
+            if removed:
+                active_agents.remove(removed)
+                engine.remove_agent(name)
+                smsg = {"type": "system", "text": f"{removed.get('emoji', '')} {name} 離開聊天室"}
+                await ws.send_json(smsg)
+                log({**smsg, "timestamp": datetime.now().isoformat()})
+            return True
+        return False
+
     async def receive_loop():
         while True:
             try:
@@ -1109,6 +1136,8 @@ async def websocket_endpoint(ws: WebSocket):
                         agent_task.cancel()
                         running = False
                         break
+                    elif t in ("add_agent", "remove_agent"):
+                        await handle_member_event(evt)
                     elif t == "human":
                         await event_queue.put(evt)
 
@@ -1150,6 +1179,8 @@ async def websocket_endpoint(ws: WebSocket):
                     if t == "stop":
                         running = False
                         break
+                    elif t in ("add_agent", "remove_agent"):
+                        await handle_member_event(evt)
                     elif t == "human":
                         text = evt["text"]
                         history_entry, skill_name = resolve_human_text(text)
@@ -1180,6 +1211,8 @@ async def websocket_endpoint(ws: WebSocket):
                         break
                     elif t == "next":
                         break
+                    elif t in ("add_agent", "remove_agent"):
+                        await handle_member_event(evt)
                     elif t == "human":
                         text = evt["text"]
                         history_entry, skill_name = resolve_human_text(text)
