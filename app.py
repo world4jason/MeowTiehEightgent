@@ -320,10 +320,14 @@ def build_prompt(agent: dict, history_text: str) -> str:
     if mem_file.exists():
         parts.append(f"## Your memory ({today})\n\n{mem_file.read_text().strip()}")
 
+    agent_skills: list[str] = agent.get("skills", [])
     skills_dir = PROJECT_DIR / "skills"
     if skills_dir.exists():
         for slug_dir in sorted(skills_dir.iterdir()):
             if not slug_dir.is_dir():
+                continue
+            # Empty list = all skills (backward-compatible default)
+            if agent_skills and slug_dir.name not in agent_skills:
                 continue
             sf = find_skill_file(slug_dir)
             if sf:
