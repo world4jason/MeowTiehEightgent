@@ -538,6 +538,24 @@ async def list_marketplace_agents():
     return result
 
 
+@app.get("/marketplace/agents/{agent_id}")
+async def get_marketplace_agent(agent_id: str):
+    src = MARKETPLACE_DIR / agent_id
+    if not src.is_dir():
+        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
+    cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
+    return {
+        "id": agent_id,
+        "emoji": cfg.get("emoji", "🤖"),
+        "color": cfg.get("color", "#888"),
+        "description": cfg.get("description", ""),
+        "agent_md": (src / "AGENT.md").read_text() if (src / "AGENT.md").exists() else "",
+        "identity_md": (src / "IDENTITY.md").read_text() if (src / "IDENTITY.md").exists() else "",
+        "soul_md": (src / "SOUL.md").read_text() if (src / "SOUL.md").exists() else "",
+        "installed": (AGENTS_DIR / agent_id).exists(),
+    }
+
+
 @app.post("/marketplace/agents/{agent_id}/install")
 async def install_marketplace_agent(agent_id: str):
     src = MARKETPLACE_DIR / agent_id

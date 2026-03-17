@@ -288,15 +288,21 @@
 
   /* 市場 tab */
   .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px; }
-  .market-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: border-color 0.15s; }
-  .market-card:hover { border-color: #555; }
+  .market-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .market-card:hover { border-color: #555; background: var(--surface2); }
   .market-card-top { display: flex; align-items: center; gap: 10px; }
   .market-card-emoji { font-size: 1.6rem; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: var(--surface2); border-radius: 10px; flex-shrink: 0; }
   .market-card-name { font-size: 0.88rem; font-weight: 600; }
   .market-card-desc { font-size: 0.76rem; color: var(--text-muted); line-height: 1.55; flex: 1; }
   .market-install-btn { padding: 6px 14px; border-radius: 7px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: opacity 0.15s; align-self: flex-start; }
-  .market-install-btn:hover { opacity: 0.85; }
+  .market-install-btn:hover:not(:disabled) { opacity: 0.85; }
   .market-install-btn.installed { background: var(--surface2); color: var(--text-muted); cursor: default; }
+  /* market preview panel */
+  #market-preview-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 540px; background: var(--panel-bg); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; z-index: 10; }
+  #market-preview-panel.open { transform: translateX(0); }
+  .market-preview-section { display: flex; flex-direction: column; gap: 6px; }
+  .market-preview-section-title { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .market-preview-content { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 0.8rem; line-height: 1.7; color: var(--text); white-space: pre-wrap; font-family: ui-monospace, 'Cascadia Code', monospace; max-height: 200px; overflow-y: auto; }
 
   /* 技能 tab */
   .skill-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; background: var(--surface); border-radius: 10px; }
@@ -418,6 +424,15 @@
         <!-- 市場 tab -->
         <div class="settings-tab" id="tab-market">
           <div class="settings-tab-body" id="tab-market-body"></div>
+          <!-- agent preview panel -->
+          <div id="market-preview-panel">
+            <div class="asst-edit-header">
+              <button class="asst-edit-back" onclick="closeMarketPreview()">← 返回</button>
+              <span class="asst-edit-title" id="market-preview-title"></span>
+              <button class="market-install-btn" id="market-preview-install-btn" style="margin-left:auto"></button>
+            </div>
+            <div class="asst-edit-body" id="market-preview-body" style="padding:16px;gap:16px"></div>
+          </div>
         </div>
         <!-- 技能 tab -->
         <div class="settings-tab" id="tab-skills">
@@ -1349,16 +1364,54 @@ async function renderMarketTab() {
     return;
   }
   body.innerHTML = `<div class="market-grid">${agents.map(a => `
-    <div class="market-card" id="mkt-${esc(a.id)}">
+    <div class="market-card" id="mkt-${esc(a.id)}" onclick="openMarketPreview('${esc(a.id)}')">
       <div class="market-card-top">
         <div class="market-card-emoji" style="border:2px solid ${esc(a.color)}20">${esc(a.emoji)}</div>
         <div class="market-card-name">${esc(a.id.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()))}</div>
       </div>
       <div class="market-card-desc">${esc(a.description)}</div>
-      ${a.installed
-        ? `<button class="market-install-btn installed" disabled>✓ 已安裝</button>`
-        : `<button class="market-install-btn" onclick="installMarketAgent('${esc(a.id)}', this)">安裝</button>`}
+      ${a.installed ? `<span style="font-size:0.75rem;color:var(--text-muted)">✓ 已安裝</span>` : `<span style="font-size:0.75rem;color:var(--accent)">點擊查看 →</span>`}
     </div>`).join('')}</div>`;
+}
+
+async function openMarketPreview(id) {
+  const panel = document.getElementById('market-preview-panel');
+  const title = document.getElementById('market-preview-title');
+  const body = document.getElementById('market-preview-body');
+  const installBtn = document.getElementById('market-preview-install-btn');
+
+  title.textContent = '載入中…';
+  body.innerHTML = '';
+  panel.classList.add('open');
+
+  const a = await fetch(`/marketplace/agents/${encodeURIComponent(id)}`).then(r => r.json()).catch(() => null);
+  if (!a) { body.innerHTML = `<div style="color:#f87171">載入失敗</div>`; return; }
+
+  const name = id.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  title.textContent = `${a.emoji} ${name}`;
+
+  if (a.installed) {
+    installBtn.textContent = '✓ 已安裝'; installBtn.disabled = true; installBtn.className = 'market-install-btn installed';
+  } else {
+    installBtn.textContent = '安裝'; installBtn.disabled = false; installBtn.className = 'market-install-btn';
+    installBtn.onclick = () => installMarketAgent(id, installBtn);
+  }
+
+  const sections = [
+    { label: 'Agent.md — 指令', content: a.agent_md },
+    { label: 'Identity.md — 身份', content: a.identity_md },
+    { label: 'Soul.md — 靈魂', content: a.soul_md },
+  ].filter(s => s.content);
+
+  body.innerHTML = sections.map(s => `
+    <div class="market-preview-section">
+      <div class="market-preview-section-title">${esc(s.label)}</div>
+      <div class="market-preview-content">${esc(s.content)}</div>
+    </div>`).join('');
+}
+
+function closeMarketPreview() {
+  document.getElementById('market-preview-panel').classList.remove('open');
 }
 
 async function installMarketAgent(id, btn) {
@@ -1367,6 +1420,9 @@ async function installMarketAgent(id, btn) {
     .then(x => x.json()).catch(() => ({ok: false}));
   if (r.ok) {
     btn.textContent = '✓ 已安裝'; btn.classList.add('installed');
+    // Update card in grid too
+    const card = document.getElementById(`mkt-${id}`);
+    if (card) card.querySelector('span').textContent = '✓ 已安裝';
     await loadPersonas();
   } else {
     btn.disabled = false; btn.textContent = '安裝';
