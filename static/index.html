@@ -390,6 +390,80 @@
   .skill-card-edit { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border-radius: 5px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
   .skill-card:hover .skill-card-edit { color: var(--text-muted); }
   .skill-card-edit:hover { background: var(--surface2) !important; color: var(--text) !important; }
+
+  /* ── 工作區 settings tab ── */
+  #tab-workspaces { flex-direction: row !important; }
+  #ws-list-panel { width: 200px; min-width: 200px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #ws-list-inner { flex: 1; overflow-y: auto; padding: 8px 6px; display: flex; flex-direction: column; gap: 2px; }
+  #ws-list-footer { padding: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
+  #ws-list-add-btn { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px dashed var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; gap: 6px; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+  #ws-list-add-btn:hover { background: var(--surface2); color: var(--text); border-color: #555; }
+  .ws-list-item { display: flex; align-items: center; gap: 7px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 0.82rem; color: var(--text-muted); transition: background 0.12s, color 0.12s; user-select: none; }
+  .ws-list-item:hover { background: var(--surface); color: var(--text); }
+  .ws-list-item.active { background: var(--surface); color: var(--text); font-weight: 500; }
+  .ws-list-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #ws-detail-panel { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 14px; max-width: 600px; }
+  #ws-detail-empty { color: var(--text-muted); font-size: 0.84rem; text-align: center; padding: 60px 0; flex: 1; display: flex; align-items: center; justify-content: center; }
+  #ws-detail-content { display: flex; flex-direction: column; gap: 14px; }
+  .ws-detail-heading { display: flex; flex-direction: column; gap: 3px; padding-bottom: 4px; }
+  .ws-detail-name { font-size: 1.1rem; font-weight: 700; }
+  .ws-detail-desc { font-size: 0.82rem; color: var(--text-muted); }
+  /* Section cards */
+  .ws-section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: visible; }
+  .ws-section-header { display: flex; align-items: center; padding: 13px 16px; gap: 8px; }
+  .ws-section-title { font-size: 0.88rem; font-weight: 600; flex: 1; }
+  .ws-section-icon-btn { width: 26px; height: 26px; border-radius: 7px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; flex-shrink: 0; }
+  .ws-section-icon-btn:hover { background: var(--surface2); color: var(--text); }
+  .ws-section-body { padding: 12px 16px 14px; border-top: 1px solid var(--border); font-size: 0.82rem; }
+  .ws-instructions-preview { color: var(--text); line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+  .ws-instructions-empty { color: var(--text-muted); font-style: italic; }
+  /* Files */
+  .ws-file-list { display: flex; flex-direction: column; }
+  .ws-file-item { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .ws-file-item:last-child { border-bottom: none; }
+  .ws-file-icon { color: var(--text-muted); flex-shrink: 0; }
+  .ws-file-name { flex: 1; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws-file-del { width: 22px; height: 22px; border-radius: 5px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; flex-shrink: 0; }
+  .ws-file-item:hover .ws-file-del { color: var(--text-muted); }
+  .ws-file-del:hover { background: #dc262620 !important; color: #f87171 !important; }
+  .ws-files-empty { text-align: center; padding: 20px 0; color: var(--text-muted); font-size: 0.8rem; font-style: italic; }
+  .ws-files-add-wrap { position: relative; }
+  .ws-files-dropdown { display: none; position: absolute; top: calc(100% + 4px); right: 0; background: #1e1e1e; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 30; min-width: 190px; }
+  .ws-files-dropdown.open { display: block; }
+  .ws-files-dropdown-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; font-size: 0.82rem; color: var(--text); transition: background 0.1s; }
+  .ws-files-dropdown-item:hover { background: var(--surface); }
+  .ws-files-dropdown-sep { height: 1px; background: var(--border); margin: 4px 0; }
+  /* Danger zone */
+  .ws-danger-section { border-color: #78350f40; }
+  .ws-danger-section .ws-section-header { }
+  /* Create workspace modal */
+  #ws-create-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 500; align-items: center; justify-content: center; }
+  #ws-create-modal.open { display: flex; }
+  #ws-create-dialog { background: #1e1e1e; border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 440px; display: flex; flex-direction: column; gap: 18px; }
+  .ws-create-title { font-size: 1.25rem; font-weight: 700; }
+  .ws-create-field { display: flex; flex-direction: column; gap: 6px; }
+  .ws-create-label { font-size: 0.8rem; color: var(--text-muted); }
+  .ws-create-input { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 10px 13px; color: var(--text); font-size: 0.9rem; outline: none; transition: border-color 0.15s; }
+  .ws-create-input:focus { border-color: #555; }
+  .ws-create-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  .ws-modal-cancel { padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); cursor: pointer; font-size: 0.84rem; transition: background 0.12s, color 0.12s; }
+  .ws-modal-cancel:hover { background: var(--surface2); color: var(--text); }
+  .ws-modal-submit { padding: 8px 18px; border-radius: 8px; border: none; background: var(--text); color: #111; cursor: pointer; font-size: 0.84rem; font-weight: 600; transition: opacity 0.15s; }
+  .ws-modal-submit:hover { opacity: .85; }
+  /* Instructions modal */
+  #ws-instructions-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 500; align-items: center; justify-content: center; }
+  #ws-instructions-modal.open { display: flex; }
+  #ws-instructions-dialog { background: #1e1e1e; border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 580px; max-height: 80vh; display: flex; flex-direction: column; gap: 14px; }
+  #ws-instructions-textarea { flex: 1; min-height: 240px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; color: var(--text); font-size: 0.86rem; line-height: 1.7; resize: none; outline: none; font-family: inherit; transition: border-color 0.15s; }
+  #ws-instructions-textarea:focus { border-color: #555; }
+  /* Text content modal */
+  #ws-textcontent-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 500; align-items: center; justify-content: center; }
+  #ws-textcontent-modal.open { display: flex; }
+  #ws-textcontent-dialog { background: #1e1e1e; border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 520px; max-height: 80vh; display: flex; flex-direction: column; gap: 14px; }
+  #ws-textcontent-filename { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 9px 13px; color: var(--text); font-size: 0.86rem; outline: none; transition: border-color 0.15s; }
+  #ws-textcontent-filename:focus { border-color: #555; }
+  #ws-textcontent-body { flex: 1; min-height: 180px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; color: var(--text); font-size: 0.86rem; line-height: 1.7; resize: none; outline: none; font-family: inherit; transition: border-color 0.15s; }
+  #ws-textcontent-body:focus { border-color: #555; }
 </style>
 </head>
 <body>
@@ -609,32 +683,20 @@
         </div>
         <!-- 工作區 tab -->
         <div class="settings-tab" id="tab-workspaces">
-          <div class="settings-tab-header" style="display:flex;align-items:center;gap:8px;padding:12px 16px 0">
-            <span style="flex:1;font-size:0.8rem;color:var(--text-muted)">工作區列表</span>
-            <button class="bar-btn" onclick="openAddWorkspace()">＋ 新增</button>
+          <!-- Left: list panel -->
+          <div id="ws-list-panel">
+            <div id="ws-list-inner"></div>
+            <div id="ws-list-footer">
+              <button id="ws-list-add-btn" onclick="openAddWorkspace()">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                新增工作區
+              </button>
+            </div>
           </div>
-          <div class="settings-tab-body" id="tab-workspaces-body"></div>
-          <!-- add workspace form -->
-          <div id="workspace-add-panel" style="display:none;flex-direction:column;gap:0;position:absolute;inset:0;background:var(--panel-bg);z-index:10;overflow-y:auto">
-            <div class="asst-edit-header">
-              <button class="asst-edit-back" onclick="closeAddWorkspace()">← 返回</button>
-              <span class="asst-edit-title">新增工作區</span>
-            </div>
-            <div class="asst-edit-body">
-              <div class="asst-edit-field">
-                <span class="asst-edit-label">名稱</span>
-                <input class="asst-edit-input" id="new-ws-name" placeholder="Data / MLE / Arch">
-              </div>
-              <div class="asst-edit-field">
-                <span class="asst-edit-label">描述（選填）</span>
-                <input class="asst-edit-input" id="new-ws-desc" placeholder="這個工作區的用途…">
-              </div>
-              <div class="asst-edit-field" style="flex:1">
-                <span class="asst-edit-label">System Prompt（對話指引）</span>
-                <textarea class="asst-edit-input asst-edit-textarea" id="new-ws-prompt" placeholder="在這個工作區中，所有 agent 都應該…"></textarea>
-              </div>
-              <button class="asst-edit-save-btn" id="new-ws-save-btn" onclick="submitNewWorkspace()">建立</button>
-            </div>
+          <!-- Right: detail panel -->
+          <div id="ws-detail-panel">
+            <div id="ws-detail-empty">← 從左側選擇工作區</div>
+            <div id="ws-detail-content"></div>
           </div>
         </div>
         <!-- 關於你 tab (edit _default templates) -->
@@ -655,6 +717,62 @@
     </div>
   </div>
 </div>
+
+<!-- ── Workspace modals ── -->
+
+<!-- Create workspace modal -->
+<div id="ws-create-modal" onclick="if(event.target===this)closeAddWorkspace()">
+  <div id="ws-create-dialog">
+    <div class="ws-create-title">建立工作區</div>
+    <div class="ws-create-field">
+      <label class="ws-create-label">什麼專案？</label>
+      <input class="ws-create-input" id="new-ws-name" placeholder="Name your workspace" onkeydown="if(event.key==='Enter')submitNewWorkspace()">
+    </div>
+    <div class="ws-create-field">
+      <label class="ws-create-label">要做什麼？（選填）</label>
+      <input class="ws-create-input" id="new-ws-desc" placeholder="描述目標、主題…" onkeydown="if(event.key==='Enter')submitNewWorkspace()">
+    </div>
+    <div class="ws-create-actions">
+      <button class="ws-modal-cancel" onclick="closeAddWorkspace()">取消</button>
+      <button class="ws-modal-submit" id="new-ws-save-btn" onclick="submitNewWorkspace()">建立工作區</button>
+    </div>
+  </div>
+</div>
+
+<!-- Instructions edit modal -->
+<div id="ws-instructions-modal" onclick="if(event.target===this)closeInstructionsModal()">
+  <div id="ws-instructions-dialog">
+    <div class="ws-create-title">設定指引</div>
+    <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.5">這些指引會注入此工作區所有對話的 prompt，引導 agents 的回應方式。</div>
+    <textarea id="ws-instructions-textarea" placeholder="在這個工作區中，所有 agent 都應該…"></textarea>
+    <div class="ws-create-actions">
+      <button class="ws-modal-cancel" onclick="closeInstructionsModal()">取消</button>
+      <button class="ws-modal-submit" id="ws-instructions-save-btn" onclick="saveInstructions()">儲存指引</button>
+    </div>
+  </div>
+</div>
+
+<!-- Text content modal -->
+<div id="ws-textcontent-modal" onclick="if(event.target===this)closeTextContentModal()">
+  <div id="ws-textcontent-dialog">
+    <div class="ws-create-title">貼上文字內容</div>
+    <div class="ws-create-field">
+      <label class="ws-create-label">檔案名稱</label>
+      <input id="ws-textcontent-filename" placeholder="notes.md">
+    </div>
+    <div class="ws-create-field" style="flex:1">
+      <label class="ws-create-label">內容</label>
+      <textarea id="ws-textcontent-body" placeholder="貼上文字內容…"></textarea>
+    </div>
+    <div class="ws-create-actions">
+      <button class="ws-modal-cancel" onclick="closeTextContentModal()">取消</button>
+      <button class="ws-modal-submit" id="ws-textcontent-save-btn" onclick="saveTextContent()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden file input for workspace file upload -->
+<input type="file" id="ws-file-input" style="display:none" onchange="handleWsFileUpload(event)">
 
 <script>
 // ── Markdown renderer ─────────────────────────────────────────
@@ -784,55 +902,139 @@ function selectWorkspace(wsId) {
   showWelcome();
 }
 
+// ── Workspace settings tab ─────────────────────────────────────
+let wsSettingsSelectedId = null;
+
 async function renderWorkspacesTab() {
-  const body = document.getElementById('tab-workspaces-body');
-  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;padding:20px">載入中…</div>`;
   await loadWorkspaces();
+  const inner = document.getElementById('ws-list-inner');
+  inner.innerHTML = '';
+  workspaceData.forEach(w => {
+    const item = document.createElement('div');
+    item.className = 'ws-list-item' + (wsSettingsSelectedId === w.id ? ' active' : '');
+    item.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      <span class="ws-list-item-name">${esc(w.name)}</span>`;
+    item.onclick = () => selectWsInSettings(w.id);
+    inner.appendChild(item);
+  });
   if (!workspaceData.length) {
-    body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;text-align:center;padding:40px">尚無工作區 — 點擊右上角「＋ 新增」建立</div>`;
-    return;
+    inner.innerHTML = `<div style="color:var(--text-muted);font-size:0.78rem;padding:16px 8px;text-align:center;line-height:1.5">尚無工作區<br>點擊下方新增</div>`;
   }
-  body.innerHTML = `<div class="ws-list">${workspaceData.map(w => `
-    <div class="ws-card">
-      <div class="ws-card-header">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        <span class="ws-card-name">${esc(w.name)}</span>
-        <button class="ws-del-btn" onclick="deleteWorkspace('${esc(w.id)}')">刪除</button>
+  // Render detail if one is selected
+  if (wsSettingsSelectedId) {
+    await renderWsDetail(wsSettingsSelectedId);
+  }
+}
+
+async function selectWsInSettings(wsId) {
+  wsSettingsSelectedId = wsId;
+  // Update list item highlight
+  document.querySelectorAll('.ws-list-item').forEach(el => el.classList.remove('active'));
+  event && event.currentTarget && event.currentTarget.classList.add('active');
+  await renderWsDetail(wsId);
+}
+
+async function renderWsDetail(wsId) {
+  const content = document.getElementById('ws-detail-content');
+  const empty = document.getElementById('ws-detail-empty');
+  empty.style.display = 'none';
+  content.style.display = 'flex';
+  content.style.flexDirection = 'column';
+  content.style.gap = '14px';
+  content.innerHTML = `<div style="color:var(--text-muted);font-size:0.82rem">載入中…</div>`;
+
+  const ws = await fetch(`/workspaces/${wsId}`).then(r => r.json()).catch(() => null);
+  if (!ws) { content.innerHTML = `<div style="color:#f87171">載入失敗</div>`; return; }
+
+  const filesHtml = ws.files && ws.files.length
+    ? `<div class="ws-file-list">${ws.files.map(f => `
+        <div class="ws-file-item">
+          <svg class="ws-file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+          <span class="ws-file-name">${esc(f)}</span>
+          <button class="ws-file-del" onclick="deleteWsFile('${wsId}','${esc(f)}')" title="刪除">✕</button>
+        </div>`).join('')}</div>`
+    : `<div class="ws-files-empty">尚無文件 — 點擊 ＋ 上傳</div>`;
+
+  const instrHtml = ws.system_prompt
+    ? `<div class="ws-instructions-preview">${esc(ws.system_prompt)}</div>`
+    : `<div class="ws-instructions-empty">尚未設定指引</div>`;
+
+  content.innerHTML = `
+    <div class="ws-detail-heading">
+      <div class="ws-detail-name">📂 ${esc(ws.name)}</div>
+      ${ws.description ? `<div class="ws-detail-desc">${esc(ws.description)}</div>` : ''}
+    </div>
+
+    <div class="ws-section">
+      <div class="ws-section-header">
+        <span class="ws-section-title">Instructions</span>
+        <button class="ws-section-icon-btn" title="編輯指引" onclick="openInstructionsModal('${wsId}', ${JSON.stringify(ws.system_prompt || '')})">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
       </div>
-      ${w.description ? `<div class="ws-card-desc">${esc(w.description)}</div>` : ''}
-      ${w.system_prompt ? `<div class="ws-card-desc" style="font-style:italic">${esc(w.system_prompt.slice(0,80))}${w.system_prompt.length>80?'…':''}</div>` : ''}
-    </div>`).join('')}</div>`;
+      <div class="ws-section-body">${instrHtml}</div>
+    </div>
+
+    <div class="ws-section">
+      <div class="ws-section-header">
+        <span class="ws-section-title">Files</span>
+        <div class="ws-files-add-wrap">
+          <button class="ws-section-icon-btn" title="新增文件" onclick="toggleFilesDropdown('${wsId}', this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <div class="ws-files-dropdown" id="ws-files-dropdown-${wsId}">
+            <div class="ws-files-dropdown-item" onclick="triggerWsFileUpload('${wsId}')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              上傳文件
+            </div>
+            <div class="ws-files-dropdown-sep"></div>
+            <div class="ws-files-dropdown-item" onclick="openTextContentModal('${wsId}')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>
+              貼上文字
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ws-section-body">${filesHtml}</div>
+    </div>
+
+    <div class="ws-section ws-danger-section" style="margin-top:8px">
+      <div class="ws-section-header">
+        <span class="ws-section-title" style="color:var(--text-muted);font-weight:400;font-size:0.82rem">刪除此工作區（對話不會刪除）</span>
+        <button onclick="deleteWorkspace('${wsId}')" style="padding:5px 12px;border-radius:7px;border:1px solid #78350f;background:transparent;color:#f87171;cursor:pointer;font-size:0.76rem;transition:background 0.12s" onmouseover="this.style.background='#dc262618'" onmouseout="this.style.background='transparent'">刪除</button>
+      </div>
+    </div>`;
 }
 
 function openAddWorkspace() {
-  document.getElementById('workspace-add-panel').style.display = 'flex';
   document.getElementById('new-ws-name').value = '';
   document.getElementById('new-ws-desc').value = '';
-  document.getElementById('new-ws-prompt').value = '';
-  document.getElementById('new-ws-name').focus();
+  document.getElementById('ws-create-modal').classList.add('open');
+  setTimeout(() => document.getElementById('new-ws-name').focus(), 50);
 }
 
 function closeAddWorkspace() {
-  document.getElementById('workspace-add-panel').style.display = 'none';
+  document.getElementById('ws-create-modal').classList.remove('open');
 }
 
 async function submitNewWorkspace() {
   const name = document.getElementById('new-ws-name').value.trim();
   if (!name) { document.getElementById('new-ws-name').focus(); return; }
   const description = document.getElementById('new-ws-desc').value.trim();
-  const system_prompt = document.getElementById('new-ws-prompt').value.trim();
   const btn = document.getElementById('new-ws-save-btn');
   btn.textContent = '建立中…'; btn.disabled = true;
   const r = await fetch('/workspaces', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ name, description, system_prompt }),
-  }).then(x => x.json()).catch(() => ({ok: false}));
-  btn.textContent = '建立'; btn.disabled = false;
+    body: JSON.stringify({ name, description }),
+  }).then(x => x.json()).catch(() => ({}));
+  btn.textContent = '建立工作區'; btn.disabled = false;
   if (r.id) {
+    closeAddWorkspace();
     await loadWorkspaces();
     await loadSessions();
-    closeAddWorkspace();
+    wsSettingsSelectedId = r.id;
     renderWorkspacesTab();
   } else {
     alert(r.detail || '建立失敗');
@@ -842,9 +1044,117 @@ async function submitNewWorkspace() {
 async function deleteWorkspace(wsId) {
   if (!confirm(`刪除工作區後，現有對話將變為獨立對話。確定刪除？`)) return;
   await fetch(`/workspaces/${wsId}`, { method: 'DELETE' });
+  if (wsSettingsSelectedId === wsId) wsSettingsSelectedId = null;
+  if (selectedWorkspaceId === wsId) selectWorkspace(null);
   await loadWorkspaces();
   await loadSessions();
   renderWorkspacesTab();
+  const empty = document.getElementById('ws-detail-empty');
+  const content = document.getElementById('ws-detail-content');
+  if (!wsSettingsSelectedId && empty && content) {
+    empty.style.display = '';
+    content.style.display = 'none';
+    content.innerHTML = '';
+  }
+}
+
+// ── Instructions modal ─────────────────────────────────────────
+let wsInstructionsTargetId = null;
+
+function openInstructionsModal(wsId, currentPrompt) {
+  wsInstructionsTargetId = wsId;
+  document.getElementById('ws-instructions-textarea').value = currentPrompt || '';
+  document.getElementById('ws-instructions-modal').classList.add('open');
+  setTimeout(() => document.getElementById('ws-instructions-textarea').focus(), 50);
+}
+
+function closeInstructionsModal() {
+  document.getElementById('ws-instructions-modal').classList.remove('open');
+  wsInstructionsTargetId = null;
+}
+
+async function saveInstructions() {
+  if (!wsInstructionsTargetId) return;
+  const system_prompt = document.getElementById('ws-instructions-textarea').value.trim();
+  const btn = document.getElementById('ws-instructions-save-btn');
+  btn.textContent = '儲存中…'; btn.disabled = true;
+  const ws = workspaceData.find(w => w.id === wsInstructionsTargetId);
+  await fetch(`/workspaces/${wsInstructionsTargetId}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name: ws?.name || '', system_prompt }),
+  });
+  btn.textContent = '儲存指引'; btn.disabled = false;
+  closeInstructionsModal();
+  await loadWorkspaces();
+  await renderWsDetail(wsInstructionsTargetId || wsSettingsSelectedId);
+}
+
+// ── Files management ───────────────────────────────────────────
+let wsFilesTargetId = null;
+
+function toggleFilesDropdown(wsId, btn) {
+  const dd = document.getElementById(`ws-files-dropdown-${wsId}`);
+  if (!dd) return;
+  const isOpen = dd.classList.contains('open');
+  // Close all dropdowns first
+  document.querySelectorAll('.ws-files-dropdown.open').forEach(el => el.classList.remove('open'));
+  if (!isOpen) {
+    dd.classList.add('open');
+    // Close on outside click
+    const close = (e) => { if (!dd.contains(e.target) && e.target !== btn) { dd.classList.remove('open'); document.removeEventListener('click', close); } };
+    setTimeout(() => document.addEventListener('click', close), 10);
+  }
+}
+
+function triggerWsFileUpload(wsId) {
+  wsFilesTargetId = wsId;
+  document.querySelectorAll('.ws-files-dropdown.open').forEach(el => el.classList.remove('open'));
+  document.getElementById('ws-file-input').value = '';
+  document.getElementById('ws-file-input').click();
+}
+
+async function handleWsFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file || !wsFilesTargetId) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  await fetch(`/workspaces/${wsFilesTargetId}/files`, { method: 'POST', body: formData });
+  await renderWsDetail(wsFilesTargetId);
+}
+
+function openTextContentModal(wsId) {
+  wsFilesTargetId = wsId;
+  document.querySelectorAll('.ws-files-dropdown.open').forEach(el => el.classList.remove('open'));
+  document.getElementById('ws-textcontent-filename').value = '';
+  document.getElementById('ws-textcontent-body').value = '';
+  document.getElementById('ws-textcontent-modal').classList.add('open');
+  setTimeout(() => document.getElementById('ws-textcontent-filename').focus(), 50);
+}
+
+function closeTextContentModal() {
+  document.getElementById('ws-textcontent-modal').classList.remove('open');
+}
+
+async function saveTextContent() {
+  const filename = document.getElementById('ws-textcontent-filename').value.trim();
+  const body = document.getElementById('ws-textcontent-body').value;
+  if (!filename || !body.trim() || !wsFilesTargetId) return;
+  const btn = document.getElementById('ws-textcontent-save-btn');
+  btn.textContent = '儲存中…'; btn.disabled = true;
+  const blob = new Blob([body], { type: 'text/plain' });
+  const formData = new FormData();
+  formData.append('file', blob, filename.endsWith('.md') || filename.includes('.') ? filename : filename + '.txt');
+  await fetch(`/workspaces/${wsFilesTargetId}/files`, { method: 'POST', body: formData });
+  btn.textContent = '儲存'; btn.disabled = false;
+  closeTextContentModal();
+  await renderWsDetail(wsFilesTargetId);
+}
+
+async function deleteWsFile(wsId, filename) {
+  if (!confirm(`刪除 ${filename}？`)) return;
+  await fetch(`/workspaces/${wsId}/files/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+  await renderWsDetail(wsId);
 }
 
 function toggleWsFolder(wsId) {
@@ -857,9 +1167,8 @@ function toggleWsFolder(wsId) {
 }
 
 function openSidebarAddWorkspace() {
-  // Open settings on the workspace tab with the add form
-  switchSettingsTab('workspaces');
-  openSettings().then(() => openAddWorkspace());
+  // Open the create modal directly (works from sidebar or settings)
+  openAddWorkspace();
 }
 
 async function loadSessions() {
