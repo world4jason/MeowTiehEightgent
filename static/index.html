@@ -749,9 +749,12 @@ function makeSessionEl(s) {
 
 // ── Workspaces ────────────────────────────────────────────────
 let selectedWorkspaceId = null;
+let openFolders = new Set();  // workspace IDs that are expanded
 
 async function loadWorkspaces() {
   workspaceData = await fetch('/workspaces').then(r => r.json()).catch(() => []);
+  // Default: all folders expanded on first load
+  workspaceData.forEach(w => { if (!openFolders.has(w.id)) openFolders.add(w.id); });
 }
 
 function selectWorkspace(wsId) {
@@ -762,6 +765,8 @@ function selectWorkspace(wsId) {
     const ws = workspaceData.find(w => w.id === wsId);
     ctxEl.style.display = 'flex';
     nameEl.textContent = ws ? ws.name : wsId;
+    // Force-open the folder (clicking folder name always expands)
+    openFolders.add(wsId);
   } else {
     ctxEl.style.display = 'none';
   }
@@ -775,6 +780,7 @@ function selectWorkspace(wsId) {
       updateParticipantsLabel();
     }
   }
+  loadSessions();  // redraw sidebar to reflect selected + open state
   showWelcome();
 }
 
@@ -841,12 +847,13 @@ async function deleteWorkspace(wsId) {
   renderWorkspacesTab();
 }
 
-function toggleWsFolder(toggleEl) {
-  const body = toggleEl.closest('.ws-folder').querySelector('.ws-folder-body');
-  const open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : '';
-  const svg = toggleEl.querySelector('svg');
-  svg.style.transform = open ? 'rotate(-90deg)' : '';
+function toggleWsFolder(wsId) {
+  if (openFolders.has(wsId)) {
+    openFolders.delete(wsId);
+  } else {
+    openFolders.add(wsId);
+  }
+  loadSessions();
 }
 
 function openSidebarAddWorkspace() {
@@ -876,44 +883,57 @@ async function loadSessions() {
     // Workspace folders
     workspaceData.forEach(workspace => {
       const wsSessions = wsMap[workspace.id] || [];
+      const isOpen = openFolders.has(workspace.id);
       const isSelected = selectedWorkspaceId === workspace.id;
       const folder = document.createElement('div');
       folder.className = 'ws-folder';
 
+      const folderColor = isSelected ? 'var(--accent)' : 'currentColor';
       const header = document.createElement('div');
-      header.className = 'ws-folder-header' + (isSelected ? ' selected' : '');
+      header.className = 'ws-folder-header' + (isSelected ? ' ws-selected' : '');
       header.innerHTML = `
-        <span class="ws-folder-toggle" title="展開/收合" onclick="toggleWsFolder(this)">
+        <span class="ws-folder-toggle ${isOpen ? 'open' : 'closed'}" title="展開/收合" onclick="toggleWsFolder('${workspace.id}')">
           <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
         </span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${isSelected ? 'var(--accent)' : 'currentColor'}" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${folderColor}" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         <span class="ws-folder-name" style="${isSelected ? 'color:var(--accent)' : ''}" onclick="selectWorkspace('${workspace.id}')">${esc(workspace.name)}</span>
         <span class="ws-folder-count">${wsSessions.length}</span>`;
       folder.appendChild(header);
 
       const body = document.createElement('div');
       body.className = 'ws-folder-body';
+      body.style.display = isOpen ? '' : 'none';
 
-      // "+ 新增對話" inside folder
+      // Past sessions first
+      wsSessions.map(s => makeSessionEl(s)).forEach(el => body.appendChild(el));
+
+      // "+ 新增對話" at bottom of folder
       const addBtn = document.createElement('div');
       addBtn.className = 'ws-new-session-btn';
       addBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增對話`;
       addBtn.onclick = () => selectWorkspace(workspace.id);
       body.appendChild(addBtn);
 
-      // Past sessions
-      wsSessions.map(s => makeSessionEl(s)).forEach(el => body.appendChild(el));
       folder.appendChild(body);
       list.appendChild(folder);
     });
 
-    // Standalone sessions
-    if (standalone.length) {
-      const section = document.createElement('div');
-      section.className = 'ws-no-workspace';
-      standalone.forEach(s => section.appendChild(makeSessionEl(s)));
-      list.appendChild(section);
+    // "+ 新增工作區" global button after all workspace folders
+    const addWsRow = document.createElement('div');
+    addWsRow.className = 'ws-add-row';
+    addWsRow.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增工作區`;
+    addWsRow.onclick = openSidebarAddWorkspace;
+    list.appendChild(addWsRow);
+
+    // Divider (only if workspaces exist AND standalone sessions exist)
+    if (workspaceData.length > 0 && standalone.length > 0) {
+      const divider = document.createElement('div');
+      divider.className = 'ws-divider';
+      list.appendChild(divider);
     }
+
+    // Standalone sessions
+    standalone.forEach(s => list.appendChild(makeSessionEl(s)));
   } catch {}
 }
 
