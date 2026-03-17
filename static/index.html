@@ -39,17 +39,22 @@
   .session-delete:hover { background: #dc262620 !important; color: #f87171 !important; }
   .session-download:hover { background: var(--surface2) !important; color: var(--text) !important; }
   /* Workspace sidebar */
-  .ws-folder { margin-top: 4px; }
-  .ws-folder-header { display: flex; align-items: center; gap: 5px; padding: 5px 6px 3px 8px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); font-weight: 600; cursor: pointer; border-radius: 6px; transition: background 0.1s; user-select: none; }
+  .ws-folder { margin-top: 2px; }
+  .ws-folder-header { display: flex; align-items: center; gap: 5px; padding: 6px 6px 6px 8px; font-size: 0.8rem; color: var(--text-muted); font-weight: 500; border-radius: 7px; transition: background 0.1s, color 0.1s; user-select: none; }
   .ws-folder-header:hover { background: var(--surface); color: var(--text); }
-  .ws-folder-header svg { flex-shrink: 0; }
-  .ws-folder-sessions { display: flex; flex-direction: column; gap: 2px; }
-  .ws-folder-sessions .session-item { padding-left: 20px; }
+  .ws-folder-header.selected { color: var(--text); }
+  .ws-folder-toggle { flex-shrink: 0; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); border-radius: 3px; transition: background 0.1s; }
+  .ws-folder-toggle:hover { background: var(--surface2); color: var(--text); }
+  .ws-folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .ws-folder-count { font-size: 0.65rem; opacity: .55; flex-shrink: 0; }
+  .ws-folder-body { display: flex; flex-direction: column; gap: 1px; padding-bottom: 2px; }
+  .ws-folder-body .session-item { padding-left: 22px; }
+  .ws-new-session-btn { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 22px; font-size: 0.78rem; color: var(--text-muted); cursor: pointer; border-radius: 6px; transition: background 0.1s, color 0.1s; }
+  .ws-new-session-btn:hover { background: var(--surface); color: var(--accent); }
   .ws-no-workspace { margin-top: 6px; }
-  /* Workspace welcome selector */
-  #workspace-row { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; }
-  #workspace-select { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.82rem; padding: 6px 10px; cursor: pointer; flex: 1; outline: none; }
-  #workspace-select:focus { border-color: var(--accent); }
+  /* Sidebar add workspace btn */
+  #sb-new-ws-btn { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 10px; background: none; border: none; color: var(--text-muted); font-size: 0.76rem; cursor: pointer; text-align: left; border-radius: 6px; transition: background 0.1s, color 0.1s; }
+  #sb-new-ws-btn:hover { background: var(--surface); color: var(--accent); }
   /* Workspace settings tab */
   #tab-workspaces .ws-list { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
   .ws-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
@@ -390,12 +395,20 @@
 <!-- Sidebar -->
 <div id="sidebar">
   <div id="sidebar-header">
+    <div id="ws-context" style="display:none;padding:4px 8px 2px;font-size:0.7rem;color:var(--accent);font-weight:600;display:none;align-items:center;gap:5px;overflow:hidden">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      <span id="ws-context-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></span>
+      <button onclick="selectWorkspace(null)" title="取消選取工作區" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.75rem;padding:0;flex-shrink:0">✕</button>
+    </div>
     <button class="sb-btn" onclick="showWelcome()">
       <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-      New session
+      <span id="new-session-label">New session</span>
     </button>
   </div>
-  <div id="sidebar-label">Recent</div>
+  <div id="sidebar-label" style="display:flex;align-items:center;padding-right:4px">
+    <span style="flex:1">Recent</span>
+    <button id="sb-new-ws-btn" onclick="openSidebarAddWorkspace()" title="新增工作區" style="width:auto;padding:2px 6px">＋ 工作區</button>
+  </div>
   <div id="session-list"></div>
   <div id="sidebar-footer">
     <button id="settings-btn" onclick="openSettings()">
@@ -410,16 +423,6 @@
   <!-- Welcome -->
   <div id="welcome">
     <h2>Agent Chat Room</h2>
-
-    <div class="welcome-section">
-      <div class="welcome-section-label">工作區</div>
-      <div id="workspace-row">
-        <select id="workspace-select" onchange="onWorkspaceSelect()">
-          <option value="">— 無工作區（獨立對話）—</option>
-        </select>
-        <button class="bar-btn" onclick="switchSettingsTab('workspaces');openSettings()" style="flex-shrink:0">管理</button>
-      </div>
-    </div>
 
     <div class="welcome-section">
       <div class="welcome-section-label">參與成員<span id="participants-names" class="participants-names"></span></div>
@@ -749,29 +752,34 @@ function makeSessionEl(s) {
 }
 
 // ── Workspaces ────────────────────────────────────────────────
+let selectedWorkspaceId = null;
+
 async function loadWorkspaces() {
   workspaceData = await fetch('/workspaces').then(r => r.json()).catch(() => []);
-  // Refresh workspace selector in welcome screen
-  const sel = document.getElementById('workspace-select');
-  if (sel) {
-    const prev = sel.value;
-    sel.innerHTML = `<option value="">— 無工作區（獨立對話）—</option>` +
-      workspaceData.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('');
-    if (prev) sel.value = prev;
-  }
 }
 
-function onWorkspaceSelect() {
-  const wsId = document.getElementById('workspace-select').value;
-  if (!wsId) return;
-  const ws = workspaceData.find(w => w.id === wsId);
-  if (ws && ws.default_agents && ws.default_agents.length) {
-    // Pre-check workspace's default agents
-    document.querySelectorAll('.agent-chip').forEach(chip => {
-      chip.classList.toggle('checked', ws.default_agents.includes(chip.dataset.name));
-    });
-    updateParticipantsLabel();
+function selectWorkspace(wsId) {
+  selectedWorkspaceId = wsId;
+  const ctxEl = document.getElementById('ws-context');
+  const nameEl = document.getElementById('ws-context-name');
+  if (wsId) {
+    const ws = workspaceData.find(w => w.id === wsId);
+    ctxEl.style.display = 'flex';
+    nameEl.textContent = ws ? ws.name : wsId;
+  } else {
+    ctxEl.style.display = 'none';
   }
+  // Apply default agents if workspace has them
+  if (wsId) {
+    const ws = workspaceData.find(w => w.id === wsId);
+    if (ws && ws.default_agents && ws.default_agents.length) {
+      document.querySelectorAll('.agent-chip').forEach(chip => {
+        chip.classList.toggle('checked', ws.default_agents.includes(chip.dataset.name));
+      });
+      updateParticipantsLabel();
+    }
+  }
+  showWelcome();
 }
 
 async function renderWorkspacesTab() {
@@ -837,6 +845,20 @@ async function deleteWorkspace(wsId) {
   renderWorkspacesTab();
 }
 
+function toggleWsFolder(toggleEl) {
+  const body = toggleEl.closest('.ws-folder').querySelector('.ws-folder-body');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  const svg = toggleEl.querySelector('svg');
+  svg.style.transform = open ? 'rotate(-90deg)' : '';
+}
+
+function openSidebarAddWorkspace() {
+  // Open settings on the workspace tab with the add form
+  switchSettingsTab('workspaces');
+  openSettings().then(() => openAddWorkspace());
+}
+
 async function loadSessions() {
   try {
     const sessions = await fetch('/sessions').then(r => r.json());
@@ -856,20 +878,36 @@ async function loadSessions() {
     });
 
     // Workspace folders
-    workspaceData.forEach(ws => {
-      const wsSessions = wsMap[ws.id] || [];
+    workspaceData.forEach(workspace => {
+      const wsSessions = wsMap[workspace.id] || [];
+      const isSelected = selectedWorkspaceId === workspace.id;
       const folder = document.createElement('div');
       folder.className = 'ws-folder';
-      const sessionEls = wsSessions.map(s => makeSessionEl(s));
-      folder.innerHTML = `
-        <div class="ws-folder-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none'">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-          ${esc(ws.name)}
-          <span style="margin-left:auto;font-size:0.65rem;opacity:.6">${wsSessions.length}</span>
-        </div>
-        <div class="ws-folder-sessions" style="display:flex;flex-direction:column;gap:2px"></div>`;
-      const sessionsDiv = folder.querySelector('.ws-folder-sessions');
-      sessionEls.forEach(el => sessionsDiv.appendChild(el));
+
+      const header = document.createElement('div');
+      header.className = 'ws-folder-header' + (isSelected ? ' selected' : '');
+      header.innerHTML = `
+        <span class="ws-folder-toggle" title="展開/收合" onclick="toggleWsFolder(this)">
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+        </span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${isSelected ? 'var(--accent)' : 'currentColor'}" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span class="ws-folder-name" style="${isSelected ? 'color:var(--accent)' : ''}" onclick="selectWorkspace('${workspace.id}')">${esc(workspace.name)}</span>
+        <span class="ws-folder-count">${wsSessions.length}</span>`;
+      folder.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'ws-folder-body';
+
+      // "+ 新增對話" inside folder
+      const addBtn = document.createElement('div');
+      addBtn.className = 'ws-new-session-btn';
+      addBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增對話`;
+      addBtn.onclick = () => selectWorkspace(workspace.id);
+      body.appendChild(addBtn);
+
+      // Past sessions
+      wsSessions.map(s => makeSessionEl(s)).forEach(el => body.appendChild(el));
+      folder.appendChild(body);
       list.appendChild(folder);
     });
 
@@ -970,6 +1008,16 @@ function showWelcome() {
   document.getElementById('welcome').style.display = 'flex';
   document.getElementById('chat-area').style.display = 'none';
   document.querySelectorAll('.session-item').forEach(e => e.classList.remove('active'));
+  // Update title to reflect workspace context
+  const h2 = document.querySelector('#welcome h2');
+  if (h2) {
+    if (selectedWorkspaceId) {
+      const wsObj = workspaceData.find(w => w.id === selectedWorkspaceId);
+      h2.textContent = wsObj ? wsObj.name : 'New Session';
+    } else {
+      h2.textContent = 'Agent Chat Room';
+    }
+  }
   document.getElementById('topic-input').focus();
 }
 
@@ -1119,7 +1167,7 @@ function startSession() {
     auto: currentMode === 'auto',
     rounds: getManualRounds(),
     silence: document.getElementById('silence-check')?.checked ?? false,
-    workspace_id: document.getElementById('workspace-select')?.value || null,
+    workspace_id: selectedWorkspaceId || null,
   }));
   ws.onmessage = e => handleMessage(JSON.parse(e.data));
   ws.onclose = () => { addSystem('Disconnected.'); loadSessions(); };
