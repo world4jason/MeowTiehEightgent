@@ -286,6 +286,18 @@
   #skill-edit-panel.open, #skill-add-panel.open { transform: translateX(0); }
   #skill-edit-panel .asst-edit-textarea, #skill-add-panel .asst-edit-textarea { min-height: 280px; }
 
+  /* 市場 tab */
+  .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px; }
+  .market-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: border-color 0.15s; }
+  .market-card:hover { border-color: #555; }
+  .market-card-top { display: flex; align-items: center; gap: 10px; }
+  .market-card-emoji { font-size: 1.6rem; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: var(--surface2); border-radius: 10px; flex-shrink: 0; }
+  .market-card-name { font-size: 0.88rem; font-weight: 600; }
+  .market-card-desc { font-size: 0.76rem; color: var(--text-muted); line-height: 1.55; flex: 1; }
+  .market-install-btn { padding: 6px 14px; border-radius: 7px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: opacity 0.15s; align-self: flex-start; }
+  .market-install-btn:hover { opacity: 0.85; }
+  .market-install-btn.installed { background: var(--surface2); color: var(--text-muted); cursor: default; }
+
   /* 技能 tab */
   .skill-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; background: var(--surface); border-radius: 10px; }
   .skill-card-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; }
@@ -378,6 +390,7 @@
       <nav id="settings-nav">
         <div class="settings-nav-item active" data-tab="models" onclick="switchSettingsTab('models')">模型</div>
         <div class="settings-nav-item" data-tab="agents" onclick="switchSettingsTab('agents')">代理人</div>
+        <div class="settings-nav-item" data-tab="market" onclick="switchSettingsTab('market')">市場</div>
         <div class="settings-nav-item" data-tab="skills" onclick="switchSettingsTab('skills')">技能</div>
         <div class="settings-nav-item" data-tab="default" onclick="switchSettingsTab('default')">關於你</div>
         <div class="settings-nav-item" data-tab="about" onclick="switchSettingsTab('about')">關於我</div>
@@ -401,6 +414,10 @@
           <div id="agents-config-area">
             <div id="agents-config-body"></div>
           </div>
+        </div>
+        <!-- 市場 tab -->
+        <div class="settings-tab" id="tab-market">
+          <div class="settings-tab-body" id="tab-market-body"></div>
         </div>
         <!-- 技能 tab -->
         <div class="settings-tab" id="tab-skills">
@@ -853,6 +870,7 @@ function switchSettingsTab(tab) {
   });
   if (tab === 'models') renderModelList();
   if (tab === 'agents') renderPersonaList();
+  if (tab === 'market') renderMarketTab();
   if (tab === 'skills') renderSkillsTab();
   if (tab === 'default') renderDefaultTab();
   if (tab === 'about') renderAboutTab();
@@ -1320,6 +1338,40 @@ async function saveAboutTab() {
   btn.textContent = '儲存中…'; btn.disabled = true;
   await fetch('/user/md', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({content}) });
   btn.textContent = '儲存'; btn.disabled = false;
+}
+
+async function renderMarketTab() {
+  const body = document.getElementById('tab-market-body');
+  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.8rem;padding:20px 16px">載入中…</div>`;
+  const agents = await fetch('/marketplace/agents').then(r => r.json()).catch(() => []);
+  if (!agents.length) {
+    body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;text-align:center;padding:40px">市場是空的</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="market-grid">${agents.map(a => `
+    <div class="market-card" id="mkt-${esc(a.id)}">
+      <div class="market-card-top">
+        <div class="market-card-emoji" style="border:2px solid ${esc(a.color)}20">${esc(a.emoji)}</div>
+        <div class="market-card-name">${esc(a.id.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()))}</div>
+      </div>
+      <div class="market-card-desc">${esc(a.description)}</div>
+      ${a.installed
+        ? `<button class="market-install-btn installed" disabled>✓ 已安裝</button>`
+        : `<button class="market-install-btn" onclick="installMarketAgent('${esc(a.id)}', this)">安裝</button>`}
+    </div>`).join('')}</div>`;
+}
+
+async function installMarketAgent(id, btn) {
+  btn.disabled = true; btn.textContent = '安裝中…';
+  const r = await fetch(`/marketplace/agents/${encodeURIComponent(id)}/install`, { method: 'POST' })
+    .then(x => x.json()).catch(() => ({ok: false}));
+  if (r.ok) {
+    btn.textContent = '✓ 已安裝'; btn.classList.add('installed');
+    await loadPersonas();
+  } else {
+    btn.disabled = false; btn.textContent = '安裝';
+    alert(r.detail || '安裝失敗');
+  }
 }
 
 function renderSkillsTab() {

@@ -510,6 +510,53 @@ async def post_config(body: dict):
     return {"ok": True}
 
 
+# ── Marketplace ───────────────────────────────────────────────────────────────
+
+MARKETPLACE_DIR = PROJECT_DIR / "marketplace"
+
+
+@app.get("/marketplace/agents")
+async def list_marketplace_agents():
+    if not MARKETPLACE_DIR.exists():
+        return []
+    installed = {d.name for d in AGENTS_DIR.iterdir() if d.is_dir() and not d.name.startswith("_")}
+    result = []
+    for agent_dir in sorted(MARKETPLACE_DIR.iterdir()):
+        if not agent_dir.is_dir():
+            continue
+        config_path = agent_dir / "config.json"
+        if not config_path.exists():
+            continue
+        cfg = json.loads(config_path.read_text())
+        result.append({
+            "id": agent_dir.name,
+            "emoji": cfg.get("emoji", "🤖"),
+            "color": cfg.get("color", "#888"),
+            "description": cfg.get("description", ""),
+            "installed": agent_dir.name in installed,
+        })
+    return result
+
+
+@app.post("/marketplace/agents/{agent_id}/install")
+async def install_marketplace_agent(agent_id: str):
+    src = MARKETPLACE_DIR / agent_id
+    if not src.is_dir():
+        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
+    dst = AGENTS_DIR / agent_id
+    if dst.exists():
+        raise HTTPException(status_code=409, detail="Agent already installed")
+    dst.mkdir(parents=True)
+    (dst / "memory").mkdir()
+    for fname in ["config.json", "AGENT.md", "IDENTITY.md", "SOUL.md"]:
+        src_file = src / fname
+        if src_file.exists():
+            (dst / fname).write_text(src_file.read_text())
+    # Create empty MEMORY.md
+    (dst / "MEMORY.md").write_text(DEFAULT_MEMORY_MD)
+    return {"ok": True, "name": agent_id}
+
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 
 @app.get("/agents")

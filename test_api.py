@@ -44,10 +44,14 @@ def tmp_project(tmp_path, monkeypatch):
         }
     }}, ensure_ascii=False))
 
+    marketplace_dir = tmp_path / "marketplace"
+    marketplace_dir.mkdir()
+
     monkeypatch.setattr(a, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(a, "HISTORY_DIR", history_dir)
     monkeypatch.setattr(a, "CONFIG_FILE", config_file)
     monkeypatch.setattr(a, "PROJECT_DIR", tmp_path)
+    monkeypatch.setattr(a, "MARKETPLACE_DIR", marketplace_dir)
 
     # Ensure _default template exists
     default_dir = agents_dir / "_default"
@@ -403,6 +407,78 @@ class TestFindSkillFile:
     def test_returns_none_when_missing(self, tmp_path):
         from app import find_skill_file
         assert find_skill_file(tmp_path) is None
+
+
+# ── Marketplace ───────────────────────────────────────────────────────────────
+
+class TestMarketplace:
+    def _seed_market(self, tmp_project, agent_id, installed=False):
+        mkt_dir = tmp_project / "marketplace" / agent_id
+        mkt_dir.mkdir(parents=True, exist_ok=True)
+        (mkt_dir / "config.json").write_text(json.dumps({
+            "emoji": "🧪", "color": "#fff", "description": "Test agent", "model": "", "skills": [], "enabled": True
+        }))
+        (mkt_dir / "AGENT.md").write_text("# Agent\nTest.")
+        (mkt_dir / "IDENTITY.md").write_text("# Identity\nTest.")
+        (mkt_dir / "SOUL.md").write_text("# Soul\nTest.")
+        if installed:
+            dst = tmp_project / "agents" / agent_id
+            dst.mkdir(parents=True, exist_ok=True)
+            (dst / "config.json").write_text((mkt_dir / "config.json").read_text())
+
+    def test_list_empty(self, client, tmp_project):
+        r = client.get("/marketplace/agents")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_list_shows_agents(self, client, tmp_project):
+        self._seed_market(tmp_project, "test-agent")
+        r = client.get("/marketplace/agents")
+        assert r.status_code == 200
+        items = r.json()
+        assert any(a["id"] == "test-agent" for a in items)
+
+    def test_list_marks_installed(self, client, tmp_project):
+        self._seed_market(tmp_project, "already-there", installed=True)
+        r = client.get("/marketplace/agents")
+        item = next(a for a in r.json() if a["id"] == "already-there")
+        assert item["installed"] is True
+
+    def test_list_marks_not_installed(self, client, tmp_project):
+        self._seed_market(tmp_project, "not-yet")
+        r = client.get("/marketplace/agents")
+        item = next(a for a in r.json() if a["id"] == "not-yet")
+        assert item["installed"] is False
+
+    def test_install(self, client, tmp_project):
+        self._seed_market(tmp_project, "fresh-agent")
+        r = client.post("/marketplace/agents/fresh-agent/install")
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+        assert (tmp_project / "agents" / "fresh-agent" / "AGENT.md").exists()
+        assert (tmp_project / "agents" / "fresh-agent" / "MEMORY.md").exists()
+        assert (tmp_project / "agents" / "fresh-agent" / "memory").is_dir()
+
+    def test_install_copies_all_files(self, client, tmp_project):
+        self._seed_market(tmp_project, "copy-test")
+        client.post("/marketplace/agents/copy-test/install")
+        for fname in ["config.json", "AGENT.md", "IDENTITY.md", "SOUL.md"]:
+            assert (tmp_project / "agents" / "copy-test" / fname).exists()
+
+    def test_install_not_found(self, client, tmp_project):
+        r = client.post("/marketplace/agents/ghost-agent/install")
+        assert r.status_code == 404
+
+    def test_install_duplicate(self, client, tmp_project):
+        self._seed_market(tmp_project, "dup-agent", installed=True)
+        r = client.post("/marketplace/agents/dup-agent/install")
+        assert r.status_code == 409
+
+    def test_installed_agent_appears_in_agents_list(self, client, tmp_project):
+        self._seed_market(tmp_project, "visible-agent")
+        client.post("/marketplace/agents/visible-agent/install")
+        agents = client.get("/agents").json()
+        assert any(a["name"] == "visible-agent" for a in agents)
 
 
 # ── Ollama endpoints ───────────────────────────────────────────────────────────
