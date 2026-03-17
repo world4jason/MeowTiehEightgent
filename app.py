@@ -557,7 +557,7 @@ async def get_marketplace_agent(agent_id: str):
 
 
 @app.post("/marketplace/agents/{agent_id}/install")
-async def install_marketplace_agent(agent_id: str):
+async def install_marketplace_agent(agent_id: str, body: dict = {}):
     src = MARKETPLACE_DIR / agent_id
     if not src.is_dir():
         raise HTTPException(status_code=404, detail="Agent not found in marketplace")
@@ -566,11 +566,15 @@ async def install_marketplace_agent(agent_id: str):
         raise HTTPException(status_code=409, detail="Agent already installed")
     dst.mkdir(parents=True)
     (dst / "memory").mkdir()
-    for fname in ["config.json", "AGENT.md", "IDENTITY.md", "SOUL.md"]:
+    for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
         src_file = src / fname
         if src_file.exists():
             (dst / fname).write_text(src_file.read_text())
-    # Create empty MEMORY.md
+    # Merge marketplace config with chosen model
+    cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
+    if body.get("model"):
+        cfg["model"] = body["model"]
+    (dst / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
     (dst / "MEMORY.md").write_text(DEFAULT_MEMORY_MD)
     return {"ok": True, "name": agent_id}
 

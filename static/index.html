@@ -1415,12 +1415,16 @@ function closeMarketPreview() {
 }
 
 async function installMarketAgent(id, btn) {
+  const model = await pickModel();
+  if (model === null) return; // cancelled
   btn.disabled = true; btn.textContent = '安裝中…';
-  const r = await fetch(`/marketplace/agents/${encodeURIComponent(id)}/install`, { method: 'POST' })
-    .then(x => x.json()).catch(() => ({ok: false}));
+  const r = await fetch(`/marketplace/agents/${encodeURIComponent(id)}/install`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ model }),
+  }).then(x => x.json()).catch(() => ({ok: false}));
   if (r.ok) {
     btn.textContent = '✓ 已安裝'; btn.classList.add('installed');
-    // Update card in grid too
     const card = document.getElementById(`mkt-${id}`);
     if (card) card.querySelector('span').textContent = '✓ 已安裝';
     await loadPersonas();
@@ -1428,6 +1432,31 @@ async function installMarketAgent(id, btn) {
     btn.disabled = false; btn.textContent = '安裝';
     alert(r.detail || '安裝失敗');
   }
+}
+
+function pickModel() {
+  return new Promise(resolve => {
+    const models = modelData.length ? modelData : [];
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:#0008;z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = `
+      <div style="background:#1e1e2e;border:1px solid #333;border-radius:12px;padding:24px;min-width:280px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:0.9rem;font-weight:600;color:#e2e8f0">選擇使用的模型</div>
+        <select id="pick-model-sel" style="background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:0.84rem;outline:none">
+          ${models.map(m => `<option value="${esc(m.id)}">${esc(m.emoji || '')} ${esc(m.label || m.id)}</option>`).join('')}
+          ${!models.length ? `<option value="">（尚無模型）</option>` : ''}
+        </select>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="pick-cancel" style="padding:7px 16px;border-radius:7px;border:1px solid #444;background:transparent;color:#aaa;cursor:pointer;font-size:0.84rem">取消</button>
+          <button id="pick-confirm" style="padding:7px 16px;border-radius:7px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:0.84rem;font-weight:600">確認安裝</button>
+        </div>
+      </div>`;
+    const close = (val) => { document.body.removeChild(overlay); resolve(val); };
+    overlay.querySelector('#pick-confirm').onclick = () => close(overlay.querySelector('#pick-model-sel').value || '');
+    overlay.querySelector('#pick-cancel').onclick = () => close(null);
+    overlay.onclick = e => { if (e.target === overlay) close(null); };
+    document.body.appendChild(overlay);
+  });
 }
 
 function renderSkillsTab() {
