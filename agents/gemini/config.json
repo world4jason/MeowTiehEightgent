@@ -1,0 +1,8 @@
+{
+  "emoji": "\ud83d\udfe2",
+  "color": "#34d399",
+  "description": "Gemini agent",
+  "model": "gemini",
+  "skills": [],
+  "enabled": true
+}

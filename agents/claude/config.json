@@ -1,0 +1,8 @@
+{
+  "emoji": "\ud83d\udfe3",
+  "color": "#a78bfa",
+  "description": "Claude agent",
+  "model": "claude",
+  "skills": [],
+  "enabled": true
+}

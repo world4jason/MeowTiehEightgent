@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.claude/
+history/
+hidden_sessions.json
+config.json

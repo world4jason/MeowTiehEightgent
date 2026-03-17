@@ -1,0 +1,1625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Chat Room</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #212121; --sidebar-bg: #171717; --surface: #2f2f2f; --surface2: #3a3a3a;
+    --border: #3a3a3a; --text: #ececec; --text-muted: #8e8ea0; --accent: #10a37f;
+    --input-bg: #2f2f2f; --panel-bg: #1a1a1a;
+  }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  #sidebar { width: 260px; min-width: 260px; background: var(--sidebar-bg); display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+  #sidebar-header { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 6px; }
+  .sb-btn {
+    display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 7px;
+    border: 1px solid var(--border); background: transparent; color: var(--text);
+    cursor: pointer; font-size: 0.82rem; font-weight: 500; transition: background 0.15s; width: 100%; text-align: left;
+  }
+  .sb-btn:hover { background: var(--surface); }
+  #sidebar-label { padding: 10px 12px 4px; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+  #session-list { flex: 1; overflow-y: auto; padding: 0 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+  #sidebar-footer { padding: 10px 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
+  #settings-btn { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 7px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.84rem; font-weight: 500; width: 100%; text-align: left; transition: background 0.15s, color 0.15s; }
+  #settings-btn:hover { background: var(--surface); color: var(--text); }
+  .session-item { padding: 6px 6px 6px 10px; border-radius: 7px; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: background 0.12s; display: flex; align-items: center; gap: 4px; }
+  .session-item:hover { background: var(--surface); color: var(--text); }
+  .session-item.active { background: var(--surface2); color: var(--text); }
+  .session-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-delete, .session-download { flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
+  .session-item:hover .session-delete, .session-item:hover .session-download { color: var(--text-muted); }
+  .session-delete:hover { background: #dc262620 !important; color: #f87171 !important; }
+  .session-download:hover { background: var(--surface2) !important; color: var(--text) !important; }
+
+  /* ── Main ── */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+  /* ── Welcome ── */
+  #welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 40px; }
+  #welcome h2 { font-size: 1.7rem; font-weight: 600; background: linear-gradient(135deg, #a78bfa, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  #welcome p { color: var(--text-muted); font-size: 0.88rem; }
+  #agent-select { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .agent-chip { display: flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 20px; border: 2px solid var(--border); background: var(--surface); cursor: pointer; font-size: 0.82rem; font-weight: 500; transition: border-color 0.15s; user-select: none; }
+  .agent-chip input { display: none; }
+  .agent-chip.checked { border-color: #555; background: #1e1e2e; }
+  .agent-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  #mode-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  #mode-toggle { display: flex; gap: 3px; background: var(--surface); border-radius: 7px; padding: 3px; border: 1px solid var(--border); }
+  .mode-btn { padding: 5px 14px; border-radius: 5px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; font-weight: 500; transition: background 0.12s, color 0.12s; }
+  .mode-btn.active { background: var(--surface2); color: var(--text); }
+  #rounds-wrap { display: none; align-items: center; gap: 5px; font-size: 0.8rem; color: var(--text-muted); }
+  #rounds-wrap.visible { display: flex; }
+  #rounds-input { width: 38px; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 0.8rem; text-align: center; padding: 3px 4px; outline: none; }
+  #rounds-input:focus { border-color: #555; }
+
+  .tooltip-wrap { position: relative; display: inline-flex; }
+  .tooltip-icon { width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); font-size: 0.68rem; font-weight: 700; cursor: default; display: flex; align-items: center; justify-content: center; user-select: none; }
+  .tooltip-box { display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: 220px; background: #111; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 0.76rem; line-height: 1.6; color: var(--text); z-index: 50; pointer-events: none; }
+  .tooltip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--border); }
+  .tooltip-wrap:hover .tooltip-box { display: block; }
+  #welcome-input-wrap { width: 100%; max-width: 540px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 11px 12px; display: flex; align-items: flex-end; gap: 8px; transition: border-color 0.2s; }
+  #welcome-input-wrap:focus-within { border-color: #555; }
+  #topic-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.9rem; resize: none; line-height: 1.5; max-height: 160px; }
+  #topic-input::placeholder { color: var(--text-muted); }
+  #start-btn { width: 34px; height: 34px; border-radius: 7px; border: none; background: var(--accent); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
+  #start-btn:hover { opacity: 0.85; }
+
+  /* ── Chat ── */
+  #chat-area { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  #chat-header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  #chat-header .topic-text { font-size: 0.85rem; color: var(--text-muted); flex: 1; }
+  #chat-header .agents-pills { display: flex; gap: 5px; }
+  .agent-pill { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+
+  #messages { flex: 1; overflow-y: auto; padding: 16px 0 16px; display: flex; flex-direction: column; }
+  #messages::-webkit-scrollbar { width: 5px; }
+  #messages::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+
+  .msg-row { padding: 5px 0; display: flex; justify-content: center; }
+  .msg-row.human-row { justify-content: flex-end; }
+  .msg-content { width: 100%; max-width: 720px; padding: 0 20px; display: flex; gap: 12px; align-items: flex-start; }
+  .msg-row.human-row .msg-content { justify-content: flex-end; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.62rem; font-weight: 700; flex-shrink: 0; }
+  .msg-body { flex: 1; min-width: 0; }
+  .msg-name { font-size: 0.76rem; font-weight: 600; margin-bottom: 2px; }
+  .msg-text { font-size: 0.88rem; line-height: 1.7; color: var(--text); word-break: break-word; }
+  .msg-text p { margin: 0 0 0.6em; }
+  .msg-text p:last-child { margin-bottom: 0; }
+  .msg-text pre { background: #1e1e1e; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 0.6em 0; }
+  .msg-text pre code { background: none; padding: 0; font-size: 0.82rem; font-family: ui-monospace, 'Cascadia Code', monospace; }
+  .msg-text code { background: #2a2a2a; padding: 1px 5px; border-radius: 4px; font-size: 0.83em; font-family: ui-monospace, 'Cascadia Code', monospace; }
+  .msg-text ul, .msg-text ol { padding-left: 1.4em; margin: 0.4em 0; }
+  .msg-text li { margin: 0.15em 0; }
+  .msg-text h1,.msg-text h2,.msg-text h3 { margin: 0.6em 0 0.3em; font-weight: 600; }
+  .msg-text blockquote { border-left: 3px solid var(--border); padding-left: 10px; color: var(--text-muted); margin: 0.4em 0; }
+  .msg-meta { display: flex; gap: 8px; align-items: center; margin-top: 4px; font-size: 0.68rem; color: var(--text-muted); }
+  .msg-duration { color: #6ee7b7; }
+  .msg-meta-human { text-align: right; margin-top: 3px; font-size: 0.68rem; color: var(--text-muted); }
+  .human-bubble { background: var(--surface); border: 1px solid var(--border); border-radius: 14px 14px 3px 14px; padding: 8px 13px; font-size: 0.88rem; line-height: 1.6; max-width: 480px; }
+  .human-bubble.queued { opacity: 0.6; }
+  .msg-queued { text-align: right; font-size: 0.65rem; color: var(--text-muted); margin-top: 2px; }
+  .msg-row.system-row { justify-content: center; padding: 3px 0; }
+  .system-text { font-size: 0.71rem; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); padding: 3px 11px; border-radius: 20px; }
+  .thinking-row { padding: 5px 0; display: flex; justify-content: center; }
+  .thinking-content { width: 100%; max-width: 720px; padding: 0 20px; display: flex; gap: 12px; align-items: center; }
+  .dots { display: flex; gap: 4px; }
+  .dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: bounce 1.3s infinite ease-in-out; }
+  .dots span:nth-child(2) { animation-delay: .15s; }
+  .dots span:nth-child(3) { animation-delay: .3s; }
+  @keyframes bounce { 0%,80%,100%{transform:translateY(0);opacity:.4} 40%{transform:translateY(-5px);opacity:1} }
+
+  #input-wrap { padding: 8px 20px 14px; display: flex; justify-content: center; }
+  #input-inner { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 5px; }
+  #input-box { background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 9px 9px 9px 13px; display: flex; align-items: flex-end; gap: 7px; transition: border-color 0.2s; }
+  #input-box:focus-within { border-color: #555; }
+  #msg-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.88rem; resize: none; line-height: 1.5; max-height: 100px; }
+  #msg-input::placeholder { color: var(--text-muted); }
+  .bar-actions { display: flex; gap: 5px; align-items: center; }
+  .bar-btn { height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.78rem; display: flex; align-items: center; gap: 4px; transition: background 0.12s, color 0.12s; }
+  .bar-btn:hover { background: var(--surface2); color: var(--text); }
+  #next-btn { display: none; }
+  #next-btn.visible { display: flex; }
+  #stop-btn:hover { background: #dc262615; color: #f87171; border-color: #dc2626; }
+  #send-btn { width: 30px; height: 30px; border-radius: 6px; border: none; background: var(--text); color: #111; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
+  #send-btn:hover { opacity: 0.85; }
+  .hint-text { text-align: center; font-size: 0.68rem; color: var(--text-muted); }
+
+  /* ── Skill Picker ── */
+  #skill-picker { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: #1e1e1e; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 100; }
+  .skill-item { display: flex; flex-direction: column; gap: 2px; padding: 9px 14px; cursor: pointer; transition: background 0.1s; }
+  .skill-item:hover, .skill-item.focused { background: var(--surface); }
+  .skill-item-name { font-size: 0.82rem; font-weight: 600; color: var(--text); }
+  .skill-item-desc { font-size: 0.73rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #input-inner { position: relative; }
+
+  /* ── Settings Panel (full-page) ── */
+  #settings-overlay { position: fixed; inset: 0; z-index: 100; display: none; }
+  #settings-overlay.open { display: flex; }
+  #settings-panel { background: var(--bg); width: 100%; height: 100%; display: flex; overflow: hidden; }
+  #close-settings { margin-top: auto; background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 9px 14px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 0.88rem; width: 100%; text-align: left; transition: background 0.12s, color 0.12s; }
+  #close-settings:hover { color: var(--text); background: var(--surface); }
+
+  /* Settings layout */
+  #settings-layout { flex: 1; display: flex; overflow: hidden; width: 100%; }
+  #settings-nav { width: 220px; min-width: 220px; background: var(--panel-bg); border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+  .settings-nav-item { padding: 9px 14px; border-radius: 8px; font-size: 0.88rem; cursor: pointer; color: var(--text-muted); transition: background 0.12s, color 0.12s; user-select: none; }
+  .settings-nav-item:hover { background: var(--surface); color: var(--text); }
+  .settings-nav-item.active { background: var(--surface); color: var(--text); font-weight: 600; }
+  #settings-content { flex: 1; overflow: hidden; display: flex; position: relative; }
+
+  /* Tab panes */
+  .settings-tab { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .settings-tab.active { display: flex; }
+  .settings-tab-body { flex: 1; overflow-y: auto; padding: 24px 32px; display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+  .settings-tab-footer { padding: 12px 32px; border-top: 1px solid var(--border); flex-shrink: 0; max-width: 760px; }
+  #save-settings-btn { width: 100%; padding: 9px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s; }
+  #save-settings-btn:hover { opacity: 0.85; }
+
+  /* 模型 tab two-panel */
+  #tab-models { flex-direction: row; overflow: hidden; }
+  #models-agent-list { width: 220px; min-width: 220px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #models-agent-list-inner { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 4px; }
+  #models-config-area { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 0; }
+  #models-config-body { display: flex; flex-direction: column; gap: 16px; }
+  /* Agent list items (left sidebar of 模型 tab) */
+  .model-list-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; border: 1px solid transparent; }
+  .model-list-item:hover { background: var(--surface); }
+  .model-list-item.active { background: var(--surface); border-color: var(--border); }
+  .model-list-emoji { font-size: 1.1rem; flex-shrink: 0; }
+  .model-list-info { flex: 1; min-width: 0; }
+  .model-list-name { font-size: 0.84rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .model-list-type { font-size: 0.68rem; color: var(--text-muted); }
+  .model-list-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .model-add-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 8px; cursor: pointer; color: var(--text-muted); font-size: 0.84rem; transition: background 0.12s, color 0.12s; border: 1px dashed var(--border); margin-top: 4px; }
+  .model-add-item:hover { background: var(--surface); color: var(--text); border-color: #555; }
+  /* Config area fields */
+  .model-config-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .model-config-emoji { font-size: 2rem; }
+  .model-config-title { font-size: 1rem; font-weight: 700; flex: 1; }
+  .model-config-section { display: flex; flex-direction: column; gap: 8px; }
+  .model-config-section-title { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 2px; }
+  .field-row { display: flex; align-items: center; gap: 8px; }
+  .field-label { font-size: 0.75rem; color: var(--text-muted); width: 70px; flex-shrink: 0; }
+  .field-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--text); font-size: 0.82rem; outline: none; font-family: monospace; }
+  .field-input:focus { border-color: #555; }
+  .model-md-editor { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 0.82rem; outline: none; width: 100%; min-height: 140px; resize: vertical; line-height: 1.6; font-family: ui-monospace, 'Cascadia Code', monospace; }
+  .model-md-editor:focus { border-color: #555; }
+  .test-btn { padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; white-space: nowrap; transition: background 0.12s; }
+  .test-btn:hover { background: var(--surface2); color: var(--text); }
+  .test-result { font-size: 0.75rem; padding: 4px 8px; border-radius: 5px; }
+  .test-result.ok { background: #064e3b; color: #6ee7b7; }
+  .test-result.fail { background: #450a0a; color: #fca5a5; }
+  .model-select { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--text); font-size: 0.82rem; outline: none; }
+  .refresh-btn { padding: 4px 8px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.72rem; }
+  .refresh-btn:hover { background: var(--surface2); }
+  .model-save-bar { display: flex; gap: 8px; padding-top: 8px; }
+  .model-save-btn { padding: 7px 18px; border-radius: 7px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.84rem; font-weight: 600; transition: opacity 0.15s; }
+  .model-save-btn:hover { opacity: 0.85; }
+  .model-del-btn { padding: 7px 14px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.84rem; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+  .model-del-btn:hover { background: #dc262615; color: #f87171; border-color: #dc2626; }
+  /* 關於我 tab */
+  .about-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
+  .about-textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-size: 0.84rem; outline: none; width: 100%; min-height: 400px; resize: vertical; line-height: 1.7; font-family: ui-monospace, 'Cascadia Code', monospace; }
+  .about-textarea:focus { border-color: #555; }
+  #save-about-btn { width: 100%; padding: 9px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+  .toggle-switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track { position: absolute; inset: 0; background: var(--surface2); border-radius: 9px; cursor: pointer; transition: background 0.2s; border: 1px solid var(--border); }
+  .toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-muted); transition: transform 0.2s, background 0.2s; }
+  .toggle-switch input:checked + .toggle-track { background: #166534; border-color: #16a34a; }
+  .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); background: #4ade80; }
+
+  /* 代理人 tab - same two-panel layout */
+  #tab-agents { flex-direction: row; overflow: hidden; }
+  #agents-list { width: 220px; min-width: 220px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #agents-list-inner { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 4px; }
+  #agents-config-area { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; }
+  #agents-config-body { display: flex; flex-direction: column; gap: 16px; }
+  /* Shared item/action styles */
+  .asst-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .asst-gear-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.82rem; transition: background 0.12s, color 0.12s; }
+  .asst-gear-btn:hover { background: var(--surface2); color: var(--text); }
+
+  /* Assistant edit panel (slide-in) */
+  #asst-edit-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 420px; background: var(--panel-bg); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; z-index: 10; }
+  #asst-edit-panel.open { transform: translateX(0); }
+  .asst-edit-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .asst-edit-back { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px 6px; border-radius: 5px; font-size: 0.8rem; transition: background 0.12s, color 0.12s; }
+  .asst-edit-back:hover { background: var(--surface); color: var(--text); }
+  .asst-edit-title { font-size: 0.88rem; font-weight: 600; }
+  .asst-edit-body { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+  .asst-edit-avatar-row { display: flex; align-items: center; gap: 12px; }
+  .asst-edit-field { display: flex; flex-direction: column; gap: 5px; }
+  .asst-edit-label { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .asst-edit-input { background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; color: var(--text); font-size: 0.84rem; outline: none; width: 100%; }
+  .asst-edit-input:focus { border-color: #555; }
+  .asst-edit-textarea { resize: vertical; min-height: 90px; font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.8rem; line-height: 1.6; }
+  .asst-edit-footer { padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+  .asst-edit-save-btn { width: 100%; padding: 8px; border-radius: 7px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s; }
+  .asst-edit-save-btn:hover { opacity: 0.85; }
+
+  /* Assistant create/edit form */
+  .asst-form-section { display: flex; flex-direction: column; gap: 6px; }
+  .asst-form-label { font-size: 0.83rem; font-weight: 600; color: var(--text); }
+  .required-mark { color: #f87171; margin-right: 3px; }
+  .asst-name-row { display: flex; align-items: center; gap: 10px; }
+  .asst-emoji-btn { width: 46px; height: 46px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.12s; }
+  .asst-emoji-btn:hover { background: var(--surface2); }
+  .asst-form-input { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 0.88rem; outline: none; width: 100%; }
+  .asst-form-input:focus { border-color: #555; }
+  .asst-form-select { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 0.88rem; outline: none; width: 100%; cursor: pointer; }
+  .asst-form-textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 0.83rem; outline: none; width: 100%; min-height: 110px; resize: vertical; line-height: 1.6; font-family: ui-monospace, 'Cascadia Code', monospace; }
+  .asst-form-textarea:focus { border-color: #555; }
+  .asst-rules-label-row { display: flex; align-items: center; justify-content: space-between; }
+  .asst-preview-toggle { padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.74rem; transition: background 0.12s, color 0.12s; }
+  .asst-preview-toggle:hover, .asst-preview-toggle.active { background: var(--surface2); color: var(--text); }
+  .asst-rules-preview { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; min-height: 110px; font-size: 0.86rem; line-height: 1.7; }
+  /* Skill checklist inside assistant form */
+  .asst-skill-group { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .asst-skill-group-header { display: flex; align-items: center; gap: 8px; padding: 11px 16px; cursor: pointer; font-size: 0.85rem; font-weight: 600; user-select: none; transition: background 0.12s; }
+  .asst-skill-group-header:hover { background: var(--surface2); }
+  .asst-skill-group-header .sg-count { margin-left: auto; font-size: 0.76rem; color: var(--text-muted); font-weight: 400; }
+  .asst-skill-group-body { border-top: 1px solid var(--border); }
+  .asst-skill-row { display: flex; align-items: flex-start; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+  .asst-skill-row:last-child { border-bottom: none; }
+  .asst-skill-row:hover { background: var(--surface2); }
+  .asst-skill-row input[type=checkbox] { margin-top: 3px; flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  .asst-skill-row-info { flex: 1; pointer-events: none; }
+  .asst-skill-row-name { font-size: 0.84rem; font-weight: 600; }
+  .asst-skill-row-desc { font-size: 0.73rem; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+  /* Welcome screen assistant picker */
+  #asst-picker-wrap { display: none; flex-direction: column; align-items: center; gap: 8px; }
+  #asst-picker-wrap.visible { display: flex; }
+  .asst-picker-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+  #asst-chip-row { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; }
+
+  /* Skill panels (slide-in pattern) */
+  #skill-edit-panel, #skill-add-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 520px; background: var(--panel-bg); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; z-index: 10; }
+  #skill-edit-panel.open, #skill-add-panel.open { transform: translateX(0); }
+  #skill-edit-panel .asst-edit-textarea, #skill-add-panel .asst-edit-textarea { min-height: 280px; }
+
+  /* 技能 tab */
+  .skill-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; background: var(--surface); border-radius: 10px; }
+  .skill-card-icon { width: 32px; height: 32px; border-radius: 7px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; }
+  .skill-card-info { flex: 1; min-width: 0; }
+  .skill-card-name { font-size: 0.85rem; font-weight: 600; }
+  .skill-card-desc { font-size: 0.73rem; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <button class="sb-btn" onclick="showWelcome()">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      New session
+    </button>
+  </div>
+  <div id="sidebar-label">Recent</div>
+  <div id="session-list"></div>
+  <div id="sidebar-footer">
+    <button id="settings-btn" onclick="openSettings()">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      設定
+    </button>
+  </div>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <!-- Welcome -->
+  <div id="welcome">
+    <h2>Agent Chat Room</h2>
+    <p>Pick agents, choose a mode, then start.</p>
+    <div id="agent-select"></div>
+    <div id="mode-row">
+      <div id="mode-toggle">
+        <button class="mode-btn active" id="btn-auto" onclick="setMode('auto')">Auto</button>
+        <button class="mode-btn" id="btn-manual" onclick="setMode('manual')">Manual</button>
+      </div>
+      <div id="rounds-wrap">
+        每 <input id="rounds-input" type="number" min="1" max="20" value="2"> 輪暫停
+      </div>
+      <div class="tooltip-wrap">
+        <span class="tooltip-icon">?</span>
+        <div class="tooltip-box">
+          <b>Auto</b> — Agents take turns automatically. You can type anytime to interrupt.<br><br>
+          <b>Manual</b> — Each turn pauses after the agent responds. Press <b>Next →</b> to advance, or type to interrupt.
+        </div>
+      </div>
+    </div>
+    <div id="welcome-input-wrap">
+      <textarea id="topic-input" rows="1" placeholder="What should they discuss?" oninput="autoResize(this)" onkeydown="topicKey(event)"></textarea>
+      <button id="start-btn" onclick="startSession()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div id="chat-area">
+    <div id="chat-header">
+      <span class="topic-text" id="chat-topic"></span>
+      <div class="agents-pills" id="chat-agents"></div>
+    </div>
+    <div id="messages"></div>
+    <div id="input-wrap">
+      <div id="input-inner">
+        <div id="skill-picker"></div>
+        <div id="input-box">
+          <textarea id="msg-input" rows="1" placeholder="Interrupt the discussion… (/ for skills)" oninput="onMsgInput(this)" onkeydown="msgKey(event)" onblur="setTimeout(hideSkillPicker,150)"></textarea>
+          <div class="bar-actions">
+            <button class="bar-btn" id="next-btn" onclick="sendNext()">Next →</button>
+            <button class="bar-btn" id="stop-btn" onclick="stopSession()">■ Stop</button>
+            <button id="send-btn" onclick="sendHuman()">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="hint-text">Enter to send · Shift+Enter for newline · Your message resets turn order</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Overlay -->
+<div id="settings-overlay" onclick="closeSettingsOnBg(event)">
+  <div id="settings-panel">
+    <div id="settings-layout">
+      <nav id="settings-nav">
+        <div class="settings-nav-item active" data-tab="models" onclick="switchSettingsTab('models')">模型</div>
+        <div class="settings-nav-item" data-tab="agents" onclick="switchSettingsTab('agents')">代理人</div>
+        <div class="settings-nav-item" data-tab="skills" onclick="switchSettingsTab('skills')">技能</div>
+        <div class="settings-nav-item" data-tab="default" onclick="switchSettingsTab('default')">關於你</div>
+        <div class="settings-nav-item" data-tab="about" onclick="switchSettingsTab('about')">關於我</div>
+        <button id="close-settings" onclick="closeSettings()">← 返回</button>
+      </nav>
+      <div id="settings-content">
+        <!-- 模型 tab -->
+        <div class="settings-tab active" id="tab-models">
+          <div id="models-agent-list">
+            <div id="models-agent-list-inner"></div>
+          </div>
+          <div id="models-config-area">
+            <div id="models-config-body"></div>
+          </div>
+        </div>
+        <!-- 代理人 tab -->
+        <div class="settings-tab" id="tab-agents">
+          <div id="agents-list">
+            <div id="agents-list-inner"></div>
+          </div>
+          <div id="agents-config-area">
+            <div id="agents-config-body"></div>
+          </div>
+        </div>
+        <!-- 技能 tab -->
+        <div class="settings-tab" id="tab-skills">
+          <div class="settings-tab-header" style="display:flex;align-items:center;gap:8px;padding:12px 16px 0">
+            <span style="flex:1;font-size:0.8rem;color:var(--text-muted)">已安裝的技能</span>
+            <button class="bar-btn" onclick="openAddSkill()">＋ 新增</button>
+            <label class="bar-btn" style="cursor:pointer" title="上傳 .zip 技能包">
+              📦 上傳
+              <input type="file" accept=".zip" id="skill-upload-input" style="display:none" onchange="uploadSkillZip(this)">
+            </label>
+          </div>
+          <div class="settings-tab-body" id="tab-skills-body"></div>
+          <!-- add skill form -->
+          <div id="skill-add-panel">
+            <div class="asst-edit-header">
+              <button class="asst-edit-back" onclick="closeAddSkill()">← 返回</button>
+              <span class="asst-edit-title">新增技能</span>
+            </div>
+            <div class="asst-edit-body">
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">Slug（資料夾名稱）</span>
+                <input class="asst-edit-input" id="new-skill-slug" placeholder="my-skill">
+              </div>
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">名稱</span>
+                <input class="asst-edit-input" id="new-skill-name" placeholder="My Skill">
+              </div>
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">描述</span>
+                <input class="asst-edit-input" id="new-skill-desc" placeholder="一句話描述這個技能">
+              </div>
+              <div class="asst-edit-field" style="flex:1">
+                <span class="asst-edit-label">內容（Markdown）</span>
+                <textarea class="asst-edit-input asst-edit-textarea" id="new-skill-body" placeholder="# My Skill&#10;&#10;技能說明..."></textarea>
+              </div>
+            </div>
+            <div class="asst-edit-footer">
+              <button class="asst-edit-save-btn" id="new-skill-save-btn" onclick="submitNewSkill()">建立</button>
+            </div>
+          </div>
+          <!-- edit skill panel -->
+          <div id="skill-edit-panel">
+            <div class="asst-edit-header">
+              <button class="asst-edit-back" onclick="closeSkillEdit()">← 返回</button>
+              <span class="asst-edit-title" id="skill-edit-title">編輯技能</span>
+            </div>
+            <div class="asst-edit-body" id="skill-edit-body"></div>
+            <div class="asst-edit-footer">
+              <button class="asst-edit-save-btn" onclick="saveSkillEdit()">儲存</button>
+            </div>
+          </div>
+        </div>
+        <!-- 關於你 tab (edit _default templates) -->
+        <div class="settings-tab" id="tab-default">
+          <div class="settings-tab-body" id="tab-default-body"></div>
+          <div class="settings-tab-footer">
+            <button id="save-default-btn" onclick="saveDefaultTab()">儲存</button>
+          </div>
+        </div>
+        <!-- 關於我 tab -->
+        <div class="settings-tab" id="tab-about">
+          <div class="settings-tab-body" id="tab-about-body"></div>
+          <div class="settings-tab-footer">
+            <button id="save-about-btn" onclick="saveAboutTab()">儲存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Markdown renderer ─────────────────────────────────────────
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
+function renderMarkdown(text) {
+  const html = marked.parse(text);
+  // Parse into a temporary element so we can run hljs on code blocks
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+  return tmp.innerHTML;
+}
+
+let ws = null;
+let thinkingEl = null;
+let currentMode = 'auto';
+let agentData = [];   // persona agents from /agents
+let modelData = [];   // LLM connections from /models
+let skillData = [];
+let skillPickerIndex = -1;
+let configData = {};
+let currentView = 'welcome';
+
+// ── Init ──────────────────────────────────────────────────────
+async function init() {
+  await Promise.all([loadAgents(), loadModels(), loadSessions(), loadConfig(), loadSkills()]);
+}
+
+async function loadModels() {
+  modelData = await fetch('/models').then(r => r.json()).catch(() => []);
+}
+
+async function loadSkills() {
+  skillData = await fetch('/skills').then(r => r.json()).catch(() => []);
+}
+
+async function loadConfig() {
+  configData = await fetch('/config').then(r => r.json()).catch(() => ({}));
+}
+
+async function loadAgents() {
+  try {
+    agentData = await fetch('/agents').then(r => r.json());
+    renderAgentChips();
+  } catch(e) { console.error(e); }
+}
+
+function renderAgentChips() {
+  const container = document.getElementById('agent-select');
+  container.innerHTML = '';
+  agentData.forEach(a => {
+    if (!a.enabled) return;
+    const chip = document.createElement('label');
+    chip.className = 'agent-chip checked';
+    chip.dataset.name = a.name;
+    chip.innerHTML = `<input type="checkbox" checked><span class="dot" style="background:${a.color}"></span><span>${a.emoji} ${a.name}</span>`;
+    chip.addEventListener('click', () => {
+      const cb = chip.querySelector('input');
+      cb.checked = !cb.checked;
+      chip.classList.toggle('checked', cb.checked);
+    });
+    chip.querySelector('input').addEventListener('click', e => e.preventDefault());
+    container.appendChild(chip);
+  });
+}
+
+async function loadSessions() {
+  try {
+    const sessions = await fetch('/sessions').then(r => r.json());
+    const list = document.getElementById('session-list');
+    list.innerHTML = '';
+    sessions.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'session-item';
+      el.dataset.id = s.id;
+      el.title = s.first_message;
+      el.innerHTML = `
+        <span class="session-item-label">${esc(s.first_message || s.id)}</span>
+        <button class="session-download" title="下載對話" onclick="downloadSession(event,'${s.id}')">⬇</button>
+        <button class="session-delete" title="Hide session" onclick="hideSession(event,'${s.id}')">✕</button>`;
+      el.onclick = (e) => { if (!e.target.classList.contains('session-delete')) loadSession(s.id, el); };
+      list.appendChild(el);
+    });
+  } catch {}
+}
+
+// ── Load historical session ───────────────────────────────────
+let historySessionId = null;
+let historyTopic = null;
+
+async function loadSession(id, el) {
+  if (ws) { ws.close(); ws = null; }
+  const msgs = await fetch(`/sessions/${id}`).then(r => r.json());
+
+  document.querySelectorAll('.session-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+
+  historySessionId = id;
+  const sysMsg = msgs.find(m => m.type === 'system');
+  historyTopic = sysMsg ? sysMsg.text.replace(/^Topic:\s*/, '') : id;
+
+  showChatArea();
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('chat-topic').textContent = historyTopic;
+  document.getElementById('next-btn').classList.remove('visible');
+
+  // Show last-used agents in header (from messages)
+  const agentsInSession = [...new Set(
+    msgs.filter(m => m.type === 'message' && m.agent !== 'Human').map(m => m.agent)
+  )];
+  const pillsEl = document.getElementById('chat-agents');
+  pillsEl.innerHTML = '';
+  agentsInSession.forEach(name => {
+    const a = agentData.find(x => x.name === name);
+    if (!a) return;
+    const p = document.createElement('span');
+    p.className = 'agent-pill';
+    p.style.cssText = `background:${a.color}22;color:${a.color};border:1px solid ${a.color}44`;
+    p.textContent = `${a.emoji} ${a.name}`;
+    pillsEl.appendChild(p);
+  });
+
+  msgs.forEach(m => {
+    if (m.type === 'system') addSystem(m.text);
+    else if (m.type === 'message') addMessage(m.agent, m.text, m.color || '#888', m.timestamp, m.duration_ms, false, m.skill || null);
+  });
+
+  addSystem('Type a message to continue this session…');
+  document.getElementById('msg-input').focus();
+}
+
+// Called on first human message when in history-view mode (ws is null)
+function continueSessionWith(text) {
+  const selected = agentData.filter(a => a.enabled).map(a => a.name);
+
+  addSystem(`Resuming with: ${selected.join(', ')}`);
+
+  // Update header pills
+  const pillsEl = document.getElementById('chat-agents');
+  pillsEl.innerHTML = '';
+  selected.forEach(name => {
+    const a = agentData.find(x => x.name === name);
+    if (!a) return;
+    const p = document.createElement('span');
+    p.className = 'agent-pill';
+    p.style.cssText = `background:${a.color}22;color:${a.color};border:1px solid ${a.color}44`;
+    p.textContent = `${a.emoji} ${a.name}`;
+    pillsEl.appendChild(p);
+  });
+
+  // Capture before clearing (ws.onopen fires async, after historySessionId would be null)
+  const resumeId = historySessionId;
+  historySessionId = null;
+
+  // Show human message immediately in UI (only if there is one)
+  if (text) addMessage('Human', text, '#60a5fa', new Date().toISOString());
+
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      type: 'start',
+      topic: historyTopic,
+      agents: selected,
+      auto: currentMode === 'auto',
+      rounds: getManualRounds(),
+      resume_from: resumeId,
+    }));
+    // Only send human message if there is one; empty send just resumes agent loop
+    if (text) ws.send(JSON.stringify({ type: 'human', text }));
+  };
+  ws.onmessage = e => {
+    const data = JSON.parse(e.data);
+    // Skip the server echo of the human message we already displayed
+    if (data.type === 'message' && data.agent === 'Human') return;
+    handleMessage(data);
+  };
+  ws.onclose = () => { addSystem('Disconnected.'); loadSessions(); };
+  ws.onerror = () => addSystem('Connection error.');
+}
+
+// ── UI helpers ────────────────────────────────────────────────
+function showWelcome() {
+  if (ws) { ws.close(); ws = null; }
+  document.getElementById('welcome').style.display = 'flex';
+  document.getElementById('chat-area').style.display = 'none';
+  document.querySelectorAll('.session-item').forEach(e => e.classList.remove('active'));
+  document.getElementById('topic-input').focus();
+}
+
+function showChatArea() {
+  document.getElementById('welcome').style.display = 'none';
+  document.getElementById('chat-area').style.display = 'flex';
+}
+
+function getSelectedAgents() {
+  return [...document.querySelectorAll('.agent-chip.checked')].map(c => c.dataset.name);
+}
+
+function setMode(m) {
+  currentMode = m;
+  document.getElementById('btn-auto').classList.toggle('active', m === 'auto');
+  document.getElementById('btn-manual').classList.toggle('active', m === 'manual');
+  document.getElementById('rounds-wrap').classList.toggle('visible', m === 'manual');
+}
+
+function getManualRounds() {
+  return parseInt(document.getElementById('rounds-input').value) || 2;
+}
+
+// ── Start session ─────────────────────────────────────────────
+function startSession() {
+  const topic = document.getElementById('topic-input').value.trim();
+  if (!topic) return;
+  const selected = getSelectedAgents();
+  if (!selected.length) { alert('Select at least one agent.'); return; }
+
+  showChatArea();
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('chat-topic').textContent = topic;
+  document.getElementById('msg-input').focus();
+  document.getElementById('next-btn').classList.remove('visible');
+
+  // Agent pills in header
+  const pillsEl = document.getElementById('chat-agents');
+  pillsEl.innerHTML = '';
+  selected.forEach(name => {
+    const a = agentData.find(x => x.name === name);
+    if (!a) return;
+    const p = document.createElement('span');
+    p.className = 'agent-pill';
+    p.style.cssText = `background:${a.color}22;color:${a.color};border:1px solid ${a.color}44`;
+    p.textContent = `${a.emoji} ${a.name}`;
+    pillsEl.appendChild(p);
+  });
+
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => ws.send(JSON.stringify({
+    type: 'start', topic, agents: selected,
+    auto: currentMode === 'auto',
+    rounds: getManualRounds(),
+  }));
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+  ws.onclose = () => { addSystem('Disconnected.'); loadSessions(); };
+  ws.onerror = () => addSystem('Connection error.');
+}
+
+// ── Messages ──────────────────────────────────────────────────
+function handleMessage(data) {
+  // Human messages are displayed immediately client-side; skip server echo
+  if (data.type === 'message' && data.agent === 'Human') return;
+  if (data.type === 'thinking') {
+    removeThinking(); addThinking(data.agent, data.color);
+    document.getElementById('next-btn').classList.remove('visible');
+  } else if (data.type === 'message') {
+    removeThinking(); addMessage(data.agent, data.text, data.color, data.timestamp, data.duration_ms, false, data.skill || null);
+  } else if (data.type === 'system') {
+    removeThinking(); addSystem(data.text);
+  } else if (data.type === 'ready' && data.pause) {
+    document.getElementById('next-btn').classList.add('visible');
+  }
+}
+
+function formatDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function addMessage(agent, text, color, ts, duration, queued = false, skill = null) {
+  if (!queued) removeThinking();
+  const msgs = document.getElementById('messages');
+  const isHuman = agent === 'Human';
+  const isSkill = isHuman && skill;
+  const row = document.createElement('div');
+  const timeStr = ts ? new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+
+  if (isSkill) {
+    // Skill invocations render as a centered system-like pill
+    row.className = 'msg-row system-row';
+    row.innerHTML = `<div class="system-text">🎯 Skill invoked: <strong>/${esc(skill)}</strong>${timeStr ? ` · ${timeStr}` : ''}</div>`;
+  } else if (isHuman) {
+    row.className = 'msg-row human-row';
+    row.innerHTML = `
+      <div class="msg-content">
+        <div>
+          <div class="human-bubble${queued ? ' queued' : ''}">${esc(text)}</div>
+          <div class="msg-meta-human">${timeStr ? `<span>${timeStr}</span>` : ''}${queued ? ' <span class="msg-queued">queued</span>' : ''}</div>
+        </div>
+      </div>`;
+  } else {
+    const initials = agent.slice(0,2).toUpperCase();
+    const durationStr = duration ? `<span class="msg-duration">⏱ ${formatDuration(duration)}</span>` : '';
+    row.innerHTML = `
+      <div class="msg-content">
+        <div class="avatar" style="background:${color}22;color:${color};border:1px solid ${color}44">${initials}</div>
+        <div class="msg-body">
+          <div class="msg-name" style="color:${color}">${esc(agent)}</div>
+          <div class="msg-text">${renderMarkdown(text)}</div>
+          <div class="msg-meta">${timeStr ? `<span>${timeStr}</span>` : ''}${durationStr}</div>
+        </div>
+      </div>`;
+  }
+  msgs.appendChild(row);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function addThinking(agent, color) {
+  const msgs = document.getElementById('messages');
+  const initials = agent.slice(0,2).toUpperCase();
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'thinking-row';
+  thinkingEl.innerHTML = `<div class="thinking-content"><div class="avatar" style="background:${color}22;color:${color};border:1px solid ${color}44">${initials}</div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:.76rem;font-weight:600;color:${color}">${esc(agent)}</span><div class="dots"><span></span><span></span><span></span></div></div></div>`;
+  msgs.appendChild(thinkingEl);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removeThinking() { if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; } }
+
+function addSystem(text) {
+  const msgs = document.getElementById('messages');
+  const row = document.createElement('div');
+  row.className = 'msg-row system-row';
+  row.innerHTML = `<div class="system-text">${esc(text)}</div>`;
+  msgs.appendChild(row);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ── User actions ──────────────────────────────────────────────
+function sendHuman() {
+  const input = document.getElementById('msg-input');
+  const text = input.value.trim();
+  input.value = ''; autoResize(input);
+  document.getElementById('next-btn').classList.remove('visible');
+
+  // If viewing history and no active ws, trigger continuation (with or without message)
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    if (historySessionId) {
+      continueSessionWith(text);
+    }
+    return;
+  }
+
+  if (!text) return;
+
+  // Show queued indicator if an agent is currently thinking
+  const isQueued = !!thinkingEl;
+  addMessage('Human', text, '#60a5fa', new Date().toISOString(), null, isQueued);
+  ws.send(JSON.stringify({ type: 'human', text }));
+}
+function sendNext() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'next' }));
+  document.getElementById('next-btn').classList.remove('visible');
+}
+function stopSession() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'stop' }));
+}
+
+// ── Settings ──────────────────────────────────────────────────
+let currentSettingsTab = 'models';
+
+async function openSettings() {
+  await Promise.all([loadConfig(), loadAgents(), loadModels()]);
+  switchSettingsTab(currentSettingsTab);
+  document.getElementById('settings-overlay').classList.add('open');
+}
+function closeSettings() { document.getElementById('settings-overlay').classList.remove('open'); }
+function closeSettingsOnBg(e) { if (e.target.id === 'settings-overlay') closeSettings(); }
+
+function switchSettingsTab(tab) {
+  currentSettingsTab = tab;
+  document.querySelectorAll('.settings-nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === tab);
+  });
+  document.querySelectorAll('.settings-tab').forEach(el => {
+    el.classList.toggle('active', el.id === `tab-${tab}`);
+  });
+  if (tab === 'models') renderModelList();
+  if (tab === 'agents') renderPersonaList();
+  if (tab === 'skills') renderSkillsTab();
+  if (tab === 'default') renderDefaultTab();
+  if (tab === 'about') renderAboutTab();
+}
+
+// ── 模型 tab (LLM connections) ────────────────────────────────
+let selectedModelId = null;
+
+function renderModelList() {
+  const inner = document.getElementById('models-agent-list-inner');
+  if (!inner) return;
+  inner.innerHTML = modelData.map(m => `
+    <div class="model-list-item ${selectedModelId === m.id ? 'active' : ''}" onclick="selectModel('${esc(m.id)}')">
+      <span class="model-list-emoji">${m.emoji || '🤖'}</span>
+      <div class="model-list-info">
+        <div class="model-list-name" style="color:${m.color || '#888'}">${esc(m.id)}</div>
+        <div class="model-list-type">${m.type || 'cli'}</div>
+      </div>
+    </div>`).join('') +
+    `<div class="model-add-item" onclick="openAddModel()"><span style="font-size:1.1rem">＋</span><span>新增模型</span></div>`;
+
+  if (!selectedModelId && modelData.length) selectModel(modelData[0].id);
+  else if (selectedModelId) renderModelConfig(selectedModelId);
+}
+
+function selectModel(id) {
+  selectedModelId = id;
+  document.querySelectorAll('#models-agent-list-inner .model-list-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('.model-list-name')?.textContent === id);
+  });
+  renderModelConfig(id);
+}
+
+function renderModelConfig(id) {
+  const body = document.getElementById('models-config-body');
+  if (!body) return;
+  const m = modelData.find(x => x.id === id);
+  if (!m) { body.innerHTML = ''; return; }
+  const isCli = m.type === 'cli';
+  const cmd = (m.cmd || []).join(' ');
+  let html = `
+    <div class="model-config-header">
+      <span class="model-config-emoji">${m.emoji || '🤖'}</span>
+      <span class="model-config-title" style="color:${m.color || '#888'}">${esc(m.id)}</span>
+    </div>
+    <div class="model-config-section">
+      <div class="model-config-section-title">連線設定</div>
+      <div class="field-row"><span class="field-label">Emoji</span><input class="field-input" id="mcfg-emoji" value="${esc(m.emoji || '🤖')}"></div>
+      <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="mcfg-color" value="${esc(m.color || '#888')}"></div>`;
+  if (isCli) {
+    html += `<div class="field-row"><span class="field-label">Command</span><input class="field-input" id="mcfg-cmd" value="${esc(cmd)}" placeholder="e.g. claude --print"></div>`;
+  } else {
+    html += `
+      <div class="field-row"><span class="field-label">Base URL</span><input class="field-input" id="mcfg-baseUrl" value="${esc(m.baseUrl || 'http://127.0.0.1:11434')}"></div>
+      <div class="field-row">
+        <span class="field-label">Model</span>
+        <select class="model-select" id="mcfg-model-sel"><option>${esc(m.apiModel || 'llama3.2')}</option></select>
+        <button class="refresh-btn" onclick="loadOllamaModelsForCfg()" title="Refresh">⟳</button>
+      </div>
+      <div class="field-row" style="align-items:flex-start;gap:8px">
+        <span class="field-label" style="padding-top:6px">Pull</span>
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;gap:6px">
+            <select class="model-select" id="mcfg-pull-sel" style="flex:1"><option value="">— 選擇雲端模型 —</option></select>
+            <button class="refresh-btn" onclick="loadOllamaCloudModels()" title="載入可用雲端模型">⟳</button>
+            <button class="refresh-btn" style="white-space:nowrap;padding:4px 10px" onclick="startOllamaPull()">⬇ Pull</button>
+          </div>
+          <div id="pull-progress" style="display:none;font-size:0.75rem;color:var(--text-muted)">
+            <div id="pull-status-text" style="margin-bottom:4px"></div>
+            <div style="background:var(--surface);border-radius:4px;height:6px;overflow:hidden">
+              <div id="pull-progress-bar" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s"></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+  html += `</div>
+    <div class="model-save-bar">
+      <button class="model-save-btn" onclick="saveModelConfig('${esc(id)}')">儲存</button>
+      <button class="model-del-btn" onclick="deleteModel('${esc(id)}')">刪除</button>
+    </div>`;
+  body.innerHTML = html;
+  if (!isCli) { loadOllamaModelsForCfg(); loadOllamaCloudModels(); }
+}
+
+async function loadOllamaModelsForCfg() {
+  const sel = document.getElementById('mcfg-model-sel');
+  if (!sel) return;
+  const custom = sel.value;
+  const baseUrl = document.getElementById('mcfg-baseUrl')?.value.trim() || '';
+  sel.disabled = true; sel.innerHTML = `<option>Loading…</option>`;
+  const params = baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : '';
+  const r = await fetch(`/providers/ollama/models${params}`).then(x => x.json()).catch(() => ({ok: false, models: []}));
+  sel.disabled = false;
+  const list = r.models || [];
+  sel.innerHTML = list.map(m => `<option value="${esc(m)}" ${m===custom?'selected':''}>${esc(m)}</option>`).join('') || `<option>${esc(custom)}</option>`;
+  if (r.ok && list.length && !list.includes(custom)) {
+    const hint = document.getElementById('pull-not-found-hint');
+    if (!hint) {
+      const prog = document.getElementById('pull-progress');
+      const msg = document.createElement('div');
+      msg.id = 'pull-not-found-hint';
+      msg.style.cssText = 'font-size:0.72rem;color:#fbbf24;margin-top:2px';
+      msg.textContent = `"${custom}" 尚未下載 — 可以用下方 Pull 拉取`;
+      prog.parentNode.insertBefore(msg, prog);
+    }
+  }
+}
+
+async function loadOllamaCloudModels() {
+  const sel = document.getElementById('mcfg-pull-sel');
+  if (!sel) return;
+  const baseUrl = document.getElementById('mcfg-baseUrl')?.value.trim() || '';
+  sel.disabled = true; sel.innerHTML = `<option>載入中…</option>`;
+  const params = baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : '';
+  const r = await fetch(`/providers/ollama/cloud-models${params}`).then(x => x.json()).catch(() => ({ok: false, models: []}));
+  sel.disabled = false;
+  if (!r.ok || !r.models?.length) {
+    sel.innerHTML = `<option value="">— 無法載入（請確認 Ollama 版本）—</option>`;
+    return;
+  }
+  sel.innerHTML = `<option value="">— 選擇雲端模型 —</option>` +
+    r.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+}
+
+async function startOllamaPull() {
+  const modelName = document.getElementById('mcfg-pull-sel')?.value.trim();
+  if (!modelName) { alert('請先選擇一個雲端模型'); return; }
+  const baseUrl = document.getElementById('mcfg-baseUrl')?.value.trim() || '';
+  const progress = document.getElementById('pull-progress');
+  const statusText = document.getElementById('pull-status-text');
+  const bar = document.getElementById('pull-progress-bar');
+  const btn = document.querySelector('[onclick="startOllamaPull()"]');
+
+  // Remove stale hint
+  document.getElementById('pull-not-found-hint')?.remove();
+
+  progress.style.display = 'block';
+  statusText.textContent = '連線中…';
+  bar.style.width = '0%';
+  if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
+
+  try {
+    const resp = await fetch('/providers/ollama/pull', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ model: modelName, base_url: baseUrl }),
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') break;
+        try {
+          const obj = JSON.parse(payload);
+          if (obj.error) {
+            statusText.textContent = `錯誤：${obj.error}`;
+            bar.style.background = '#dc2626';
+            break;
+          }
+          statusText.textContent = obj.status || '';
+          if (obj.total && obj.completed) {
+            bar.style.width = `${Math.round(obj.completed / obj.total * 100)}%`;
+          } else if (obj.status === 'success') {
+            bar.style.width = '100%';
+          }
+        } catch {}
+      }
+    }
+    if (statusText.textContent !== '錯誤：' && !statusText.textContent.startsWith('錯誤')) {
+      statusText.textContent = '✓ 完成';
+      bar.style.width = '100%';
+      // Refresh the model list so the new model appears in the dropdown
+      await loadOllamaModelsForCfg();
+    }
+  } catch (e) {
+    statusText.textContent = `連線失敗：${e.message}`;
+    bar.style.background = '#dc2626';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '⬇ Pull'; }
+}
+
+async function saveModelConfig(id) {
+  const m = modelData.find(x => x.id === id) || {};
+  const isCli = m.type === 'cli';
+  const body = {
+    emoji: document.getElementById('mcfg-emoji')?.value.trim() || m.emoji,
+    color: document.getElementById('mcfg-color')?.value.trim() || m.color,
+  };
+  if (isCli) body.cmd = (document.getElementById('mcfg-cmd')?.value.trim() || '').split(/\s+/);
+  else {
+    body.baseUrl = document.getElementById('mcfg-baseUrl')?.value.trim();
+    body.apiModel = document.getElementById('mcfg-model-sel')?.value;
+  }
+  await fetch(`/models/${encodeURIComponent(id)}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  await loadModels();
+  renderModelList();
+}
+
+async function deleteModel(id) {
+  if (!confirm(`確定刪除模型 ${id}？`)) return;
+  await fetch(`/models/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  selectedModelId = null;
+  await loadModels();
+  renderModelList();
+  document.getElementById('models-config-body').innerHTML = '';
+}
+
+function openAddModel() {
+  const body = document.getElementById('models-config-body');
+  document.querySelectorAll('#models-agent-list-inner .model-list-item').forEach(el => el.classList.remove('active'));
+  selectedModelId = null;
+  body.innerHTML = `
+    <div class="model-config-header"><span class="model-config-emoji">🤖</span><span class="model-config-title">新增模型</span></div>
+    <div class="model-config-section">
+      <div class="model-config-section-title">基本資訊</div>
+      <div class="field-row"><span class="field-label">ID</span><input class="field-input" id="new-mid" placeholder="claude"></div>
+      <div class="field-row"><span class="field-label">Emoji</span><input class="field-input" id="new-emoji" value="🤖" maxlength="4"></div>
+      <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="new-color" value="#888888"></div>
+      <div class="field-row"><span class="field-label">類型</span>
+        <select class="model-select" id="new-type" onchange="toggleAddTypeFields(this.value)">
+          <option value="cli">CLI</option><option value="api">API (Ollama)</option>
+        </select>
+      </div>
+    </div>
+    <div class="model-config-section" id="new-cli-section">
+      <div class="model-config-section-title">CLI</div>
+      <div class="field-row"><span class="field-label">Command</span><input class="field-input" id="new-cmd" placeholder="claude --print"></div>
+    </div>
+    <div class="model-config-section" id="new-api-section" style="display:none">
+      <div class="model-config-section-title">API</div>
+      <div class="field-row"><span class="field-label">Base URL</span><input class="field-input" id="new-baseUrl" value="http://127.0.0.1:11434"></div>
+      <div class="field-row"><span class="field-label">Model</span><input class="field-input" id="new-apiModel" value="llama3.2"></div>
+    </div>
+    <div class="model-save-bar"><button class="model-save-btn" onclick="submitAddModel()">建立</button></div>`;
+}
+
+function toggleAddTypeFields(type) {
+  document.getElementById('new-cli-section').style.display = type === 'cli' ? '' : 'none';
+  document.getElementById('new-api-section').style.display = type === 'api' ? '' : 'none';
+}
+
+async function submitAddModel() {
+  const id = document.getElementById('new-mid')?.value.trim().toLowerCase();
+  if (!id) { alert('請輸入模型 ID'); return; }
+  const type = document.getElementById('new-type')?.value || 'cli';
+  const payload = {
+    id, type,
+    emoji: document.getElementById('new-emoji')?.value.trim() || '🤖',
+    color: document.getElementById('new-color')?.value.trim() || '#888888',
+    cmd: type === 'cli' ? document.getElementById('new-cmd')?.value.trim().split(/\s+/) : undefined,
+    baseUrl: type === 'api' ? document.getElementById('new-baseUrl')?.value.trim() : undefined,
+    apiModel: type === 'api' ? document.getElementById('new-apiModel')?.value.trim() : undefined,
+  };
+  const r = await fetch('/models', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).then(x => x.json()).catch(() => ({}));
+  if (r.ok) {
+    await loadModels();
+    selectedModelId = id;
+    renderModelList();
+  } else { alert(r.detail || '建立失敗'); }
+}
+
+// ── 代理人 tab (agent personas) ───────────────────────────────
+let selectedPersonaName = null;
+
+function renderPersonaList() {
+  const inner = document.getElementById('agents-list-inner');
+  if (!inner) return;
+  inner.innerHTML = agentData.map(a => `
+    <div class="model-list-item ${selectedPersonaName === a.name ? 'active' : ''}" onclick="selectPersona('${esc(a.name)}')">
+      <span class="model-list-emoji">${a.emoji || '🤖'}</span>
+      <div class="model-list-info">
+        <div class="model-list-name" style="color:${a.color || '#888'}">${esc(a.name)}</div>
+        <div class="model-list-type">${esc(a.model || '')}</div>
+      </div>
+      <div class="model-list-dot" style="background:${a.enabled ? '#4ade80' : '#444'}"></div>
+    </div>`).join('') +
+    `<div class="model-add-item" onclick="openAddPersona()"><span style="font-size:1.1rem">＋</span><span>新增代理人</span></div>`;
+
+  if (!selectedPersonaName && agentData.length) selectPersona(agentData[0].name);
+  else if (selectedPersonaName) renderPersonaConfig(selectedPersonaName);
+}
+
+function selectPersona(name) {
+  selectedPersonaName = name;
+  document.querySelectorAll('#agents-list-inner .model-list-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('.model-list-name')?.textContent === name);
+  });
+  renderPersonaConfig(name);
+}
+
+async function renderPersonaConfig(name) {
+  const body = document.getElementById('agents-config-body');
+  if (!body) return;
+  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;padding:16px 0">載入中…</div>`;
+
+  const a = agentData.find(x => x.name === name);
+  if (!a) { body.innerHTML = ''; return; }
+
+  const [agentMdRes, identityRes, soulRes] = await Promise.all([
+    fetch(`/agents/${encodeURIComponent(name)}/agent-md`).then(r => r.json()).catch(() => ({content: ''})),
+    fetch(`/agents/${encodeURIComponent(name)}/identity`).then(r => r.json()).catch(() => ({content: ''})),
+    fetch(`/agents/${encodeURIComponent(name)}/soul`).then(r => r.json()).catch(() => ({content: ''})),
+  ]);
+
+  const modelOptions = modelData.map(m =>
+    `<option value="${esc(m.id)}" ${m.id === a.model ? 'selected' : ''}>${m.emoji || ''} ${esc(m.id)}</option>`
+  ).join('');
+
+  body.innerHTML = `
+    <div class="model-config-header">
+      <span class="model-config-emoji" id="pcfg-emoji-display" style="cursor:pointer" onclick="pickPersonaEmoji()" title="點擊更改">${a.emoji || '🤖'}</span>
+      <span class="model-config-title" style="color:${a.color}">${esc(a.name)}</span>
+      <label class="toggle-switch">
+        <input type="checkbox" ${a.enabled ? 'checked' : ''} onchange="togglePersona('${esc(name)}', this.checked)">
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+    <div class="model-config-section">
+      <div class="model-config-section-title">基本設定</div>
+      <div class="field-row"><span class="field-label">描述</span><input class="field-input" id="pcfg-desc" value="${esc(a.description || '')}"></div>
+      <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="pcfg-color" value="${esc(a.color || '#888')}"></div>
+      <div class="field-row"><span class="field-label">模型</span><select class="model-select" id="pcfg-model">${modelOptions}</select></div>
+    </div>
+    <div class="model-config-section">
+      <div class="model-config-section-title">AGENT.md</div>
+      <textarea class="model-md-editor" id="pcfg-agentmd" rows="8">${esc(agentMdRes.content)}</textarea>
+    </div>
+    <div class="model-config-section">
+      <div class="model-config-section-title">IDENTITY.md</div>
+      <textarea class="model-md-editor" id="pcfg-identity" rows="5">${esc(identityRes.content)}</textarea>
+    </div>
+    <div class="model-config-section">
+      <div class="model-config-section-title">SOUL.md</div>
+      <textarea class="model-md-editor" id="pcfg-soul" rows="5">${esc(soulRes.content)}</textarea>
+    </div>
+    <div class="model-save-bar">
+      <button class="model-save-btn" onclick="savePersonaConfig('${esc(name)}')">儲存</button>
+      <button class="model-del-btn" onclick="deletePersona('${esc(name)}')">停用</button>
+    </div>`;
+}
+
+function pickPersonaEmoji() {
+  const el = document.getElementById('pcfg-emoji-display');
+  if (!el) return;
+  const v = prompt('輸入表情符號', el.textContent.trim());
+  if (v) el.textContent = v.trim().slice(0, 2) || '🤖';
+}
+
+async function savePersonaConfig(name) {
+  const emoji = document.getElementById('pcfg-emoji-display')?.textContent.trim() || '🤖';
+  const desc = document.getElementById('pcfg-desc')?.value.trim() || '';
+  const color = document.getElementById('pcfg-color')?.value.trim() || '#888';
+  const model = document.getElementById('pcfg-model')?.value || '';
+  const agentMd = document.getElementById('pcfg-agentmd')?.value || '';
+  const identity = document.getElementById('pcfg-identity')?.value || '';
+  const soul = document.getElementById('pcfg-soul')?.value || '';
+
+  await Promise.all([
+    fetch(`/agents/${encodeURIComponent(name)}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ emoji, description: desc, color, model }) }),
+    fetch(`/agents/${encodeURIComponent(name)}/agent-md`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: agentMd }) }),
+    fetch(`/agents/${encodeURIComponent(name)}/identity`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: identity }) }),
+    fetch(`/agents/${encodeURIComponent(name)}/soul`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: soul }) }),
+  ]);
+  await loadAgents();
+  renderPersonaList();
+  renderAgentChips();
+}
+
+async function deletePersona(name) {
+  if (!confirm(`停用代理人 ${name}？`)) return;
+  await fetch(`/agents/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  selectedPersonaName = null;
+  await loadAgents();
+  renderPersonaList();
+  renderAgentChips();
+  document.getElementById('agents-config-body').innerHTML = '';
+}
+
+function openAddPersona() {
+  const body = document.getElementById('agents-config-body');
+  document.querySelectorAll('#agents-list-inner .model-list-item').forEach(el => el.classList.remove('active'));
+  selectedPersonaName = null;
+  const modelOptions = modelData.map(m => `<option value="${esc(m.id)}">${m.emoji || ''} ${esc(m.id)}</option>`).join('');
+  body.innerHTML = `
+    <div class="model-config-header"><span class="model-config-emoji">🤖</span><span class="model-config-title">新增代理人</span></div>
+    <div class="model-config-section">
+      <div class="model-config-section-title">基本資訊</div>
+      <div class="field-row"><span class="field-label">名稱</span><input class="field-input" id="new-pname" placeholder="Ava"></div>
+      <div class="field-row"><span class="field-label">Emoji</span><input class="field-input" id="new-pemoji" value="🤖" maxlength="4"></div>
+      <div class="field-row"><span class="field-label">顏色</span><input class="field-input" id="new-pcolor" value="#888888"></div>
+      <div class="field-row"><span class="field-label">模型</span><select class="model-select" id="new-pmodel">${modelOptions}</select></div>
+      <div class="field-row"><span class="field-label">描述</span><input class="field-input" id="new-pdesc" placeholder="這個代理人的功能"></div>
+    </div>
+    <div class="model-save-bar"><button class="model-save-btn" onclick="submitAddPersona()">建立</button></div>`;
+}
+
+async function submitAddPersona() {
+  const name = document.getElementById('new-pname')?.value.trim();
+  if (!name) { alert('請輸入名稱'); return; }
+  const payload = {
+    name,
+    emoji: document.getElementById('new-pemoji')?.value.trim() || '🤖',
+    color: document.getElementById('new-pcolor')?.value.trim() || '#888888',
+    model: document.getElementById('new-pmodel')?.value || '',
+    description: document.getElementById('new-pdesc')?.value.trim() || '',
+    enabled: true,
+  };
+  const r = await fetch('/agents', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).then(x => x.json()).catch(() => ({}));
+  if (r.ok) {
+    await loadAgents();
+    selectedPersonaName = name;
+    renderPersonaList();
+    renderAgentChips();
+  } else { alert(r.detail || '建立失敗'); }
+}
+
+async function togglePersona(name, enabled) {
+  await fetch(`/agents/${encodeURIComponent(name)}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled }) });
+  const a = agentData.find(x => x.name === name);
+  if (a) a.enabled = enabled;
+  renderAgentChips();
+}
+
+// ── 關於你 tab (_default template) ───────────────────────────
+async function renderDefaultTab() {
+  const body = document.getElementById('tab-default-body');
+  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem">載入中…</div>`;
+  const [agentMd, identity, soul] = await Promise.all([
+    fetch('/agents/_default/agent-md').then(r => r.json()).catch(() => ({content: ''})),
+    fetch('/agents/_default/identity').then(r => r.json()).catch(() => ({content: ''})),
+    fetch('/agents/_default/soul').then(r => r.json()).catch(() => ({content: ''})),
+  ]);
+  body.innerHTML = `
+    <div class="about-label">AGENT.md — 代理人預設指令</div>
+    <textarea class="about-textarea" id="default-agentmd" style="min-height:200px">${esc(agentMd.content)}</textarea>
+    <div class="about-label" style="margin-top:12px">IDENTITY.md — 預設身份</div>
+    <textarea class="about-textarea" id="default-identity" style="min-height:120px">${esc(identity.content)}</textarea>
+    <div class="about-label" style="margin-top:12px">SOUL.md — 預設靈魂</div>
+    <textarea class="about-textarea" id="default-soul" style="min-height:120px">${esc(soul.content)}</textarea>
+    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">新建代理人時會從這裡複製內容。<code>{name}</code> 會被替換成代理人名稱。</div>`;
+}
+
+async function saveDefaultTab() {
+  const agentMd = document.getElementById('default-agentmd')?.value || '';
+  const identity = document.getElementById('default-identity')?.value || '';
+  const soul = document.getElementById('default-soul')?.value || '';
+  const btn = document.getElementById('save-default-btn');
+  btn.textContent = '儲存中…'; btn.disabled = true;
+  await Promise.all([
+    fetch('/agents/_default/agent-md', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: agentMd }) }),
+    fetch('/agents/_default/identity', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: identity }) }),
+    fetch('/agents/_default/soul', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: soul }) }),
+  ]);
+  btn.textContent = '儲存'; btn.disabled = false;
+}
+
+async function renderAboutTab() {
+  const body = document.getElementById('tab-about-body');
+  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem">載入中…</div>`;
+  const r = await fetch('/user/md').then(x => x.json()).catch(() => ({content: ''}));
+  body.innerHTML = `
+    <div class="about-label">USER.md — 關於你</div>
+    <textarea class="about-textarea" id="about-md-editor">${esc(r.content)}</textarea>
+    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">這個文件會被每個代理人讀取，幫助他們更了解你的背景和偏好。</div>`;
+}
+
+async function saveAboutTab() {
+  const content = document.getElementById('about-md-editor')?.value || '';
+  const btn = document.getElementById('save-about-btn');
+  btn.textContent = '儲存中…'; btn.disabled = true;
+  await fetch('/user/md', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({content}) });
+  btn.textContent = '儲存'; btn.disabled = false;
+}
+
+function renderSkillsTab() {
+  const body = document.getElementById('tab-skills-body');
+  if (!skillData.length) {
+    body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;text-align:center;padding:40px 16px">暫無可用技能</div>`;
+    return;
+  }
+  body.innerHTML = skillData.map(s => s.missing ? `
+    <div class="skill-card" style="border:1px solid #78350f;background:#1c1007">
+      <div class="skill-card-icon" style="background:#78350f20">⚠️</div>
+      <div class="skill-card-info">
+        <div class="skill-card-name" style="color:#fbbf24">/${esc(s.slug)}</div>
+        <div class="skill-card-desc" style="color:#f59e0b">缺少 SKILL.md — 請在 skills/${esc(s.slug)}/ 底下新增 SKILL.md</div>
+      </div>
+    </div>` : `
+    <div class="skill-card">
+      <div class="skill-card-icon">🔧</div>
+      <div class="skill-card-info">
+        <div class="skill-card-name">/${esc(s.name)}</div>
+        <div class="skill-card-desc">${esc(s.description)}</div>
+      </div>
+      <button class="asst-gear-btn" onclick="openSkillEdit('${esc(s.slug)}')" title="編輯">✏</button>
+    </div>`).join('');
+}
+
+let editingSkill = null;
+
+async function openSkillEdit(slug) {
+  editingSkill = slug;
+  const panel = document.getElementById('skill-edit-panel');
+  const title = document.getElementById('skill-edit-title');
+  const body = document.getElementById('skill-edit-body');
+  title.textContent = `編輯技能：/${slug}`;
+  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.8rem;padding:8px 0">載入中…</div>`;
+  panel.classList.add('open');
+
+  const s = await fetch(`/skills/${slug}`).then(r => r.json()).catch(() => null);
+  if (!s) { body.innerHTML = `<div style="color:#f87171">載入失敗</div>`; return; }
+
+  body.innerHTML = `
+    <div class="asst-edit-field">
+      <span class="asst-edit-label">名稱</span>
+      <input class="asst-edit-input" id="skill-edit-name" value="${esc(s.name)}">
+    </div>
+    <div class="asst-edit-field">
+      <span class="asst-edit-label">描述</span>
+      <input class="asst-edit-input" id="skill-edit-desc" value="${esc(s.description)}">
+    </div>
+    <div class="asst-edit-field" style="flex:1">
+      <span class="asst-edit-label">內容（Markdown）</span>
+      <textarea class="asst-edit-input asst-edit-textarea" id="skill-edit-body-text">${esc(s.body)}</textarea>
+    </div>`;
+}
+
+function closeSkillEdit() {
+  document.getElementById('skill-edit-panel').classList.remove('open');
+  editingSkill = null;
+}
+
+async function saveSkillEdit() {
+  if (!editingSkill) return;
+  const name = document.getElementById('skill-edit-name')?.value.trim() || editingSkill;
+  const description = document.getElementById('skill-edit-desc')?.value.trim() || '';
+  const body = document.getElementById('skill-edit-body-text')?.value || '';
+  const btn = document.querySelector('#skill-edit-panel .asst-edit-save-btn');
+  btn.textContent = '儲存中…'; btn.disabled = true;
+  const r = await fetch(`/skills/${editingSkill}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, description, body }),
+  }).then(x => x.json()).catch(() => ({ok: false}));
+  btn.textContent = '儲存'; btn.disabled = false;
+  if (r.ok) {
+    await loadSkills();
+    closeSkillEdit();
+    renderSkillsTab();
+  }
+}
+
+function openAddSkill() {
+  document.getElementById('skill-add-panel').classList.add('open');
+  document.getElementById('new-skill-slug').value = '';
+  document.getElementById('new-skill-name').value = '';
+  document.getElementById('new-skill-desc').value = '';
+  document.getElementById('new-skill-body').value = '';
+}
+
+function closeAddSkill() {
+  document.getElementById('skill-add-panel').classList.remove('open');
+}
+
+async function submitNewSkill() {
+  const slug = document.getElementById('new-skill-slug').value.trim();
+  const name = document.getElementById('new-skill-name').value.trim() || slug;
+  const description = document.getElementById('new-skill-desc').value.trim();
+  const body = document.getElementById('new-skill-body').value;
+  if (!slug) { alert('請填寫 Slug'); return; }
+  const btn = document.getElementById('new-skill-save-btn');
+  btn.textContent = '建立中…'; btn.disabled = true;
+  const r = await fetch('/skills', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ slug, name, description, body }),
+  }).then(x => x.json()).catch(() => ({ok: false}));
+  btn.textContent = '建立'; btn.disabled = false;
+  if (r.ok) {
+    await loadSkills();
+    closeAddSkill();
+    renderSkillsTab();
+  } else {
+    alert(r.detail || '建立失敗');
+  }
+}
+
+async function uploadSkillZip(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  input.value = '';
+  const r = await fetch('/skills/upload', { method: 'POST', body: fd })
+    .then(x => x.json()).catch(() => ({ok: false}));
+  if (r.ok) {
+    await loadSkills();
+    renderSkillsTab();
+    if (r.created?.length) alert(`已安裝技能：${r.created.join(', ')}`);
+  } else {
+    alert(r.detail || '上傳失敗');
+  }
+}
+
+// ── Utils ─────────────────────────────────────────────────────
+async function downloadSession(e, id) {
+  e.stopPropagation();
+  const fmt = await pickDownloadFormat();
+  if (!fmt) return;
+  const msgs = await fetch(`/sessions/${id}`).then(r => r.json()).catch(() => []);
+  if (fmt === 'json') {
+    _triggerDownload(JSON.stringify(msgs, null, 2), `session-${id.slice(0,8)}.json`, 'application/json');
+  } else if (fmt === 'markdown') {
+    _triggerDownload(_sessionToMarkdown(msgs), `session-${id.slice(0,8)}.md`, 'text/markdown');
+  } else if (fmt === 'pdf') {
+    _sessionToPdf(msgs, id);
+  }
+}
+
+function _sessionToMarkdown(msgs) {
+  const lines = [];
+  for (const m of msgs) {
+    if (m.type === 'system') {
+      lines.push(`# ${m.text || ''}`, '');
+    } else if (m.type === 'message') {
+      const ts = m.timestamp ? `  \`${m.timestamp.slice(0,16).replace('T',' ')}\`` : '';
+      lines.push(`**${m.agent || 'Unknown'}**${ts}`, '', m.text || '', '', '---', '');
+    }
+  }
+  return lines.join('\n');
+}
+
+function _triggerDownload(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function _sessionToPdf(msgs, id) {
+  const win = window.open('', '_blank');
+  const title = msgs.find(m => m.type === 'system')?.text || id;
+  const body = msgs.filter(m => m.type === 'message').map(m => {
+    const ts = m.timestamp ? `<small style="color:#888">${m.timestamp.slice(0,16).replace('T',' ')}</small>` : '';
+    const text = (m.text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    return `<div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #e5e7eb">
+      <div style="font-weight:600;margin-bottom:6px">${m.agent || 'Unknown'} ${ts}</div>
+      <div style="line-height:1.6">${text}</div>
+    </div>`;
+  }).join('');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>${title}</title>
+    <style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;color:#111;font-size:14px}h1{font-size:1.3rem;margin-bottom:24px;color:#333}</style>
+  </head><body><h1>${title}</h1>${body}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
+  win.document.close();
+}
+
+function pickDownloadFormat() {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:#0008;z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = `
+      <div style="background:#1e1e2e;border:1px solid #333;border-radius:12px;padding:24px;min-width:240px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:0.9rem;font-weight:600;color:#e2e8f0;margin-bottom:4px">下載格式</div>
+        <button data-fmt="markdown" style="padding:9px 16px;border-radius:8px;border:1px solid #444;background:#2a2a3e;color:#e2e8f0;cursor:pointer;font-size:0.85rem;text-align:left">📄 Markdown (.md)</button>
+        <button data-fmt="json"     style="padding:9px 16px;border-radius:8px;border:1px solid #444;background:#2a2a3e;color:#e2e8f0;cursor:pointer;font-size:0.85rem;text-align:left">🗂 JSON (.json)</button>
+        <button data-fmt="pdf"      style="padding:9px 16px;border-radius:8px;border:1px solid #444;background:#2a2a3e;color:#e2e8f0;cursor:pointer;font-size:0.85rem;text-align:left">🖨 PDF（列印）</button>
+        <button data-fmt="" style="padding:7px;border-radius:8px;border:none;background:transparent;color:#888;cursor:pointer;font-size:0.8rem">取消</button>
+      </div>`;
+    overlay.querySelectorAll('button').forEach(btn => {
+      btn.onclick = () => { document.body.removeChild(overlay); resolve(btn.dataset.fmt || null); };
+    });
+    overlay.onclick = ev => { if (ev.target === overlay) { document.body.removeChild(overlay); resolve(null); } };
+    document.body.appendChild(overlay);
+  });
+}
+
+async function hideSession(e, id) {
+  e.stopPropagation();
+  await fetch(`/sessions/${id}`, { method: 'DELETE' });
+  await loadSessions();
+  // If currently viewing this session, go back to welcome
+  if (historySessionId === id) showWelcome();
+}
+
+function topicKey(e) { if (e.key==='Enter'&&!e.shiftKey){e.preventDefault();startSession();} }
+function msgKey(e) {
+  const picker = document.getElementById('skill-picker');
+  if (picker.style.display !== 'none') {
+    if (e.key === 'ArrowDown') { e.preventDefault(); movePickerFocus(1); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); movePickerFocus(-1); return; }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); selectFocusedSkill(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); hideSkillPicker(); return; }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendHuman(); }
+}
+function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,120)+'px'; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Skill picker ──────────────────────────────────────────────
+function onMsgInput(el) {
+  autoResize(el);
+  const val = el.value;
+  if (val === '/' || (val.startsWith('/') && !val.includes(' '))) {
+    const query = val.slice(1).toLowerCase();
+    const matches = skillData.filter(s => s.name.startsWith(query));
+    showSkillPicker(matches);
+  } else {
+    hideSkillPicker();
+  }
+}
+
+function showSkillPicker(skills) {
+  const picker = document.getElementById('skill-picker');
+  if (!skills.length) { hideSkillPicker(); return; }
+  skillPickerIndex = -1;
+  picker.innerHTML = skills.map((s, i) => `
+    <div class="skill-item" data-name="${esc(s.name)}" onclick="applySkill('${esc(s.name)}')">
+      <span class="skill-item-name">/${esc(s.name)}</span>
+      <span class="skill-item-desc">${esc(s.description)}</span>
+    </div>`).join('');
+  picker.style.display = 'block';
+}
+
+function hideSkillPicker() {
+  document.getElementById('skill-picker').style.display = 'none';
+  skillPickerIndex = -1;
+}
+
+function movePickerFocus(dir) {
+  const items = document.querySelectorAll('#skill-picker .skill-item');
+  if (!items.length) return;
+  items.forEach(el => el.classList.remove('focused'));
+  skillPickerIndex = Math.max(0, Math.min(items.length - 1, skillPickerIndex + dir));
+  items[skillPickerIndex].classList.add('focused');
+}
+
+function selectFocusedSkill() {
+  const focused = document.querySelector('#skill-picker .skill-item.focused');
+  if (focused) applySkill(focused.dataset.name);
+  else {
+    // If no item focused but there's only one, pick it
+    const items = document.querySelectorAll('#skill-picker .skill-item');
+    if (items.length === 1) applySkill(items[0].dataset.name);
+  }
+}
+
+function applySkill(name) {
+  const input = document.getElementById('msg-input');
+  input.value = `/${name}`;
+  hideSkillPicker();
+  input.focus();
+  sendHuman();
+}
+
+init();
+</script>
+</body>
+</html>
