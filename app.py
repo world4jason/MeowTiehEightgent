@@ -273,7 +273,12 @@ def get_agent_registry() -> dict[str, dict]:
                 m = models[model_id]
                 agent["type"] = m.get("type", "cli")
                 if "cmd" in m:
-                    agent["cmd"] = m["cmd"]
+                    base_cmd = list(m["cmd"])
+                    # Append extra_flags if defined (e.g. ["--model", "claude-opus-4-5"])
+                    for flag in m.get("extra_flags", []):
+                        if flag not in base_cmd:
+                            base_cmd.append(flag)
+                    agent["cmd"] = base_cmd
                 if "baseUrl" in m:
                     agent["baseUrl"] = m["baseUrl"]
                 if "apiModel" in m:
@@ -1302,6 +1307,7 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         running = True
         batch_turns = 0
+        pending_humans: list[dict] = []  # buffer human msgs received while agent is thinking
         while running:
             agent = engine.next_speaker()
             await ws.send_json({"type": "thinking", "agent": agent["name"], "color": agent["color"]})
@@ -1322,7 +1328,7 @@ async def websocket_endpoint(ws: WebSocket):
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
                     elif t == "human":
-                        await event_queue.put(evt)
+                        pending_humans.append(evt)  # buffer locally, don't re-queue
 
             if not running:
                 break
@@ -1351,6 +1357,28 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.send_json(msg)
             log(msg)
             batch_turns += 1
+
+            # Process any human messages buffered during agent execution
+            if pending_humans:
+                for ph in pending_humans:
+                    text = ph["text"]
+                    history_entry, skill_name = resolve_human_text(text)
+                    history_text += f"\n[Human]: {history_entry}\n"
+                    hmsg = {
+                        "type": "message", "agent": "Human",
+                        "color": "#60a5fa", "text": text,
+                        "skill": skill_name,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                    await ws.send_json(hmsg)
+                    log(hmsg)
+                    mention = ConversationEngine.extract_mention(text)
+                    if mention and engine.on_mention(mention) is not None:
+                        pass
+                    else:
+                        engine.on_human()
+                pending_humans.clear()
+                batch_turns = 0
 
             pause_now = (not auto_mode) and (batch_turns >= manual_rounds * len(active_agents))
             await ws.send_json({"type": "ready", "auto": auto_mode, "pause": pause_now})

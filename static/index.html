@@ -107,11 +107,12 @@
   .tooltip-box { display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: 220px; background: #111; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 0.76rem; line-height: 1.6; color: var(--text); z-index: 50; pointer-events: none; }
   .tooltip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--border); }
   .tooltip-wrap:hover .tooltip-box { display: block; }
-  #welcome-input-wrap { width: 100%; max-width: 540px; margin-top: 4px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 11px 12px; display: flex; align-items: flex-end; gap: 8px; transition: border-color 0.2s; }
+  #welcome-input-wrap { width: 100%; max-width: 540px; margin-top: 4px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 11px 13px 9px; display: flex; flex-direction: column; gap: 6px; transition: border-color 0.2s; }
   #welcome-input-wrap:focus-within { border-color: #555; }
-  #topic-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.9rem; resize: none; line-height: 1.5; max-height: 160px; }
+  #topic-input { width: 100%; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.9rem; resize: none; line-height: 1.5; max-height: 160px; }
   #topic-input::placeholder { color: var(--text-muted); }
-  #start-btn { width: 34px; height: 34px; border-radius: 7px; border: none; background: var(--accent); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
+  #welcome-bottom-row { display: flex; justify-content: flex-end; }
+  #start-btn { width: 28px; height: 28px; border-radius: 6px; border: none; background: var(--accent); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
   #start-btn:hover { opacity: 0.85; }
 
   /* ── Chat ── */
@@ -160,17 +161,17 @@
 
   #input-wrap { padding: 8px 20px 14px; display: flex; justify-content: center; }
   #input-inner { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 5px; }
-  #input-box { background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 9px 9px 9px 13px; display: flex; align-items: flex-end; gap: 7px; transition: border-color 0.2s; }
+  #input-box { background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 10px 10px 8px 13px; display: flex; flex-direction: column; gap: 6px; transition: border-color 0.2s; }
   #input-box:focus-within { border-color: #555; }
-  #msg-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.88rem; resize: none; line-height: 1.5; max-height: 100px; }
+  #msg-input { width: 100%; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.88rem; resize: none; line-height: 1.5; max-height: 160px; }
   #msg-input::placeholder { color: var(--text-muted); }
-  .bar-actions { display: flex; gap: 5px; align-items: center; }
-  .bar-btn { height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.78rem; display: flex; align-items: center; gap: 4px; transition: background 0.12s, color 0.12s; }
+  .bar-actions { display: flex; gap: 5px; align-items: center; justify-content: flex-end; }
+  .bar-btn { height: 26px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; gap: 4px; transition: background 0.12s, color 0.12s; }
   .bar-btn:hover { background: var(--surface2); color: var(--text); }
   #next-btn { display: none; }
   #next-btn.visible { display: flex; }
   #stop-btn:hover { background: #dc262615; color: #f87171; border-color: #dc2626; }
-  #send-btn { width: 30px; height: 30px; border-radius: 6px; border: none; background: var(--text); color: #111; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
+  #send-btn { width: 28px; height: 28px; border-radius: 6px; border: none; background: var(--text); color: #111; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
   #send-btn:hover { opacity: 0.85; }
   .hint-text { text-align: center; font-size: 0.68rem; color: var(--text-muted); }
   /* Attachment chips */
@@ -551,9 +552,11 @@
 
     <div id="welcome-input-wrap">
       <textarea id="topic-input" rows="1" placeholder="輸入討論主題…" oninput="autoResize(this)" onkeydown="topicKey(event)"></textarea>
-      <button id="start-btn" onclick="startSession()">
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-      </button>
+      <div id="welcome-bottom-row">
+        <button id="start-btn" onclick="startSession()">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
     </div>
     <p class="hint-text" id="welcome-hint">Shift+Enter 送出</p>
   </div>
