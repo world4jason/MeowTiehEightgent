@@ -333,7 +333,8 @@
   .about-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
   .about-textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-size: 0.84rem; outline: none; width: 100%; min-height: 400px; resize: vertical; line-height: 1.7; font-family: ui-monospace, 'Cascadia Code', monospace; }
   .about-textarea:focus { border-color: #555; }
-  #save-about-btn { width: 100%; padding: 9px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+  #save-default-btn, #save-about-btn { width: 100%; padding: 9px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+  #save-default-btn:hover, #save-about-btn:hover { opacity: 0.85; }
   .toggle-switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
   .toggle-track { position: absolute; inset: 0; background: var(--surface2); border-radius: 9px; cursor: pointer; transition: background 0.2s; border: 1px solid var(--border); }
@@ -430,12 +431,12 @@
 
   /* 技能 tab */
   .skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px; width: 100%; box-sizing: border-box; overflow-y: auto; }
-  .skill-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; position: relative; }
+  .skill-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; position: relative; aspect-ratio: 1 / 1; overflow: hidden; }
   .skill-card:hover { border-color: #555; background: var(--surface2); }
   .skill-card-top { display: flex; align-items: center; gap: 10px; }
   .skill-card-icon { width: 40px; height: 40px; border-radius: 9px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
   .skill-card-name { font-size: 0.88rem; font-weight: 600; }
-  .skill-card-desc { font-size: 0.76rem; color: var(--text-muted); line-height: 1.55; flex: 1; }
+  .skill-card-desc { font-size: 0.76rem; color: var(--text-muted); line-height: 1.55; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
   .skill-card-edit { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border-radius: 5px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
   .skill-card:hover .skill-card-edit { color: var(--text-muted); }
   .skill-card-edit:hover { background: var(--surface2) !important; color: var(--text) !important; }
