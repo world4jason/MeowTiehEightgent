@@ -69,7 +69,11 @@
 
   **所有 Pattern 共用：無限迴圈防護**
   - 硬性 max round count（絕對上限）
-  - 停滯偵測：連續兩輪同 agent 輸出相似 → 強制終止或路由到 human
+  - **Substantive Gate（增量漂移偵測）**：借鑑 MassGen。把輸出變動分三類：
+    - Structural：解決核心邏輯或修復重大問題 → 繼續
+    - Transformative：引入全新方法論 → 繼續
+    - Incremental：只微調描述或格式 → 標記，累積太多輪強制終止
+  - 停滯偵測：連續多輪只有 Incremental 變動 → 標記 `decision_space_exhausted`，強制終止或路由到 human
   - 每 3-5 步插入 verification checkpoint（不是加更多 agents）
 
 - [ ] **History 自動壓縮（Auto-Condensing）**
@@ -90,6 +94,19 @@
   - 借鑑 MassGen 的 success contract：agent 在輸出中標記 `STATUS: done | needs_revision | blocked`。
   - Orchestrator 讀 STATUS：全部 done → session 可標記完成；有 blocked → 路由到 human。
   - 適用場景：任務型 session（如撰寫計畫書、程式碼審查），自由對話不需要。
+
+- [ ] **Changedoc / 決策追蹤（借鑑 MassGen）**
+  讓 agent 在輸出後附上一段結構化的「我為什麼這樣說」，注入下一輪其他 agent 的 context。
+  - 最輕量做法：agent 在輸出末尾加可選的 `[RATIONALE]: ...` 區塊，orchestrator 解析並貼入下輪 prompt header。
+  - 效果：讓投票/共識不只看表象（誰說了什麼），還看邏輯依據（為什麼這樣說）。
+  - 適用場景：任務型 session，自由對話可能太重。
+
+- [ ] **Session 機器可讀狀態（status.json）**
+  供外部監控 / automation 讀取的即時 JSON，每輪更新：
+  - `phase`：當前輪次、哪個 agent 在說話
+  - `agents`：per-agent 狀態（waiting / streaming / done / error）
+  - `vote_distribution`：如果有 Arbiter 機制，顯示評審結果
+  - 放在 `history/<session_id>/status.json`，WebSocket 也可以廣播。
 
 - [ ] **圖片 --add-file 相容性**
   codex 等不支援 --add-file 的 CLI 收到無用 args。
