@@ -1,4 +1,7 @@
 import asyncio
+import base64
+import tempfile
+import os
 from conversation_engine import ConversationEngine
 import json
 import re
@@ -396,9 +399,31 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
 
 # ── Agent runners ─────────────────────────────────────────────────────────────
 
-async def call_cli_agent(agent: dict, prompt: str) -> str:
+def write_temp_images(images: list[dict]) -> tuple[list[str], list[str]]:
+    """Write base64 images to temp files. Returns (file_paths, extra_cmd_args)."""
+    tmp_paths: list[str] = []
+    extra_args: list[str] = []
+    for img in images:
+        suffix = '.' + (img.get('mime', 'image/jpeg').split('/')[-1] or 'jpg')
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            f.write(base64.b64decode(img['base64']))
+            tmp_paths.append(f.name)
+            extra_args.extend(['--add-file', f.name])
+    return tmp_paths, extra_args
+
+def cleanup_temp_files(paths: list[str]):
+    for p in paths:
+        try: os.unlink(p)
+        except Exception: pass
+
+
+async def call_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None) -> str:
+    tmp_paths: list[str] = []
+    extra_args: list[str] = []
+    if images:
+        tmp_paths, extra_args = write_temp_images(images)
     proc = await asyncio.create_subprocess_exec(
-        *agent["cmd"], prompt,
+        *agent["cmd"], *extra_args, prompt,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
         cwd=agent["workspace"],
@@ -409,6 +434,8 @@ async def call_cli_agent(agent: dict, prompt: str) -> str:
     except asyncio.CancelledError:
         proc.kill()
         raise
+    finally:
+        cleanup_temp_files(tmp_paths)
 
 
 async def call_api_agent(agent: dict, prompt: str) -> str:
@@ -429,10 +456,14 @@ async def call_agent(agent: dict, prompt: str) -> str:
     return await call_cli_agent(agent, prompt)
 
 
-async def stream_cli_agent(agent: dict, prompt: str):
+async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None):
     """Async generator: yield text chunks from CLI stdout."""
+    tmp_paths: list[str] = []
+    extra_args: list[str] = []
+    if images:
+        tmp_paths, extra_args = write_temp_images(images)
     proc = await asyncio.create_subprocess_exec(
-        *agent["cmd"], prompt,
+        *agent["cmd"], *extra_args, prompt,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
         cwd=agent["workspace"],
@@ -448,6 +479,8 @@ async def stream_cli_agent(agent: dict, prompt: str):
         proc.kill()
         await proc.wait()
         raise
+    finally:
+        cleanup_temp_files(tmp_paths)
 
 
 async def stream_api_agent(agent: dict, prompt: str):
@@ -469,13 +502,13 @@ async def stream_api_agent(agent: dict, prompt: str):
                         pass
 
 
-async def stream_agent(agent: dict, prompt: str):
+async def stream_agent(agent: dict, prompt: str, images: list[dict] | None = None):
     """Dispatch to streaming implementation."""
     if agent.get("type") == "api":
         async for chunk in stream_api_agent(agent, prompt):
             yield chunk
     else:
-        async for chunk in stream_cli_agent(agent, prompt):
+        async for chunk in stream_cli_agent(agent, prompt, images=images):
             yield chunk
 
 
@@ -1202,6 +1235,24 @@ async def get_session(session_id: str):
     return json.loads(f.read_text())
 
 
+@app.put("/sessions/{session_id}/topic")
+async def rename_session(session_id: str, body: dict):
+    """Update the Topic text in the first system message."""
+    new_topic = (body.get("topic") or "").strip()
+    if not new_topic:
+        raise HTTPException(status_code=400, detail="topic required")
+    f = session_messages_path(session_id)
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    msgs = json.loads(f.read_text())
+    for m in msgs:
+        if m.get("type") == "system":
+            m["text"] = f"Topic: {new_topic}"
+            break
+    f.write_text(json.dumps(msgs, indent=2, ensure_ascii=False))
+    return {"ok": True}
+
+
 # ── Ollama model list ─────────────────────────────────────────────────────────
 
 @app.get("/providers/ollama/models")
@@ -1383,6 +1434,7 @@ async def websocket_endpoint(ws: WebSocket):
         running = True
         batch_turns = 0
         pending_humans: list[dict] = []  # buffer human msgs received while agent is thinking
+        current_images: list[dict] = []  # images from last human message, used for next agent turn
         while running:
             agent = engine.next_speaker()
             await ws.send_json({"type": "thinking", "agent": agent["name"], "color": agent["color"]})
@@ -1391,10 +1443,12 @@ async def websocket_endpoint(ws: WebSocket):
             chunk_parts: list[str] = []
             chunk_q: asyncio.Queue[str | None] = asyncio.Queue()
             cancelled = False
+            turn_images = current_images[:]
+            current_images = []  # consume once
 
             async def _produce():
                 try:
-                    async for chunk in stream_agent(agent, build_prompt(agent, history_text, workspace_id)):
+                    async for chunk in stream_agent(agent, build_prompt(agent, history_text, workspace_id), images=turn_images or None):
                         await chunk_q.put(chunk)
                 except asyncio.CancelledError:
                     pass
@@ -1465,6 +1519,9 @@ async def websocket_endpoint(ws: WebSocket):
             if pending_humans:
                 for ph in pending_humans:
                     text = ph["text"]
+                    imgs = ph.get("images") or []
+                    if imgs:
+                        current_images = imgs  # use for next turn
                     history_entry, skill_name = resolve_human_text(text, workspace_id)
                     history_text += f"\n[Human]: {history_entry}\n"
                     hmsg = {
@@ -1497,6 +1554,9 @@ async def websocket_endpoint(ws: WebSocket):
                         await handle_member_event(evt)
                     elif t == "human":
                         text = evt["text"]
+                        imgs = evt.get("images") or []
+                        if imgs:
+                            current_images = imgs
                         history_entry, skill_name = resolve_human_text(text, workspace_id)
                         history_text += f"\n[Human]: {history_entry}\n"
                         hmsg = {
@@ -1529,6 +1589,9 @@ async def websocket_endpoint(ws: WebSocket):
                         await handle_member_event(evt)
                     elif t == "human":
                         text = evt["text"]
+                        imgs = evt.get("images") or []
+                        if imgs:
+                            current_images = imgs
                         history_entry, skill_name = resolve_human_text(text, workspace_id)
                         history_text += f"\n[Human]: {history_entry}\n"
                         hmsg = {
