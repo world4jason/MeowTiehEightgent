@@ -13,11 +13,22 @@ import io
 import zipfile
 
 import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    migrate_if_needed()
+    migrate_history_to_folders()
+    ensure_agent_configs()
+    ensure_default_template()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 PROJECT_DIR = Path(__file__).parent.resolve()
 HISTORY_DIR = PROJECT_DIR / "history"
@@ -1209,19 +1220,18 @@ async def move_session_to_workspace(session_id: str, body: dict):
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 @app.get("/sessions")
-async def list_sessions():
+async def list_sessions(limit: int = 30, offset: int = 0):
     hidden = load_hidden()
+    all_dirs = sorted(
+        (d for d in HISTORY_DIR.iterdir() if d.is_dir() and d.name not in hidden and (d / "messages.json").exists()),
+        key=lambda x: x.name, reverse=True,
+    )
+    total = len(all_dirs)
+    page = all_dirs[offset: offset + limit]
     sessions = []
-    for d in sorted(HISTORY_DIR.iterdir(), key=lambda x: x.name, reverse=True):
-        if not d.is_dir():
-            continue
-        if d.name in hidden:
-            continue
-        mf = d / "messages.json"
-        if not mf.exists():
-            continue
+    for d in page:
         try:
-            msgs = json.loads(mf.read_text())
+            msgs = json.loads((d / "messages.json").read_text())
             sys_msg = next((m for m in msgs if m.get("type") == "system"), None)
             sessions.append({
                 "id": d.name,
@@ -1231,7 +1241,7 @@ async def list_sessions():
             })
         except Exception:
             pass
-    return sessions
+    return {"sessions": sessions, "total": total, "offset": offset, "limit": limit}
 
 
 @app.delete("/sessions/{session_id}")
@@ -1322,8 +1332,17 @@ async def ollama_pull(payload: dict):
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 
+_active_ws: list[str] = []   # client IPs currently connected (allows duplicates for counting)
+_WS_LIMIT_PER_IP = 3
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    client_ip = ws.client.host if ws.client else "unknown"
+    if _active_ws.count(client_ip) >= _WS_LIMIT_PER_IP:
+        await ws.close(code=1008, reason="Too many connections")
+        return
+    _active_ws.append(client_ip)
     await ws.accept()
 
     data = await ws.receive_json()
@@ -1646,6 +1665,8 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        try: _active_ws.remove(client_ip)
+        except ValueError: pass
         recv_task.cancel()
         save_history(session_id, messages)
         try:
@@ -1654,16 +1675,6 @@ async def websocket_endpoint(ws: WebSocket):
             pass
         for agent in active_agents:
             asyncio.create_task(write_daily_summary(agent))
-
-
-# ── Startup ───────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup():
-    migrate_if_needed()
-    migrate_history_to_folders()
-    ensure_agent_configs()
-    ensure_default_template()
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

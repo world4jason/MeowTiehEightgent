@@ -35,6 +35,8 @@
   .session-item.active { background: var(--surface2); color: var(--text); }
   .session-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
   .session-rename-input { flex: 1; background: var(--surface2); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); font-size: 0.8rem; padding: 1px 4px; outline: none; min-width: 0; }
+  .session-load-more { padding: 7px 14px; font-size: 0.76rem; color: var(--text-muted); cursor: pointer; text-align: center; border-top: 1px solid var(--border); margin-top: 4px; }
+  .session-load-more:hover { color: var(--text); background: var(--surface); }
   .session-delete, .session-download, .session-move { flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
   .session-item:hover .session-delete, .session-item:hover .session-download, .session-item:hover .session-move { color: var(--text-muted); }
   .session-delete:hover { background: #dc262620 !important; color: #f87171 !important; }
@@ -200,8 +202,13 @@
   .attach-chip-img { padding: 2px 8px 2px 4px; }
   .attach-chip-thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
   .msg-imgs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
-  .msg-img-thumb { max-width: 200px; max-height: 160px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); }
+  .msg-img-thumb { max-width: 200px; max-height: 160px; object-fit: cover; border-radius: 8px; cursor: zoom-in; border: 1px solid var(--border); transition: opacity 0.1s; }
   .msg-img-thumb:hover { opacity: 0.85; }
+  #lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+  #lightbox.open { display:flex; }
+  #lightbox img { max-width:90vw; max-height:90vh; object-fit:contain; border-radius:8px; box-shadow:0 8px 40px rgba(0,0,0,0.6); }
+  #lightbox-close { position:absolute; top:16px; right:20px; background:none; border:none; color:#fff; font-size:1.6rem; cursor:pointer; opacity:0.7; line-height:1; }
+  #lightbox-close:hover { opacity:1; }
 
   /* ── Members Panel ── */
   #chat-body { display: flex; flex: 1; overflow: hidden; }
@@ -837,6 +844,12 @@
 <!-- Hidden file input for workspace file upload -->
 <input type="file" id="ws-file-input" style="display:none" onchange="handleWsFileUpload(event)">
 
+<!-- Lightbox -->
+<div id="lightbox" onclick="closeLightbox()">
+  <button id="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
+
 <script>
 // ── Markdown renderer ─────────────────────────────────────────
 marked.setOptions({
@@ -858,6 +871,9 @@ let msgQueue = []; // [{id, text}] — client-side buffer while agent is thinkin
 let _mqIdCounter = 0;
 let currentMode = 'auto';
 let enterToSend = false;  // default: Enter = newline, Shift+Enter = send
+let _wsIntentionalClose = false;   // true when we close on purpose (showWelcome etc.)
+let _wsReconnectTimer = null;
+let _liveSessionParams = null;     // params for reconnect: {topic, agents, auto, rounds, silence, workspace_id}
 let agentData = [];   // persona agents from /agents
 let modelData = [];   // LLM connections from /models
 let skillData = [];
@@ -1388,80 +1404,98 @@ function filterSessions(q) {
   });
 }
 
-async function loadSessions() {
+let _sessionsOffset = 0;
+let _sessionsTotal = 0;
+const _SESSIONS_PAGE = 30;
+let _allLoadedSessions = [];  // accumulates across pages
+
+async function loadSessions(reset = true) {
   try {
-    const sessions = await fetch('/sessions').then(r => r.json());
-    const list = document.getElementById('session-list');
-    list.innerHTML = '';
-
-    // Group sessions by workspace_id
-    const wsMap = {};   // workspace_id → [sessions]
-    const standalone = [];
-    sessions.forEach(s => {
-      if (s.workspace_id) {
-        if (!wsMap[s.workspace_id]) wsMap[s.workspace_id] = [];
-        wsMap[s.workspace_id].push(s);
-      } else {
-        standalone.push(s);
-      }
-    });
-
-    // Workspace folders
-    workspaceData.forEach(workspace => {
-      const wsSessions = wsMap[workspace.id] || [];
-      const isOpen = openFolders.has(workspace.id);
-      const isSelected = selectedWorkspaceId === workspace.id;
-      const folder = document.createElement('div');
-      folder.className = 'ws-folder';
-
-      const folderColor = isSelected ? 'var(--accent)' : 'currentColor';
-      const header = document.createElement('div');
-      header.className = 'ws-folder-header' + (isSelected ? ' ws-selected' : '');
-      header.innerHTML = `
-        <span class="ws-folder-toggle ${isOpen ? 'open' : 'closed'}" title="展開/收合" onclick="toggleWsFolder('${workspace.id}')">
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
-        </span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${folderColor}" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        <span class="ws-folder-name" style="${isSelected ? 'color:var(--accent)' : ''}" onclick="selectWorkspace('${workspace.id}')">${esc(workspace.name)}</span>
-        <span class="ws-folder-count">${wsSessions.length}</span>`;
-      folder.appendChild(header);
-
-      const body = document.createElement('div');
-      body.className = 'ws-folder-body';
-      body.style.display = isOpen ? '' : 'none';
-
-      // Past sessions first
-      wsSessions.map(s => makeSessionEl(s)).forEach(el => body.appendChild(el));
-
-      // "+ 新增對話" at bottom of folder
-      const addBtn = document.createElement('div');
-      addBtn.className = 'ws-new-session-btn';
-      addBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增對話`;
-      addBtn.onclick = () => selectWorkspace(workspace.id);
-      body.appendChild(addBtn);
-
-      folder.appendChild(body);
-      list.appendChild(folder);
-    });
-
-    // "+ 新增工作區" global button after all workspace folders
-    const addWsRow = document.createElement('div');
-    addWsRow.className = 'ws-add-row';
-    addWsRow.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增工作區`;
-    addWsRow.onclick = openSidebarAddWorkspace;
-    list.appendChild(addWsRow);
-
-    // Divider: always show before standalone sessions
-    if (standalone.length > 0) {
-      const divider = document.createElement('div');
-      divider.className = 'ws-divider';
-      divider.innerHTML = `<div class="ws-divider-line"></div><span class="ws-divider-label">獨立對話</span><div class="ws-divider-line"></div>`;
-      list.appendChild(divider);
-    }
-
-    // Standalone sessions
-    standalone.forEach(s => list.appendChild(makeSessionEl(s)));
+    if (reset) { _sessionsOffset = 0; _allLoadedSessions = []; }
+    const data = await fetch(`/sessions?limit=${_SESSIONS_PAGE}&offset=${_sessionsOffset}`).then(r => r.json());
+    _sessionsTotal = data.total;
+    _allLoadedSessions.push(...data.sessions);
+    _sessionsOffset += data.sessions.length;
+    renderSessionList();
   } catch {}
+}
+
+function renderSessionList() {
+  const sessions = _allLoadedSessions;
+  const list = document.getElementById('session-list');
+  list.innerHTML = '';
+
+  // Group sessions by workspace_id
+  const wsMap = {};
+  const standalone = [];
+  sessions.forEach(s => {
+    if (s.workspace_id) {
+      if (!wsMap[s.workspace_id]) wsMap[s.workspace_id] = [];
+      wsMap[s.workspace_id].push(s);
+    } else {
+      standalone.push(s);
+    }
+  });
+
+  // Workspace folders
+  workspaceData.forEach(workspace => {
+    const wsSessions = wsMap[workspace.id] || [];
+    const isOpen = openFolders.has(workspace.id);
+    const isSelected = selectedWorkspaceId === workspace.id;
+    const folder = document.createElement('div');
+    folder.className = 'ws-folder';
+
+    const folderColor = isSelected ? 'var(--accent)' : 'currentColor';
+    const header = document.createElement('div');
+    header.className = 'ws-folder-header' + (isSelected ? ' ws-selected' : '');
+    header.innerHTML = `
+      <span class="ws-folder-toggle ${isOpen ? 'open' : 'closed'}" title="展開/收合" onclick="toggleWsFolder('${workspace.id}')">
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+      </span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${folderColor}" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      <span class="ws-folder-name" style="${isSelected ? 'color:var(--accent)' : ''}" onclick="selectWorkspace('${workspace.id}')">${esc(workspace.name)}</span>
+      <span class="ws-folder-count">${wsSessions.length}</span>`;
+    folder.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'ws-folder-body';
+    body.style.display = isOpen ? '' : 'none';
+    wsSessions.map(s => makeSessionEl(s)).forEach(el => body.appendChild(el));
+
+    const addBtn = document.createElement('div');
+    addBtn.className = 'ws-new-session-btn';
+    addBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增對話`;
+    addBtn.onclick = () => selectWorkspace(workspace.id);
+    body.appendChild(addBtn);
+
+    folder.appendChild(body);
+    list.appendChild(folder);
+  });
+
+  // "+ 新增工作區" button
+  const addWsRow = document.createElement('div');
+  addWsRow.className = 'ws-add-row';
+  addWsRow.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增工作區`;
+  addWsRow.onclick = openSidebarAddWorkspace;
+  list.appendChild(addWsRow);
+
+  if (standalone.length > 0) {
+    const divider = document.createElement('div');
+    divider.className = 'ws-divider';
+    divider.innerHTML = `<div class="ws-divider-line"></div><span class="ws-divider-label">獨立對話</span><div class="ws-divider-line"></div>`;
+    list.appendChild(divider);
+  }
+
+  standalone.forEach(s => list.appendChild(makeSessionEl(s)));
+
+  // "Load more" button if there are more sessions
+  if (_sessionsOffset < _sessionsTotal) {
+    const moreBtn = document.createElement('div');
+    moreBtn.className = 'session-load-more';
+    moreBtn.textContent = `載入更多（${_sessionsTotal - _sessionsOffset} 則）`;
+    moreBtn.onclick = () => loadSessions(false);
+    list.appendChild(moreBtn);
+  }
 }
 
 // ── Load historical session ───────────────────────────────────
@@ -1469,7 +1503,7 @@ let historySessionId = null;
 let historyTopic = null;
 
 async function loadSession(id, el) {
-  if (ws) { ws.close(); ws = null; }
+  if (ws) { _wsIntentionalClose = true; clearTimeout(_wsReconnectTimer); ws.close(); ws = null; }
   const msgs = await fetch(`/sessions/${id}`).then(r => r.json());
 
   document.querySelectorAll('.session-item').forEach(e => e.classList.remove('active'));
@@ -1550,13 +1584,22 @@ function continueSessionWith(text) {
     if (data.type === 'message' && data.agent === 'Human') return;
     handleMessage(data);
   };
-  ws.onclose = () => { addSystem('Disconnected.'); loadSessions(); };
-  ws.onerror = () => addSystem('Connection error.');
+  _liveSessionParams = {
+    topic: historyTopic,
+    agents: selected,
+    auto: currentMode === 'auto',
+    rounds: getManualRounds(),
+    silence: false,
+    workspace_id: null,
+  };
+  _wsIntentionalClose = false;
+  ws.onclose = _onWsClose;
+  ws.onerror = () => {};
 }
 
 // ── UI helpers ────────────────────────────────────────────────
 function showWelcome() {
-  if (ws) { ws.close(); ws = null; }
+  if (ws) { _wsIntentionalClose = true; clearTimeout(_wsReconnectTimer); ws.close(); ws = null; }
   document.getElementById('welcome').style.display = 'flex';
   document.getElementById('chat-area').style.display = 'none';
   document.querySelectorAll('.session-item').forEach(e => e.classList.remove('active'));
@@ -1723,17 +1766,43 @@ function startSession() {
   // Agent pills in header
   renderHeaderPills();
 
-  ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => ws.send(JSON.stringify({
-    type: 'start', topic, agents: selected,
+  _liveSessionParams = {
+    topic, agents: selected,
     auto: currentMode === 'auto',
     rounds: getManualRounds(),
     silence: document.getElementById('silence-check')?.checked ?? false,
     workspace_id: selectedWorkspaceId || null,
-  }));
+  };
+
+  _wsIntentionalClose = false;
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'start', ..._liveSessionParams }));
   ws.onmessage = e => handleMessage(JSON.parse(e.data));
-  ws.onclose = () => { addSystem('Disconnected.'); loadSessions(); };
-  ws.onerror = () => addSystem('Connection error.');
+  ws.onclose = _onWsClose;
+  ws.onerror = () => {};
+}
+
+function _onWsClose() {
+  if (_wsIntentionalClose) { addSystem('Disconnected.'); loadSessions(); return; }
+  if (!_liveSessionParams || !activeSessionId) { addSystem('Disconnected.'); loadSessions(); return; }
+  // Unexpected close — schedule reconnect
+  addSystem('⚠ 連線中斷，3 秒後重新連線…');
+  clearTimeout(_wsReconnectTimer);
+  _wsReconnectTimer = setTimeout(_wsReconnect, 3000);
+}
+
+function _wsReconnect() {
+  if (_wsIntentionalClose || !_liveSessionParams) return;
+  addSystem('↻ 重新連線中…');
+  const resumeParams = { ..._liveSessionParams, resume_from: activeSessionId };
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'start', ...resumeParams }));
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+  ws.onclose = (ev) => {
+    if (ev.code === 1008) { addSystem('重連失敗（連線數上限）'); loadSessions(); return; }
+    _onWsClose();
+  };
+  ws.onerror = () => {};
 }
 
 // ── Messages ──────────────────────────────────────────────────
@@ -1785,7 +1854,7 @@ function addMessage(agent, text, color, ts, duration, queued = false, skill = nu
     if (queueId) row.dataset.queueId = queueId;
     const imgHtml = (images && images.length && activeSessionId)
       ? `<div class="msg-imgs">${images.map(img =>
-          `<img class="msg-img-thumb" src="/sessions/${activeSessionId}/images/${encodeURIComponent(img.filename)}" title="${esc(img.name)}">`
+          `<img class="msg-img-thumb" src="/sessions/${activeSessionId}/images/${encodeURIComponent(img.filename)}" title="${esc(img.name)}" onclick="openLightbox(this.src)">`
         ).join('')}</div>`
       : '';
     row.innerHTML = `
@@ -2130,6 +2199,19 @@ function stopSession() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: 'stop' }));
 }
+
+// ── Lightbox ──────────────────────────────────────────────────
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.add('open');
+  document.addEventListener('keydown', _lightboxKey);
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightbox-img').src = '';
+  document.removeEventListener('keydown', _lightboxKey);
+}
+function _lightboxKey(e) { if (e.key === 'Escape') closeLightbox(); }
 
 // ── Settings ──────────────────────────────────────────────────
 let currentSettingsTab = 'models';
