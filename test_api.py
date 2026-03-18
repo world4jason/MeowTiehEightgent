@@ -893,3 +893,37 @@ class TestWorkspaces:
         found = next((s for s in sessions if s["id"] == "2026-test"), None)
         assert found is not None
         assert found["workspace_id"] == ws_id
+
+
+# ── Phase 0.1: Subprocess Recovery ───────────────────────────────────────────
+
+class TestSubprocessRecovery:
+    """Phase 0.1 — subprocess crash / timeout recovery."""
+
+    def test_exception_base_class(self):
+        import app as a
+        e = a.SubprocessError(agent="claude", partial_output="hello", stderr_output="")
+        assert e.agent == "claude"
+        assert e.partial_output == "hello"
+
+    def test_timeout_error_carries_seconds(self):
+        import app as a
+        e = a.SubprocessTimeoutError(
+            agent="claude", partial_output="hi", stderr_output="", timeout_seconds=60
+        )
+        assert e.timeout_seconds == 60
+        assert isinstance(e, a.SubprocessError)
+
+    def test_crash_error_carries_exit_code(self):
+        import app as a
+        e = a.SubprocessCrashError(
+            agent="gemini", partial_output="", stderr_output="err", exit_code=1
+        )
+        assert e.exit_code == 1
+        assert isinstance(e, a.SubprocessError)
+
+    def test_startup_error_empty_partial(self):
+        import app as a
+        e = a.SubprocessStartupError(agent="claude", cause="FileNotFoundError")
+        assert e.partial_output == ""
+        assert isinstance(e, a.SubprocessError)

@@ -102,12 +102,16 @@ DEFAULT_MODELS = {
         "cmd": ["claude", "--print"],
         "color": "#a78bfa",
         "emoji": "🟣",
+        "idle_timeout_seconds": 60,
+        "startup_timeout_seconds": 10,
     },
     "gemini": {
         "type": "cli",
         "cmd": ["gemini", "-p"],
         "color": "#34d399",
         "emoji": "🟢",
+        "idle_timeout_seconds": 60,
+        "startup_timeout_seconds": 10,
     },
     "ollama": {
         "type": "api",
@@ -121,6 +125,8 @@ DEFAULT_MODELS = {
         "cmd": ["codex", "-q", "--no-project-doc", "--approval-mode", "full-auto", "-p"],
         "color": "#38bdf8",
         "emoji": "🔵",
+        "idle_timeout_seconds": 120,   # codex has higher startup + generation overhead
+        "startup_timeout_seconds": 20,
     },
 }
 
@@ -320,6 +326,10 @@ def get_agent_registry() -> dict[str, dict]:
                     agent["baseUrl"] = m["baseUrl"]
                 if "apiModel" in m:
                     agent["model"] = m["apiModel"]  # for API calls
+                # Merge timeout fields from model config (agent-level config takes precedence)
+                for timeout_key in ("idle_timeout_seconds", "startup_timeout_seconds"):
+                    if timeout_key not in agent and timeout_key in m:
+                        agent[timeout_key] = m[timeout_key]
 
             registry[name] = agent
         except Exception:
@@ -432,6 +442,62 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
         participants_header = ""
 
     return f"{context}\n\n===== DISCUSSION =====\n\n{participants_header}\n{history_text}\n\nYour turn. Respond as your persona dictates."
+
+
+# ── Subprocess error types ────────────────────────────────────────────────────
+
+class SubprocessError(Exception):
+    """Base class for all CLI subprocess failures."""
+    def __init__(self, agent: str, partial_output: str = "", stderr_output: str = "", **_):
+        super().__init__(agent)
+        self.agent = agent
+        self.partial_output = partial_output
+        self.stderr_output = stderr_output
+
+
+class SubprocessStartupError(SubprocessError):
+    """Command not found, permission denied, or no output within startup_timeout."""
+    def __init__(self, agent: str, cause: str = "", **_):
+        super().__init__(agent, partial_output="", stderr_output="")
+        self.cause = cause
+
+
+class SubprocessTimeoutError(SubprocessError):
+    """Idle timeout: no new chunk within idle_timeout_seconds."""
+    def __init__(self, agent: str, partial_output: str, stderr_output: str,
+                 timeout_seconds: float, **_):
+        super().__init__(agent, partial_output, stderr_output)
+        self.timeout_seconds = timeout_seconds
+
+
+class SubprocessCrashError(SubprocessError):
+    """Process exited non-zero or raised an unexpected exception."""
+    def __init__(self, agent: str, partial_output: str = "", stderr_output: str = "",
+                 exit_code: int | None = None, cause: str = "", **_):
+        super().__init__(agent, partial_output, stderr_output)
+        self.exit_code = exit_code
+        self.cause = cause
+
+
+def _resolve_timeout(agent: dict, key: str, default: float) -> float:
+    """Precedence: agent config > model_config > default."""
+    if key in agent:
+        return float(agent[key])
+    model_cfg = agent.get("model_config") or {}
+    if key in model_cfg:
+        return float(model_cfg[key])
+    return default
+
+
+def _error_message(e: "SubprocessError") -> str:
+    if isinstance(e, SubprocessTimeoutError):
+        return f"Agent {e.agent} timed out after {e.timeout_seconds}s of inactivity"
+    if isinstance(e, SubprocessStartupError):
+        return f"Agent {e.agent} failed to start: {e.cause}"
+    if isinstance(e, SubprocessCrashError):
+        details = f"exit {e.exit_code}" if e.exit_code is not None else e.cause
+        return f"Agent {e.agent} crashed ({details})"
+    return f"Agent {e.agent} failed"
 
 
 # ── Agent runners ─────────────────────────────────────────────────────────────
