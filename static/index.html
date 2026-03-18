@@ -199,6 +199,9 @@
   .attach-chip-del:hover { color: #f87171; }
   .attach-chip-img { padding: 2px 8px 2px 4px; }
   .attach-chip-thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+  .msg-imgs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .msg-img-thumb { max-width: 200px; max-height: 160px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); }
+  .msg-img-thumb:hover { opacity: 0.85; }
 
   /* ── Members Panel ── */
   #chat-body { display: flex; flex: 1; overflow: hidden; }
@@ -1473,6 +1476,7 @@ async function loadSession(id, el) {
   el.classList.add('active');
 
   historySessionId = id;
+  activeSessionId = id;
   const sysMsg = msgs.find(m => m.type === 'system');
   historyTopic = sysMsg ? sysMsg.text.replace(/^Topic:\s*/, '') : id;
 
@@ -1501,7 +1505,7 @@ async function loadSession(id, el) {
 
   msgs.forEach(m => {
     if (m.type === 'system') addSystem(m.text);
-    else if (m.type === 'message') addMessage(m.agent, m.text, m.color || '#888', m.timestamp, m.duration_ms, false, m.skill || null);
+    else if (m.type === 'message') addMessage(m.agent, m.text, m.color || '#888', m.timestamp, m.duration_ms, false, m.skill || null, null, m.images || null);
   });
 
   addSystem('Type a message to continue this session…');
@@ -1522,6 +1526,7 @@ function continueSessionWith(text) {
   // Capture before clearing (ws.onopen fires async, after historySessionId would be null)
   const resumeId = historySessionId;
   historySessionId = null;
+  activeSessionId = null;  // will be set from backend system message
 
   // Show human message immediately in UI (only if there is one)
   if (text) addMessage('Human', text, '#60a5fa', new Date().toISOString());
@@ -1594,6 +1599,8 @@ let membersPanelOpen = false;
 let activeSessionAgents = [];
 // msgCountMap: message count per agent in current session
 let msgCountMap = {};
+// activeSessionId: the session ID for the current live or loaded session
+let activeSessionId = null;
 
 function toggleMembersPanel() {
   membersPanelOpen = !membersPanelOpen;
@@ -1746,10 +1753,11 @@ function handleMessage(data) {
     renderMembersPanel();
     flushMsgQueue();
   } else if (data.type === 'message') {
-    removeThinking(); addMessage(data.agent, data.text, data.color, data.timestamp, data.duration_ms, false, data.skill || null);
+    removeThinking(); addMessage(data.agent, data.text, data.color, data.timestamp, data.duration_ms, false, data.skill || null, null, data.images);
     if (data.agent !== 'Human') { msgCountMap[data.agent] = (msgCountMap[data.agent] || 0) + 1; renderMembersPanel(); }
   } else if (data.type === 'system') {
     removeThinking(); addSystem(data.text);
+    if (data.session_id) activeSessionId = data.session_id;
   } else if (data.type === 'ready' && data.pause) {
     document.getElementById('next-btn').classList.add('visible');
   }
@@ -1760,7 +1768,7 @@ function formatDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function addMessage(agent, text, color, ts, duration, queued = false, skill = null, queueId = null) {
+function addMessage(agent, text, color, ts, duration, queued = false, skill = null, queueId = null, images = null) {
   if (!queued) removeThinking();
   const msgs = document.getElementById('messages');
   const isHuman = agent === 'Human';
@@ -1775,9 +1783,15 @@ function addMessage(agent, text, color, ts, duration, queued = false, skill = nu
   } else if (isHuman) {
     row.className = 'msg-row human-row';
     if (queueId) row.dataset.queueId = queueId;
+    const imgHtml = (images && images.length && activeSessionId)
+      ? `<div class="msg-imgs">${images.map(img =>
+          `<img class="msg-img-thumb" src="/sessions/${activeSessionId}/images/${encodeURIComponent(img.filename)}" title="${esc(img.name)}">`
+        ).join('')}</div>`
+      : '';
     row.innerHTML = `
       <div class="msg-content">
         <div>
+          ${imgHtml}
           <div class="human-bubble${queued ? ' queued' : ''}">${renderMentions(text)}</div>
           <div class="msg-meta-human">${timeStr ? `<span>${timeStr}</span>` : ''}${queued ? ' <span class="msg-queued">queued</span>' : ''}</div>
         </div>

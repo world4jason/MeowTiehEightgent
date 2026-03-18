@@ -399,6 +399,21 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
 
 # ── Agent runners ─────────────────────────────────────────────────────────────
 
+def save_session_images(session_id: str, images: list[dict]) -> list[dict]:
+    """Save images to history/<session_id>/images/ and return [{name, filename}] references."""
+    if not images:
+        return []
+    img_dir = HISTORY_DIR / session_id / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    refs = []
+    for img in images:
+        suffix = '.' + (img.get('mime', 'image/jpeg').split('/')[-1] or 'jpg')
+        fname = f"{uuid.uuid4().hex}{suffix}"
+        (img_dir / fname).write_bytes(base64.b64decode(img['base64']))
+        refs.append({"name": img.get("name", fname), "filename": fname})
+    return refs
+
+
 def write_temp_images(images: list[dict]) -> tuple[list[str], list[str]]:
     """Write base64 images to temp files. Returns (file_paths, extra_cmd_args)."""
     tmp_paths: list[str] = []
@@ -1235,6 +1250,14 @@ async def get_session(session_id: str):
     return json.loads(f.read_text())
 
 
+@app.get("/sessions/{session_id}/images/{filename}")
+async def get_session_image(session_id: str, filename: str):
+    p = HISTORY_DIR / session_id / "images" / filename
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(str(p))
+
+
 @app.put("/sessions/{session_id}/topic")
 async def rename_session(session_id: str, body: dict):
     """Update the Topic text in the first system message."""
@@ -1364,14 +1387,19 @@ async def websocket_endpoint(ws: WebSocket):
         if first_msg:
             if first_msg.get("type") == "human":
                 raw_text = first_msg["text"]
+                imgs = first_msg.get("images") or []
+                img_refs = save_session_images(session_id, imgs)
                 history_entry, skill_name = resolve_human_text(raw_text)
                 history_text += f"\n[Human]: {history_entry}\n"
-                log({
+                hmsg0 = {
                     "type": "message", "agent": "Human",
                     "color": "#60a5fa", "text": raw_text,
                     "skill": skill_name,
                     "timestamp": datetime.now().isoformat(),
-                })
+                }
+                if img_refs:
+                    hmsg0["images"] = img_refs
+                log(hmsg0)
             elif first_msg.get("type") == "stop":
                 return
 
@@ -1522,6 +1550,7 @@ async def websocket_endpoint(ws: WebSocket):
                     imgs = ph.get("images") or []
                     if imgs:
                         current_images = imgs  # use for next turn
+                    img_refs = save_session_images(session_id, imgs)
                     history_entry, skill_name = resolve_human_text(text, workspace_id)
                     history_text += f"\n[Human]: {history_entry}\n"
                     hmsg = {
@@ -1529,6 +1558,7 @@ async def websocket_endpoint(ws: WebSocket):
                         "color": "#60a5fa", "text": text,
                         "skill": skill_name,
                         "timestamp": datetime.now().isoformat(),
+                        **({"images": img_refs} if img_refs else {}),
                     }
                     await ws.send_json(hmsg)
                     log(hmsg)
@@ -1557,6 +1587,7 @@ async def websocket_endpoint(ws: WebSocket):
                         imgs = evt.get("images") or []
                         if imgs:
                             current_images = imgs
+                        img_refs = save_session_images(session_id, imgs)
                         history_entry, skill_name = resolve_human_text(text, workspace_id)
                         history_text += f"\n[Human]: {history_entry}\n"
                         hmsg = {
@@ -1564,6 +1595,7 @@ async def websocket_endpoint(ws: WebSocket):
                             "color": "#60a5fa", "text": text,
                             "skill": skill_name,
                             "timestamp": datetime.now().isoformat(),
+                            **({"images": img_refs} if img_refs else {}),
                         }
                         await ws.send_json(hmsg)
                         log(hmsg)
@@ -1592,6 +1624,7 @@ async def websocket_endpoint(ws: WebSocket):
                         imgs = evt.get("images") or []
                         if imgs:
                             current_images = imgs
+                        img_refs = save_session_images(session_id, imgs)
                         history_entry, skill_name = resolve_human_text(text, workspace_id)
                         history_text += f"\n[Human]: {history_entry}\n"
                         hmsg = {
@@ -1599,6 +1632,7 @@ async def websocket_endpoint(ws: WebSocket):
                             "color": "#60a5fa", "text": text,
                             "skill": skill_name,
                             "timestamp": datetime.now().isoformat(),
+                            **({"images": img_refs} if img_refs else {}),
                         }
                         await ws.send_json(hmsg)
                         log(hmsg)
