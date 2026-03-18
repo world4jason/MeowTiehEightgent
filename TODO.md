@@ -108,6 +108,17 @@
   - `vote_distribution`：如果有 Arbiter 機制，顯示評審結果
   - 放在 `history/<session_id>/status.json`，WebSocket 也可以廣播。
 
+- [ ] **Inject-and-Continue（注入繼續）**
+  借鑑 MassGen：當 agent A 完成輸出後，不等整輪結束就立即把 A 的輸出注入 agent B 的下一輪 prompt。
+  - 目前行為：每輪結束後才更新 history，B 要等下輪才看到 A 說了什麼。
+  - 改善方向：A 輸出後立即更新 shared history，B 在同輪就能讀到 A，減少「資訊延遲」。
+  - 注意：我們的架構是循序的，天然比 MassGen 更新鮮；但若多 agent 同時 streaming，這個機制更關鍵。
+
+- [ ] **Protected Paths（Workspace 寫入保護）**
+  Workspace 的 files/ 目錄目前 agent 可以任意寫入（若有 tool use）。
+  - 借鑑 MassGen：設定 `protected_paths` 清單，agent 無法覆寫特定檔案（如 guide.md、user config）。
+  - 實作簡單：在 workspace file API 加路徑白名單檢查。
+
 - [ ] **圖片 --add-file 相容性**
   codex 等不支援 --add-file 的 CLI 收到無用 args。
   agent/model config 加 `supports_image: bool`，只有支援的才傳。
