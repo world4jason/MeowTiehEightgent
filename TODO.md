@@ -77,6 +77,19 @@
   - **Phase 1（Sliding Window）**：保留最近 N 輪完整訊息，超過閾值直接丟棄舊訊息。成本低，先止血。
   - **Phase 2（Summarization）**：超過閾值時用輕量 model 將舊段落壓縮成摘要快照，插在 history 開頭。
   閾值與策略可在 session 設定或全域 config 控制。
+  參考：MassGen 的 `ContextCompressor` 在注入前自動縮減，原理相同。
+
+- [ ] **Subprocess 斷線復原（Partial Recovery）**
+  CLI subprocess 可能因 timeout / crash 中途失敗，目前直接丟棄整輪輸出。
+  - 借鑑 MassGen：每個 subprocess 啟動時建 `partial_output` 暫存，crash 後下一輪可從暫存繼續或回報「已收到部分回應」。
+  - 最低限度：失敗時顯示錯誤訊息 + 自動 skip 該 agent，不卡死整輪。
+  - 進階：timeout 後截斷並用 `[truncated]` 標記，保留已輸出的部分。
+
+- [ ] **Quality Gate（Success Contract）**
+  Arbiter Pattern 的延伸：為特定 session 設定明確的「完成條件」，而非靠輪次限制。
+  - 借鑑 MassGen 的 success contract：agent 在輸出中標記 `STATUS: done | needs_revision | blocked`。
+  - Orchestrator 讀 STATUS：全部 done → session 可標記完成；有 blocked → 路由到 human。
+  - 適用場景：任務型 session（如撰寫計畫書、程式碼審查），自由對話不需要。
 
 - [ ] **圖片 --add-file 相容性**
   codex 等不支援 --add-file 的 CLI 收到無用 args。
