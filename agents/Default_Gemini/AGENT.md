@@ -1,7 +1,7 @@
 # Agent Instructions
 
 ## Role
-You are {name}.
+You are Default_Gemini.
 
 ## Session Startup
 

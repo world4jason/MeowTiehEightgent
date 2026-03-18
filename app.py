@@ -43,14 +43,16 @@ DEFAULT_AGENT_MD = """\
 # Agent Instructions
 
 ## Role
-You are {name}. You participate in a live multi-agent discussion with other AI agents and a human facilitator.
+You are {name}.
 
-## How to engage
-- Build on conversation history — don't repeat what's already been said
-- Pick one thread to develop rather than covering everything shallowly
-- Keep responses to 2–4 paragraphs unless depth is clearly needed
-- Plain prose. No bullet dumps. No sign-offs.
-- When the human speaks, prioritize their input and reset your focus
+## Session Startup
+
+Before anything else:
+1. Read `IDENTITY.md` — this is who you are
+2. Read `SOUL.md` — this is what drives you
+3. Read `../../USER.md` — this is who you're helping
+4. Read `memory/` latest file if it exists — recent context
+5. Check `../../skills/` for available shared skills
 
 ## Memory
 
@@ -63,6 +65,18 @@ Working directory is `agents/{name}/`. Write to:
 - `memory/YYYY-MM-DD.md` — daily log, append key exchanges each session
 
 After each significant exchange, append a short note to today's log file.
+
+## How to engage
+- Build on conversation history — don't repeat what's been said
+- When the human speaks, prioritize their input and reset your focus
+- Engage directly with what others actually said — not just your own agenda
+- Keep responses to 2–4 paragraphs unless depth is clearly needed
+- Plain prose. No bullet dumps. No sign-offs.
+- To address someone directly, use `@Name`.
+
+## Red Lines
+
+- Don't summarize the whole conversation on every turn
 """
 
 DEFAULT_IDENTITY_MD = """\
@@ -345,7 +359,7 @@ def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str,
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
-def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None) -> str:
+def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None, all_agents: list[dict] | None = None) -> str:
     ws: Path = agent["workspace"]
     parts = []
 
@@ -405,7 +419,19 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
                 parts.append(f"## Skill: {s['name']}\n\n{s['body']}")
 
     context = "\n\n---\n\n".join(parts)
-    return f"{context}\n\n===== DISCUSSION =====\n\n{history_text}\n\nYour turn. Respond as your persona dictates."
+
+    # Dynamic participants header
+    if all_agents:
+        names = [a["name"] for a in all_agents if a["name"] != agent["name"]]
+        others = ", ".join(names) if names else "none"
+        participants_header = (
+            f"Participants in this room: {agent['name']} (you), {others}, Human\n"
+            f"Your previous responses above are marked [{agent['name']}]:\n"
+        )
+    else:
+        participants_header = ""
+
+    return f"{context}\n\n===== DISCUSSION =====\n\n{participants_header}\n{history_text}\n\nYour turn. Respond as your persona dictates."
 
 
 # ── Agent runners ─────────────────────────────────────────────────────────────
@@ -812,8 +838,8 @@ async def get_agent(name: str):
 @app.post("/agents")
 async def add_agent(body: dict):
     name = body.get("name", "").strip()
-    if not name or not re.match(r'^[a-zA-Z0-9_-]+$', name):
-        raise HTTPException(status_code=400, detail="Name required (alphanumeric, _ - only)")
+    if not name or re.search(r'[/\\.\s]', name) or len(name) > 64:
+        raise HTTPException(status_code=400, detail="Name required (no slashes, dots, or spaces)")
     agent_dir = AGENTS_DIR / name
     if agent_dir.exists():
         raise HTTPException(status_code=409, detail="Agent already exists")
@@ -1442,6 +1468,7 @@ async def websocket_endpoint(ws: WebSocket):
                 ensure_workspace(agent)
                 active_agents.append(agent)
                 engine.add_agent(agent)
+                history_text += f"\n[System]: {name} joined the conversation\n"
                 smsg = {"type": "system", "text": f"{agent.get('emoji', '')} {name} 加入聊天室"}
                 await ws.send_json(smsg)
                 log({**smsg, "timestamp": datetime.now().isoformat()})
@@ -1495,7 +1522,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             async def _produce():
                 try:
-                    async for chunk in stream_agent(agent, build_prompt(agent, history_text, workspace_id), images=turn_images or None):
+                    async for chunk in stream_agent(agent, build_prompt(agent, history_text, workspace_id, active_agents), images=turn_images or None):
                         await chunk_q.put(chunk)
                 except asyncio.CancelledError:
                     pass
@@ -1581,7 +1608,7 @@ async def websocket_endpoint(ws: WebSocket):
                     }
                     await ws.send_json(hmsg)
                     log(hmsg)
-                    mention = ConversationEngine.extract_mention(text)
+                    mention = ConversationEngine.extract_mention(text, active_agents)
                     if mention and engine.on_mention(mention) is not None:
                         pass
                     else:
@@ -1618,7 +1645,7 @@ async def websocket_endpoint(ws: WebSocket):
                         }
                         await ws.send_json(hmsg)
                         log(hmsg)
-                        mention = ConversationEngine.extract_mention(text)
+                        mention = ConversationEngine.extract_mention(text, active_agents)
                         if mention and engine.on_mention(mention) is not None:
                             pass  # engine reordered; next next_speaker() returns @target
                         else:
@@ -1655,7 +1682,7 @@ async def websocket_endpoint(ws: WebSocket):
                         }
                         await ws.send_json(hmsg)
                         log(hmsg)
-                        mention = ConversationEngine.extract_mention(text)
+                        mention = ConversationEngine.extract_mention(text, active_agents)
                         if mention and engine.on_mention(mention) is not None:
                             pass  # engine reordered; next next_speaker() returns @target
                         else:
