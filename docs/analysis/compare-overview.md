@@ -1,11 +1,11 @@
 # 綜合比較：Multi-Agent 工具全景
 
-> 撰寫時間：2026-03-17（MassGen 補入：2026-03-18）
-> 詳細報告：compare-aionui.md、compare-crewai.md、compare-autogen.md、compare-librechat.md、compare-chatmeld.md、massgen-analysis.md、massgen-vs-this-system.md
+> 撰寫時間：2026-03-17（MassGen + LLM Council 補入：2026-03-18）
+> 詳細報告：compare-aionui.md、compare-crewai.md、compare-autogen.md、compare-librechat.md、compare-chatmeld.md、massgen-analysis.md、massgen-vs-this-system.md、massgen-deep-research-gemini.md、massgen-technical-report.md
 
 ---
 
-## 一、七個產品定位一句話
+## 一、八個產品定位一句話
 
 | 產品 | 一句話定位 | 目標用戶 |
 |------|-----------|---------|
@@ -15,6 +15,7 @@
 | **LibreChat** | 開源 ChatGPT 替代品，支援幾乎所有 LLM 供應商 | 一般用戶（重視隱私/自架）|
 | **ChatMeld** | 瀏覽器端多模型對話遊樂場，快速實驗 AI-to-AI 對話 | AI 愛好者、研究人員 |
 | **MassGen** | 多 LLM 平行冗餘 + 投票共識，生出最佳單一答案 | 開發者、研究人員 |
+| **LLM Council** | 靜態「諮詢委員會」模式：多模型獨立答題→互評→主席模型綜合 | 研究人員、AI 愛好者 |
 | **你的專案** | 有個性、有記憶的多 agent 即時討論室，不需寫程式 | 任何人 |
 
 ---
@@ -87,6 +88,7 @@
 | LibreChat | 功能最完整的 ChatGPT 替代品（code interpreter、多模態、多用戶） |
 | ChatMeld | 最輕量（純靜態）、最快開始的多模型 AI 對話實驗工具 |
 | MassGen | 跨 provider 平行冗餘 + voting consensus，答案品質最高 |
+| LLM Council | 最簡單的多模型審閱架構，無需安裝，Web UI 即開即用 |
 | **你的專案** | **唯一有 agent 個性/記憶/marketplace 的 end-user 多 agent 討論室** |
 
 ---

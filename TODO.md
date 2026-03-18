@@ -123,6 +123,26 @@
   codex 等不支援 --add-file 的 CLI 收到無用 args。
   agent/model config 加 `supports_image: bool`，只有支援的才傳。
 
+- [ ] **跨 Session 向量記憶（Memory MCP）**
+  目前 agent 記憶是每日 markdown log，只能在當次 session 讀取，無法主動召回過去相關對話。
+  - 借鑑 MassGen 的 Memory MCP 模組：把對話和知識以向量形式跨 session 儲存。
+  - 查詢方式：新 session 開始時，agent 可搜索語意相似的過去對話片段，自動注入 context。
+  - 實作路線：embedding + 本地向量庫（如 chromadb、faiss）+ 在 build_prompt 時查詢並注入。
+  - 優先度：探索中，需要先評估 embedding 成本與延遲。
+
+- [ ] **多層 Model 路由（Task-Tiered Model Selection）**
+  借鑑 MassGen 的成本優化策略：同一 agent 依任務難度路由到不同層級 model。
+  - 簡單驗證 / 判斷（如 Arbiter verdict）→ 用便宜 model（haiku、gemini-flash）
+  - 核心推理 / 創作 → 用貴 model（opus、sonnet）
+  - 與「Agent 發言傾向（chat / think）」正交：發言傾向控制長度，model 路由控制能力等級。
+  - 實作：agent config 加 `model_tiers: { default, thinking, arbiter }`，不同場景自動切換。
+
+- [ ] **Fairness Gate（發言公平門檻）**
+  當多個 agent 並行輸出時（未來有直接 API 時最相關），防止回覆速度快的小 model 主導討論。
+  - 借鑑 MassGen：強制等所有 model 完成輸出後才進行下一輪 aggregation。
+  - 對目前循序 round-robin 影響小，但若改成平行架構這個機制是必要的。
+  - 先記錄概念，有直接 API 後一起實作。
+
 ### 低優先 / 探索中
 
 - [ ] **直接 API 支援（Anthropic / OpenAI）**
