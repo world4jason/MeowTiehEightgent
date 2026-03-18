@@ -84,5 +84,10 @@
 
 ### 低優先 / 探索中
 
+- [ ] **直接 API 支援（Anthropic / OpenAI）**
+  目前只走 CLI subprocess（claude/gemini/codex）。若改支援直接 API call，可省去 CLI 安裝需求，降低 latency，也讓非開發者更容易部署。
+  - 參考 MassGen 的 LLMBackend 架構：每個 provider 一個 class，繼承統一介面。
+  - 可先從 Anthropic SDK 開始，作為 claude CLI 的 fallback。
+
 - [ ] **Telegram 整合**
   Bot token 管理 + message relay 到 WebSocket session。
