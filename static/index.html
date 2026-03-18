@@ -156,6 +156,7 @@
   .msg-meta { display: flex; gap: 8px; align-items: center; margin-top: 4px; font-size: 0.68rem; color: var(--text-muted); }
   .msg-duration { color: #6ee7b7; }
   .streaming-text { white-space: pre-wrap; }
+  .agent-error-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; background: #fee2e2; color: #dc2626; border-radius: 4px; font-size: 0.75em; font-weight: 600; cursor: help; }
   .msg-meta-human { text-align: right; margin-top: 3px; font-size: 0.68rem; color: var(--text-muted); }
   .human-bubble { background: var(--surface); border: 1px solid var(--border); border-radius: 14px 14px 3px 14px; padding: 8px 13px; font-size: 0.88rem; line-height: 1.6; max-width: 480px; }
   .human-bubble.queued { opacity: 0.6; }
@@ -1821,6 +1822,22 @@ function handleMessage(data) {
     msgCountMap[data.agent] = (msgCountMap[data.agent] || 0) + 1;
     renderMembersPanel();
     flushMsgQueue();
+  } else if (data.type === 'agent_error') {
+    let s = streamingRows[data.agent];
+    if (!s && data.partial_text !== null && data.partial_text !== undefined) {
+      // Startup failure: no chunks were sent, create a bubble with partial content
+      addStreamingMessage(data.agent, data.color || '#888');
+      if (data.partial_text) appendChunk(data.agent, data.partial_text);
+      s = streamingRows[data.agent];
+    }
+    if (s) {
+      const badge = document.createElement('span');
+      badge.className = 'agent-error-badge';
+      badge.title = data.message || 'Agent error';
+      badge.textContent = data.partial_text === null ? ' ⚠ 截斷' : ' ⚠ 無回應';
+      s.textEl.appendChild(badge);
+      delete streamingRows[data.agent];
+    }
   } else if (data.type === 'message') {
     removeThinking(); addMessage(data.agent, data.text, data.color, data.timestamp, data.duration_ms, false, data.skill || null, null, data.images);
     if (data.agent !== 'Human') { msgCountMap[data.agent] = (msgCountMap[data.agent] || 0) + 1; renderMembersPanel(); }
