@@ -411,6 +411,21 @@
   #skill-edit-panel.open, #skill-add-panel.open { transform: translateX(0); }
   #skill-edit-panel .asst-edit-textarea, #skill-add-panel .asst-edit-textarea { min-height: 280px; }
 
+  /* 關於你 default template cards */
+  .default-tmpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 20px; }
+  .default-tmpl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .default-tmpl-card:hover { border-color: #555; background: var(--surface2); }
+  .default-tmpl-card-top { display: flex; align-items: center; gap: 10px; }
+  .default-tmpl-card-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+  .default-tmpl-card-title { font-size: 0.86rem; font-weight: 600; }
+  .default-tmpl-card-sub { font-size: 0.72rem; color: var(--text-muted); line-height: 1.4; }
+  .default-tmpl-card-preview { font-size: 0.76rem; color: var(--text-muted); line-height: 1.5; font-family: ui-monospace, 'Cascadia Code', monospace; background: var(--bg); border-radius: 7px; padding: 8px 10px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; white-space: pre-wrap; flex: 1; }
+  .default-tmpl-note { padding: 0 20px 16px; font-size: 0.72rem; color: var(--text-muted); }
+  /* Default template edit panel */
+  #default-edit-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 520px; background: var(--panel-bg); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; z-index: 10; }
+  #default-edit-panel.open { transform: translateX(0); }
+  #default-edit-panel .asst-edit-textarea { min-height: 400px; flex: 1; }
+
   /* 市場 tab */
   .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px; }
   .market-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
@@ -773,9 +788,23 @@
         </div>
         <!-- 關於你 tab (edit _default templates) -->
         <div class="settings-tab" id="tab-default">
-          <div class="settings-tab-body" id="tab-default-body"></div>
-          <div class="settings-tab-footer">
-            <button id="save-default-btn" onclick="saveDefaultTab()">儲存</button>
+          <div class="settings-tab-body" id="tab-default-body" style="overflow-y:auto;flex:1"></div>
+          <!-- Slide-in edit panel -->
+          <div id="default-edit-panel">
+            <div class="asst-edit-header">
+              <button class="asst-edit-back" onclick="closeDefaultEdit()">← 返回</button>
+              <div class="asst-edit-title" id="default-edit-title">編輯</div>
+            </div>
+            <div class="asst-edit-body" style="flex:1;overflow-y:auto">
+              <div class="asst-edit-field">
+                <div class="asst-edit-label" id="default-edit-label"></div>
+                <textarea class="asst-edit-input asst-edit-textarea" id="default-edit-textarea" style="min-height:400px;flex:1"></textarea>
+              </div>
+              <div id="default-edit-hint" style="font-size:0.72rem;color:var(--text-muted);line-height:1.5"></div>
+            </div>
+            <div class="asst-edit-footer">
+              <button class="asst-edit-save-btn" onclick="saveDefaultEdit()">儲存</button>
+            </div>
           </div>
         </div>
         <!-- 關於我 tab -->
@@ -2758,36 +2787,93 @@ async function togglePersona(name, enabled) {
 }
 
 // ── 關於你 tab (_default template) ───────────────────────────
+const _defaultTmplCache = {};  // file key → content
+
+const _defaultTmplMeta = {
+  'agent-md': {
+    icon: '🤖',
+    title: 'AGENT.md',
+    subtitle: '行為指令',
+    desc: '每個新代理人的基礎行為規範。定義角色職責、工作流程與回應風格。',
+    hint: '新建代理人時會從這裡複製，<code>{name}</code> 會被替換成代理人名稱。',
+    endpoint: '/agents/_default/agent-md',
+  },
+  'identity': {
+    icon: '🪪',
+    title: 'IDENTITY.md',
+    subtitle: '身份設定',
+    desc: '代理人的基本身份：名字、背景、個性特質。讓 AI 知道「我是誰」。',
+    hint: '<code>{name}</code> 會被替換成代理人名稱。',
+    endpoint: '/agents/_default/identity',
+  },
+  'soul': {
+    icon: '✨',
+    title: 'SOUL.md',
+    subtitle: '靈魂個性',
+    desc: '更深層的價值觀與思考風格。決定代理人如何思考、表達，以及與人互動的氣質。',
+    hint: '靈魂文件讓同名代理人在不同對話中保持一致的「感覺」。',
+    endpoint: '/agents/_default/soul',
+  },
+};
+
 async function renderDefaultTab() {
   const body = document.getElementById('tab-default-body');
-  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem">載入中…</div>`;
+  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;padding:20px">載入中…</div>`;
   const [agentMd, identity, soul] = await Promise.all([
     fetch('/agents/_default/agent-md').then(r => r.json()).catch(() => ({content: ''})),
     fetch('/agents/_default/identity').then(r => r.json()).catch(() => ({content: ''})),
     fetch('/agents/_default/soul').then(r => r.json()).catch(() => ({content: ''})),
   ]);
+  _defaultTmplCache['agent-md'] = agentMd.content;
+  _defaultTmplCache['identity'] = identity.content;
+  _defaultTmplCache['soul'] = soul.content;
+
+  const cardHtml = Object.entries(_defaultTmplMeta).map(([key, m]) => `
+    <div class="default-tmpl-card" onclick="openDefaultEdit('${key}')">
+      <div class="default-tmpl-card-top">
+        <div class="default-tmpl-card-icon">${m.icon}</div>
+        <div>
+          <div class="default-tmpl-card-title">${m.title}</div>
+          <div class="default-tmpl-card-sub">${m.subtitle}</div>
+        </div>
+      </div>
+      <div class="default-tmpl-card-sub" style="font-size:0.76rem">${m.desc}</div>
+      <div class="default-tmpl-card-preview">${esc(_defaultTmplCache[key] || '（尚未設定）')}</div>
+    </div>`).join('');
+
   body.innerHTML = `
-    <div class="about-label">AGENT.md — 代理人預設指令</div>
-    <textarea class="about-textarea" id="default-agentmd" style="min-height:200px">${esc(agentMd.content)}</textarea>
-    <div class="about-label" style="margin-top:12px">IDENTITY.md — 預設身份</div>
-    <textarea class="about-textarea" id="default-identity" style="min-height:120px">${esc(identity.content)}</textarea>
-    <div class="about-label" style="margin-top:12px">SOUL.md — 預設靈魂</div>
-    <textarea class="about-textarea" id="default-soul" style="min-height:120px">${esc(soul.content)}</textarea>
-    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">新建代理人時會從這裡複製內容。<code>{name}</code> 會被替換成代理人名稱。</div>`;
+    <div class="default-tmpl-grid">${cardHtml}</div>
+    <div class="default-tmpl-note">點選卡片即可編輯。新建代理人時會從這裡複製內容，<code>{name}</code> 會被替換成代理人名稱。</div>`;
 }
 
-async function saveDefaultTab() {
-  const agentMd = document.getElementById('default-agentmd')?.value || '';
-  const identity = document.getElementById('default-identity')?.value || '';
-  const soul = document.getElementById('default-soul')?.value || '';
-  const btn = document.getElementById('save-default-btn');
+function openDefaultEdit(key) {
+  const m = _defaultTmplMeta[key];
+  document.getElementById('default-edit-title').textContent = `編輯 ${m.title}`;
+  document.getElementById('default-edit-label').textContent = `${m.title} — ${m.subtitle}`;
+  document.getElementById('default-edit-hint').innerHTML = m.hint;
+  const ta = document.getElementById('default-edit-textarea');
+  ta.value = _defaultTmplCache[key] || '';
+  ta.dataset.key = key;
+  document.getElementById('default-edit-panel').classList.add('open');
+  ta.focus();
+}
+
+function closeDefaultEdit() {
+  document.getElementById('default-edit-panel').classList.remove('open');
+}
+
+async function saveDefaultEdit() {
+  const ta = document.getElementById('default-edit-textarea');
+  const key = ta.dataset.key;
+  if (!key) return;
+  const m = _defaultTmplMeta[key];
+  const btn = document.querySelector('#default-edit-panel .asst-edit-save-btn');
   btn.textContent = '儲存中…'; btn.disabled = true;
-  await Promise.all([
-    fetch('/agents/_default/agent-md', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: agentMd }) }),
-    fetch('/agents/_default/identity', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: identity }) }),
-    fetch('/agents/_default/soul', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: soul }) }),
-  ]);
+  await fetch(m.endpoint, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: ta.value }) });
+  _defaultTmplCache[key] = ta.value;
   btn.textContent = '儲存'; btn.disabled = false;
+  closeDefaultEdit();
+  renderDefaultTab();  // refresh card previews
 }
 
 async function renderAboutTab() {
