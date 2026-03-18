@@ -441,7 +441,22 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
     else:
         participants_header = ""
 
-    return f"{context}\n\n===== DISCUSSION =====\n\n{participants_header}\n{history_text}\n\nYour turn. Respond as your persona dictates."
+    # Continuation hint for agents truncated in the previous turn
+    continuation_hint = ""
+    if agent.get("pending_continuation"):
+        continuation_hint = (
+            "\n\n[系統提示] 你在上一輪說到一半被打斷了"
+            "（歷史中可看到 [TRUNCATED] 標記）。"
+            "這輪你可以選擇繼續完整你的想法，或先回應其他人的發言再補充。"
+        )
+        agent["pending_continuation"] = False
+
+    return (
+        f"{context}\n\n===== DISCUSSION =====\n\n"
+        f"{participants_header}\n{history_text}"
+        f"{continuation_hint}\n\n"
+        "Your turn. Respond as your persona dictates."
+    )
 
 
 # ── Subprocess error types ────────────────────────────────────────────────────
@@ -575,30 +590,113 @@ async def call_agent(agent: dict, prompt: str) -> str:
 
 
 async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None):
-    """Async generator: yield text chunks from CLI stdout."""
+    """Async generator: yield text chunks from CLI stdout.
+
+    Raises SubprocessStartupError, SubprocessTimeoutError, or SubprocessCrashError
+    on failure.  Already-yielded chunks are preserved in the exception's
+    partial_output so the caller can append [TRUNCATED] to history.
+    """
+    idle_timeout = _resolve_timeout(agent, "idle_timeout_seconds", 60)
+    startup_timeout = _resolve_timeout(agent, "startup_timeout_seconds", 10)
+    buffer = ""
+
     tmp_paths: list[str] = []
     extra_args: list[str] = []
     if images:
         tmp_paths, extra_args = write_temp_images(images)
-    proc = await asyncio.create_subprocess_exec(
-        *agent["cmd"], *extra_args, prompt,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-        cwd=agent["workspace"],
-    )
+
     try:
+        proc = await asyncio.create_subprocess_exec(
+            *agent["cmd"], *extra_args, prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=agent["workspace"],
+        )
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        cleanup_temp_files(tmp_paths)
+        raise SubprocessStartupError(agent=agent["name"], cause=str(e))
+
+    stderr_task = asyncio.create_task(proc.stderr.read())
+
+    try:
+        # --- startup timeout: wait for first byte ---
+        try:
+            first_chunk = await asyncio.wait_for(
+                proc.stdout.read(256), timeout=startup_timeout
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise SubprocessStartupError(
+                agent=agent["name"],
+                cause=f"no output within {startup_timeout}s",
+            )
+
+        if not first_chunk:
+            # EOF immediately after startup
+            await proc.wait()
+            stderr_out = await stderr_task
+            raise SubprocessCrashError(
+                agent=agent["name"],
+                partial_output="",
+                stderr_output=stderr_out.decode(errors='replace'),
+                exit_code=proc.returncode,
+                cause="empty output",
+            )
+
+        decoded = first_chunk.decode(errors='replace')
+        buffer += decoded
+        yield decoded
+
+        # --- idle timeout: per-chunk reads ---
         while True:
-            chunk = await proc.stdout.read(256)
+            try:
+                chunk = await asyncio.wait_for(
+                    proc.stdout.read(256), timeout=idle_timeout
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                stderr_out = await stderr_task
+                raise SubprocessTimeoutError(
+                    agent=agent["name"],
+                    partial_output=buffer,
+                    stderr_output=stderr_out.decode(errors='replace'),
+                    timeout_seconds=idle_timeout,
+                )
             if not chunk:
                 break
-            yield chunk.decode(errors='replace')
-        await proc.wait()
-    except asyncio.CancelledError:
+            decoded = chunk.decode(errors='replace')
+            buffer += decoded
+            yield decoded
+
+    except SubprocessError:
+        raise
+
+    except Exception as e:
         proc.kill()
         await proc.wait()
-        raise
+        stderr_out = await stderr_task
+        raise SubprocessCrashError(
+            agent=agent["name"],
+            partial_output=buffer,
+            stderr_output=stderr_out.decode(errors='replace'),
+            cause=str(e),
+        )
+
     finally:
         cleanup_temp_files(tmp_paths)
+
+    # --- normal exit: check return code ---
+    await proc.wait()
+    stderr_out = await stderr_task
+    if proc.returncode != 0:
+        raise SubprocessCrashError(
+            agent=agent["name"],
+            partial_output=buffer,
+            stderr_output=stderr_out.decode(errors='replace'),
+            exit_code=proc.returncode,
+        )
 
 
 async def stream_api_agent(agent: dict, prompt: str):
@@ -1581,8 +1679,9 @@ async def websocket_endpoint(ws: WebSocket):
 
             t_start = asyncio.get_event_loop().time()
             chunk_parts: list[str] = []
-            chunk_q: asyncio.Queue[str | None] = asyncio.Queue()
+            chunk_q: asyncio.Queue[str | SubprocessError | None] = asyncio.Queue()
             cancelled = False
+            had_subprocess_error: SubprocessError | None = None
             turn_images = current_images[:]
             current_images = []  # consume once
 
@@ -1590,6 +1689,8 @@ async def websocket_endpoint(ws: WebSocket):
                 try:
                     async for chunk in stream_agent(agent, build_prompt(agent, history_text, workspace_id, active_agents), images=turn_images or None):
                         await chunk_q.put(chunk)
+                except SubprocessError as e:
+                    await chunk_q.put(e)  # sentinel: SubprocessError in queue
                 except asyncio.CancelledError:
                     pass
                 finally:
@@ -1605,6 +1706,10 @@ async def websocket_endpoint(ws: WebSocket):
                     try:
                         chunk = chunk_q.get_nowait()
                         if chunk is None:
+                            agent_done = True
+                            break
+                        if isinstance(chunk, SubprocessError):
+                            had_subprocess_error = chunk
                             agent_done = True
                             break
                         chunk_parts.append(chunk)
@@ -1632,7 +1737,27 @@ async def websocket_endpoint(ws: WebSocket):
             if cancelled:
                 break
 
-            response = "".join(chunk_parts).strip() if chunk_parts else None
+            # Handle subprocess error sentinel
+            if had_subprocess_error:
+                e = had_subprocess_error
+                had_subprocess_error = None
+                partial = e.partial_output or ""
+                suffix = " [TRUNCATED]" if partial else ""
+                response = (partial + suffix).strip() or None
+
+                partial_text_for_frontend = (
+                    e.partial_output if isinstance(e, SubprocessStartupError) else None
+                )
+                await ws.send_json({
+                    "type": "agent_error",
+                    "agent": agent["name"],
+                    "error_type": type(e).__name__,
+                    "message": _error_message(e),
+                    "partial_text": partial_text_for_frontend,
+                })
+                agent["pending_continuation"] = True
+            else:
+                response = "".join(chunk_parts).strip() if chunk_parts else None
 
             duration_ms = int((asyncio.get_event_loop().time() - t_start) * 1000)
 

@@ -927,3 +927,229 @@ class TestSubprocessRecovery:
         e = a.SubprocessStartupError(agent="claude", cause="FileNotFoundError")
         assert e.partial_output == ""
         assert isinstance(e, a.SubprocessError)
+
+    def test_resolve_timeout_agent_level_wins(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project, "idle_timeout_seconds": 90}
+        assert a._resolve_timeout(agent, "idle_timeout_seconds", 60) == 90
+
+    def test_resolve_timeout_falls_back_to_default(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project}
+        assert a._resolve_timeout(agent, "idle_timeout_seconds", 60) == 60
+
+    def test_error_message_timeout(self):
+        import app as a
+        e = a.SubprocessTimeoutError("claude", "", "", 60)
+        assert "60" in a._error_message(e) and "claude" in a._error_message(e)
+
+    def test_error_message_crash(self):
+        import app as a
+        e = a.SubprocessCrashError("gemini", exit_code=1)
+        assert "gemini" in a._error_message(e)
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_raises_crash_error(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["cat"], "startup_timeout_seconds": 5, "idle_timeout_seconds": 5}
+
+        call_count = 0
+        async def mock_read(n):
+            nonlocal call_count
+            call_count += 1
+            return b"output" if call_count == 1 else b""
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.read = mock_read
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"some error")
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.returncode = 1
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(a.SubprocessCrashError) as exc_info:
+                async for _ in a.stream_cli_agent(agent, "hello"):
+                    pass
+
+        assert exc_info.value.exit_code == 1
+        assert "some error" in exc_info.value.stderr_output
+
+    @pytest.mark.asyncio
+    async def test_command_not_found_raises_startup_error(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["nonexistent-xyz"], "startup_timeout_seconds": 5, "idle_timeout_seconds": 5}
+
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("no such file")):
+            with pytest.raises(a.SubprocessStartupError) as exc_info:
+                async for _ in a.stream_cli_agent(agent, "hello"):
+                    pass
+        assert exc_info.value.agent == "claude"
+        assert exc_info.value.partial_output == ""
+
+    @pytest.mark.asyncio
+    async def test_startup_timeout_raises_startup_error(self, tmp_project):
+        import app as a
+        import asyncio as aio
+
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["cat"], "startup_timeout_seconds": 0.05, "idle_timeout_seconds": 5}
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = MagicMock()
+        async def _hanging_read(n):
+            await aio.sleep(999)
+            return b""
+        mock_proc.stdout.read = _hanging_read
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"")
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(a.SubprocessStartupError):
+                async for _ in a.stream_cli_agent(agent, "hello"):
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_idle_timeout_raises_with_partial_output(self, tmp_project):
+        import app as a
+        import asyncio as aio
+
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["cat"], "startup_timeout_seconds": 5, "idle_timeout_seconds": 0.05}
+
+        call_count = 0
+        async def mock_read(n):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1: return b"hello "
+            if call_count == 2: return b"world"
+            await aio.sleep(999)
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.read = mock_read
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"")
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.returncode = 0
+
+        chunks = []
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(a.SubprocessTimeoutError) as exc_info:
+                async for chunk in a.stream_cli_agent(agent, "hello"):
+                    chunks.append(chunk)
+
+        assert chunks == ["hello ", "world"]
+        assert exc_info.value.partial_output == "hello world"
+
+    # ── Chunk 3: WS handler agent_error event ──────────────────────────────
+
+    def test_ws_sends_agent_error_on_timeout(self, tmp_project):
+        """agent_error WS event sent when stream_cli_agent raises SubprocessTimeoutError."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "model": "test-model", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+            raise a.SubprocessTimeoutError(
+                agent="claude", partial_output="hello", stderr_output="", timeout_seconds=60
+            )
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    events = []
+                    for _ in range(30):
+                        try:
+                            msg = ws.receive_json()
+                            events.append(msg)
+                            if msg.get("type") in ("ready",):
+                                break
+                        except Exception:
+                            break
+
+        types = [e["type"] for e in events]
+        assert "agent_error" in types, f"events: {types}"
+        err = next(e for e in events if e["type"] == "agent_error")
+        assert err["agent"] == "claude"
+        assert err["error_type"] == "SubprocessTimeoutError"
+        assert err["partial_text"] is None   # chunks already sent as "chunk" events
+
+    def test_ws_sends_partial_text_on_startup_failure(self, tmp_project):
+        """agent_error has partial_text when startup fails (no chunks sent)."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "model": "test-model", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            raise a.SubprocessStartupError(agent="claude", cause="not found")
+            yield  # make it a generator
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    events = []
+                    for _ in range(30):
+                        try:
+                            msg = ws.receive_json()
+                            events.append(msg)
+                            if msg.get("type") in ("ready",):
+                                break
+                        except Exception:
+                            break
+
+        err = next((e for e in events if e["type"] == "agent_error"), None)
+        assert err is not None, f"events: {[e['type'] for e in events]}"
+        assert err["error_type"] == "SubprocessStartupError"
+        # partial_text is "" (empty string, not None) — no output was produced
+        assert err["partial_text"] is not None
+
+    # ── Chunk 3: build_prompt continuation hint ────────────────────────────
+
+    def test_build_prompt_injects_continuation_hint(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir, "pending_continuation": True}
+        prompt = a.build_prompt(agent, "history here")
+        assert "打斷" in prompt
+
+    def test_build_prompt_clears_flag_after_injection(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir, "pending_continuation": True}
+        a.build_prompt(agent, "history")
+        assert agent.get("pending_continuation") is False
+
+    def test_build_prompt_no_hint_when_flag_absent(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(agent, "history")
+        assert "打斷" not in prompt
