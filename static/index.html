@@ -23,12 +23,27 @@
   #session-search-wrap { padding: 6px 8px 2px; flex-shrink: 0; }
   #session-search { width: 100%; box-sizing: border-box; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; font-size: 0.78rem; color: var(--text); outline: none; }
   #session-search::placeholder { color: var(--text-muted); }
-  #sidebar-footer { padding: 6px 8px 10px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; }
-  /* New session — compact, at bottom */
-  #new-session-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border-radius: 8px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.84rem; font-weight: 500; text-align: left; transition: background 0.12s, color 0.12s; }
-  #new-session-btn:hover { background: var(--surface); color: var(--text); }
-  #settings-btn { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.84rem; font-weight: 500; width: 100%; text-align: left; transition: background 0.15s, color 0.15s; }
-  #settings-btn:hover { background: var(--surface); color: var(--text); }
+  /* Arc-style sidebar dock */
+  #sidebar-space-header { padding: 14px 12px 6px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  #sidebar-space-name { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sidebar-settings-btn { width: 24px; height: 24px; border-radius: 6px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.12s, color 0.12s; }
+  #sidebar-settings-btn:hover { background: var(--surface); color: var(--text); }
+  #sidebar-dock { padding: 6px 8px 10px; flex-shrink: 0; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 6px; }
+  #dock-spaces { flex: 1; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }
+  .dock-space-btn { width: 26px; height: 26px; border-radius: 7px; border: none; cursor: pointer; font-size: 0.68rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s, transform 0.12s; opacity: 0.55; }
+  .dock-space-btn:hover { opacity: 1; transform: scale(1.1); }
+  .dock-space-btn.active { opacity: 1; outline: 2px solid rgba(255,255,255,0.3); outline-offset: 1px; }
+  .dock-personal-btn { width: 26px; height: 26px; border-radius: 7px; border: none; cursor: pointer; background: var(--surface2); color: var(--text-muted); font-size: 0.75rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; opacity: 0.55; }
+  .dock-personal-btn:hover { opacity: 1; }
+  .dock-personal-btn.active { opacity: 1; color: var(--text); }
+  #dock-plus-wrap { position: relative; flex-shrink: 0; }
+  #dock-plus-btn { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+  #dock-plus-btn:hover { background: var(--surface); color: var(--text); border-color: #555; }
+  #dock-plus-menu { display: none; position: absolute; bottom: calc(100% + 6px); right: 0; background: #1e1e1e; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.6); z-index: 50; min-width: 150px; padding: 4px; }
+  #dock-plus-menu.open { display: block; }
+  .dock-menu-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 0.82rem; color: var(--text); border-radius: 7px; transition: background 0.1s; }
+  .dock-menu-item:hover { background: var(--surface); }
+  .dock-menu-sep { height: 1px; background: var(--border); margin: 3px 0; }
   /* Session items */
   .session-item { padding: 6px 6px 6px 10px; border-radius: 7px; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: background 0.12s; display: flex; align-items: center; gap: 4px; }
   .session-item:hover { background: var(--surface); color: var(--text); }
@@ -71,9 +86,8 @@
   /* Add workspace row */
   .ws-add-row { display: flex; align-items: center; gap: 5px; padding: 5px 6px; font-size: 0.74rem; color: var(--text-muted); cursor: pointer; border-radius: 6px; transition: background 0.1s, color 0.1s; }
   .ws-add-row:hover { background: var(--surface); color: var(--accent); }
-  /* Active workspace badge in footer */
-  #ws-context { display: none; align-items: center; gap: 5px; padding: 4px 10px; font-size: 0.72rem; color: var(--accent); overflow: hidden; }
-  #ws-context-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-weight: 600; }
+  /* Active workspace badge in footer (legacy, hidden) */
+  #ws-context { display: none; }
   /* Workspace settings tab */
   #tab-workspaces .ws-list { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
   .ws-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
@@ -113,6 +127,22 @@
   .tooltip-box { display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: 220px; background: #111; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 0.76rem; line-height: 1.6; color: var(--text); z-index: 50; pointer-events: none; }
   .tooltip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--border); }
   .tooltip-wrap:hover .tooltip-box { display: block; }
+  /* Phase 1.2: 3-way context mode toggle */
+  .context-mode-toggle { display: flex; gap: 4px; padding: 3px; background: var(--surface); border-radius: 8px; margin-bottom: 14px; }
+  .context-mode-btn { flex: 1; padding: 7px 10px; border: none; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
+  .context-mode-btn.active { background: var(--bg); color: var(--text); font-weight: 500; }
+
+  /* Phase 1.2: Scenario picker */
+  .scenario-picker { display: none; }
+  .scenario-picker.visible { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .scenario-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: all 0.15s; }
+  .scenario-card:hover { border-color: #555; }
+  .scenario-card.selected { border-color: var(--accent, #6366f1); background: rgba(99,102,241,0.08); }
+  .scenario-card-name { font-size: 0.87rem; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+  .scenario-card-desc { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+  .scenario-card-agents { display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
+  .scenario-agent-badge { font-size: 0.72rem; padding: 2px 7px; border-radius: 99px; background: var(--bg); color: var(--text-muted); border: 1px solid var(--border); }
+
   #welcome-input-wrap { width: 100%; max-width: 540px; margin-top: 4px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 13px; padding: 11px 13px 9px; display: flex; flex-direction: column; gap: 6px; transition: border-color 0.2s; }
   #welcome-input-wrap:focus-within { border-color: #555; }
   #topic-input { width: 100%; background: transparent; border: none; outline: none; color: var(--text); font-size: 0.9rem; resize: none; line-height: 1.5; max-height: 160px; }
@@ -329,13 +359,11 @@
   .model-save-btn:hover { opacity: 0.85; }
   .model-del-btn { padding: 7px 14px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.84rem; transition: background 0.12s, color 0.12s, border-color 0.12s; }
   .model-del-btn:hover { background: #dc262615; color: #f87171; border-color: #dc2626; }
-  /* 關於我 tab */
+  /* USER.md section (merged into 關於 tab) */
   .about-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
   .about-textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-size: 0.84rem; outline: none; width: 100%; min-height: 400px; resize: vertical; line-height: 1.7; font-family: ui-monospace, 'Cascadia Code', monospace; }
   .about-textarea:focus { border-color: #555; }
-  #save-default-btn, #save-about-btn { width: 100%; padding: 9px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
-  #save-default-btn:hover, #save-about-btn:hover { opacity: 0.85; }
-  .toggle-switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
+.toggle-switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
   .toggle-track { position: absolute; inset: 0; background: var(--surface2); border-radius: 9px; cursor: pointer; transition: background 0.2s; border: 1px solid var(--border); }
   .toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-muted); transition: transform 0.2s, background 0.2s; }
@@ -409,10 +437,16 @@
   /* Skill panels (slide-in pattern) */
   #skill-edit-panel, #skill-add-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 520px; background: var(--panel-bg); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; z-index: 10; }
   #skill-edit-panel.open, #skill-add-panel.open { transform: translateX(0); }
-  #skill-edit-panel .asst-edit-textarea, #skill-add-panel .asst-edit-textarea { min-height: 280px; }
+  #skill-edit-panel .asst-edit-textarea, #skill-add-panel .asst-edit-textarea { min-height: 0; }
+  /* Make body fill panel height — no dead space */
+  #skill-edit-panel .asst-edit-body, #skill-add-panel .asst-edit-body { min-height: 0; }
+  #skill-edit-panel .asst-edit-body > .asst-edit-field:last-child,
+  #skill-add-panel  .asst-edit-body > .asst-edit-field:last-child { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #skill-edit-panel .asst-edit-body > .asst-edit-field:last-child .asst-edit-textarea,
+  #skill-add-panel  .asst-edit-body > .asst-edit-field:last-child .asst-edit-textarea { flex: 1; min-height: 0; resize: none; }
 
   /* 關於你 default template cards */
-  .default-tmpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 20px; }
+  .default-tmpl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding: 20px; }
   .default-tmpl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
   .default-tmpl-card:hover { border-color: #555; background: var(--surface2); }
   .default-tmpl-card-top { display: flex; align-items: center; gap: 10px; }
@@ -421,10 +455,13 @@
   .default-tmpl-card-sub { font-size: 0.72rem; color: var(--text-muted); line-height: 1.4; }
   .default-tmpl-card-preview { font-size: 0.76rem; color: var(--text-muted); line-height: 1.5; font-family: ui-monospace, 'Cascadia Code', monospace; background: var(--bg); border-radius: 7px; padding: 8px 10px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; white-space: pre-wrap; flex: 1; }
   .default-tmpl-note { padding: 0 20px 16px; font-size: 0.72rem; color: var(--text-muted); }
+  .default-section-label { padding: 0 20px 10px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); }
   /* Default template edit panel */
   #default-edit-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 520px; background: var(--panel-bg); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; z-index: 10; }
   #default-edit-panel.open { transform: translateX(0); }
-  #default-edit-panel .asst-edit-textarea { min-height: 400px; flex: 1; }
+  #default-edit-panel .asst-edit-body { min-height: 0; }
+  #default-edit-panel .asst-edit-body > .asst-edit-field { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #default-edit-panel .asst-edit-textarea { flex: 1; min-height: 0; resize: none; }
 
   /* 市場 tab */
   .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px; }
@@ -537,24 +574,49 @@
 
 <!-- Sidebar -->
 <div id="sidebar">
-  <div id="session-search-wrap">
-    <input id="session-search" type="text" placeholder="搜尋對話…" oninput="filterSessions(this.value)">
-  </div>
-  <div id="session-list"></div>
-  <div id="sidebar-footer">
-    <div id="ws-context">
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-      <span id="ws-context-name"></span>
-      <button onclick="selectWorkspace(null)" title="取消選取工作區" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.75rem;padding:0;flex-shrink:0;margin-left:auto">✕</button>
+  <!-- Space name header -->
+  <div id="sidebar-space-header">
+    <span id="sidebar-space-name" style="cursor:default">個人</span>
+    <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;position:relative">
+      <button id="sidebar-ws-menu-btn" onclick="toggleWsHeaderMenu(event)" title="工作區選項" style="width:24px;height:24px;border-radius:6px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem;line-height:1;transition:background 0.12s,color 0.12s" onmouseover="this.style.background='var(--surface)';this.style.color='var(--text)'" onmouseout="this.style.background='transparent';this.style.color='var(--text-muted)'">···</button>
+      <div id="sidebar-ws-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:#1e1e1e;border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:50;min-width:130px;padding:4px">
+        <div onclick="closeWsHeaderMenu();openRenameWorkspaceModal()" style="padding:7px 12px;font-size:0.82rem;color:var(--text);cursor:pointer;border-radius:6px;transition:background 0.1s" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='transparent'">重新命名</div>
+        <div onclick="closeWsHeaderMenu();openSidebarInstructions()" style="padding:7px 12px;font-size:0.82rem;color:var(--text);cursor:pointer;border-radius:6px;transition:background 0.1s" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='transparent'">編輯指引</div>
+      </div>
+      <button id="sidebar-settings-btn" onclick="openSettings()" title="設定">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
     </div>
-    <button id="new-session-btn" onclick="showWelcome()">
-      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-      New session
-    </button>
-    <button id="settings-btn" onclick="openSettings()">
-      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      設定
-    </button>
+  </div>
+  <!-- Search -->
+  <div id="session-search-wrap">
+    <input id="session-search" type="text" placeholder="搜尋…" oninput="filterSessions(this.value)">
+  </div>
+  <!-- Session list -->
+  <div id="session-list"></div>
+  <!-- Bottom dock -->
+  <div id="sidebar-dock">
+    <div id="dock-spaces"></div>
+    <div id="dock-plus-wrap">
+      <div id="dock-plus-menu">
+        <div class="dock-menu-item" onclick="closePlusMenu();showWelcome()">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          新對話
+        </div>
+        <div class="dock-menu-item" onclick="closePlusMenu();promptNewFolder()">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          新資料夾
+        </div>
+        <div class="dock-menu-sep"></div>
+        <div class="dock-menu-item" onclick="closePlusMenu();openAddWorkspace()">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/></svg>
+          新工作區
+        </div>
+      </div>
+      <button id="dock-plus-btn" onclick="togglePlusMenu()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -600,6 +662,15 @@
         </label>
       </div>
     </div>
+
+    <!-- Phase 1.2: 3-way context mode toggle -->
+    <div class="context-mode-toggle" id="context-mode-toggle" style="width:100%;max-width:540px;">
+      <button class="context-mode-btn active" id="ctx-workspace-btn" onclick="setContextMode('workspace')">Workspace</button>
+      <button class="context-mode-btn" id="ctx-scenario-btn" onclick="setContextMode('scenario')">Scenario</button>
+      <button class="context-mode-btn" id="ctx-blank-btn" onclick="setContextMode('blank')">Blank</button>
+    </div>
+    <!-- Scenario picker (shown only when Scenario mode selected) -->
+    <div class="scenario-picker" id="scenario-picker" style="width:100%;max-width:540px;"></div>
 
     <div id="welcome-input-wrap">
       <textarea id="topic-input" rows="1" placeholder="輸入討論主題…" oninput="autoResize(this)" onkeydown="topicKey(event)"></textarea>
@@ -681,8 +752,8 @@
         <div class="settings-nav-item" data-tab="market" onclick="switchSettingsTab('market')">市場</div>
         <div class="settings-nav-item" data-tab="skills" onclick="switchSettingsTab('skills')">技能</div>
         <div class="settings-nav-item" data-tab="workspaces" onclick="switchSettingsTab('workspaces')">工作區</div>
-        <div class="settings-nav-item" data-tab="default" onclick="switchSettingsTab('default')">關於你</div>
-        <div class="settings-nav-item" data-tab="about" onclick="switchSettingsTab('about')">關於我</div>
+        <div class="settings-nav-item" data-tab="default" onclick="switchSettingsTab('default')">靈魂</div>
+        <div class="settings-nav-item" data-tab="about-system" onclick="switchSettingsTab('about-system')">關於</div>
         <button id="close-settings" onclick="closeSettings()">← 返回</button>
       </nav>
       <div id="settings-content">
@@ -747,9 +818,9 @@
                 <span class="asst-edit-label">描述</span>
                 <input class="asst-edit-input" id="new-skill-desc" placeholder="一句話描述這個技能">
               </div>
-              <div class="asst-edit-field" style="flex:1">
+              <div class="asst-edit-field" style="flex:1;min-height:0;display:flex;flex-direction:column">
                 <span class="asst-edit-label">內容（Markdown）</span>
-                <textarea class="asst-edit-input asst-edit-textarea" id="new-skill-body" placeholder="# My Skill&#10;&#10;技能說明..."></textarea>
+                <textarea class="asst-edit-input asst-edit-textarea" id="new-skill-body" placeholder="# My Skill&#10;&#10;技能說明..." style="flex:1;min-height:0;resize:none"></textarea>
               </div>
             </div>
             <div class="asst-edit-footer">
@@ -795,23 +866,44 @@
               <button class="asst-edit-back" onclick="closeDefaultEdit()">← 返回</button>
               <div class="asst-edit-title" id="default-edit-title">編輯</div>
             </div>
-            <div class="asst-edit-body" style="flex:1;overflow-y:auto">
+            <div class="asst-edit-body" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px">
               <div class="asst-edit-field">
                 <div class="asst-edit-label" id="default-edit-label"></div>
-                <textarea class="asst-edit-input asst-edit-textarea" id="default-edit-textarea" style="min-height:400px;flex:1"></textarea>
+                <textarea class="asst-edit-input asst-edit-textarea" id="default-edit-textarea"></textarea>
               </div>
-              <div id="default-edit-hint" style="font-size:0.72rem;color:var(--text-muted);line-height:1.5"></div>
+              <div id="default-edit-hint" style="font-size:0.72rem;color:var(--text-muted);line-height:1.5;flex-shrink:0"></div>
             </div>
             <div class="asst-edit-footer">
               <button class="asst-edit-save-btn" onclick="saveDefaultEdit()">儲存</button>
             </div>
           </div>
         </div>
-        <!-- 關於我 tab -->
-        <div class="settings-tab" id="tab-about">
-          <div class="settings-tab-body" id="tab-about-body"></div>
-          <div class="settings-tab-footer">
-            <button id="save-about-btn" onclick="saveAboutTab()">儲存</button>
+        <!-- 關於系統 tab -->
+        <div class="settings-tab" id="tab-about-system">
+          <div class="settings-tab-body" style="overflow-y:auto;padding:32px 40px;display:flex;flex-direction:column;gap:24px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:1.6rem;font-weight:700;background:linear-gradient(135deg,#a78bfa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">MeowTiehEightgent</div>
+              <div style="font-size:0.84rem;color:var(--text-muted)">多 Agent 協作對話平台</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-muted)">這是什麼</div>
+              <div style="font-size:0.86rem;line-height:1.7;color:var(--text)">讓多個 AI 代理人在同一個對話室裡輪流發言、互相回應的平台。你可以隨時打斷、引導話題，或是直接 @mention 指定發言順序。</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-muted)">核心功能</div>
+              <div style="display:flex;flex-direction:column;gap:6px;font-size:0.84rem;color:var(--text);line-height:1.6">
+                <div>🤝 多 Agent 輪流發言 — Claude、Gemini、Codex 同室對話</div>
+                <div>⚡ 隨時打斷 — 任何時刻可插話重設輪次</div>
+                <div>🎭 三層個性系統 — AGENT.md / IDENTITY.md / SOUL.md</div>
+                <div>🗂 工作區 — 依專案整理對話，注入不同 system prompt</div>
+                <div>🛠 技能系統 — /skill 語法快速注入指令</div>
+                <div>🖼 圖片輸入 — 支援多圖上傳（對應 agent 能力自動判斷）</div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-muted)">技術架構</div>
+              <div style="font-size:0.84rem;color:var(--text-muted);line-height:1.7">FastAPI + Vanilla JS · WebSocket streaming · CLI subprocess 包裝 · Phase 0 穩定層（crash recovery、history sliding window、protected paths）</div>
+            </div>
           </div>
         </div>
       </div>
@@ -836,6 +928,36 @@
     <div class="ws-create-actions">
       <button class="ws-modal-cancel" onclick="closeAddWorkspace()">取消</button>
       <button class="ws-modal-submit" id="new-ws-save-btn" onclick="submitNewWorkspace()">建立工作區</button>
+    </div>
+  </div>
+</div>
+
+<!-- Rename workspace modal -->
+<div id="rename-ws-modal" onclick="if(event.target===this)closeRenameWorkspaceModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;align-items:center;justify-content:center">
+  <div id="ws-create-dialog" style="width:320px">
+    <div class="ws-create-title">重新命名工作區</div>
+    <div class="ws-create-field">
+      <label class="ws-create-label">新名稱</label>
+      <input class="ws-create-input" id="rename-ws-input" placeholder="工作區名稱…" onkeydown="if(event.key==='Enter')submitRenameWorkspace();else if(event.key==='Escape')closeRenameWorkspaceModal()">
+    </div>
+    <div class="ws-create-actions">
+      <button class="ws-modal-cancel" onclick="closeRenameWorkspaceModal()">取消</button>
+      <button class="ws-modal-submit" onclick="submitRenameWorkspace()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- New folder modal -->
+<div id="new-folder-modal" onclick="if(event.target===this)closeNewFolderModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;align-items:center;justify-content:center">
+  <div id="ws-create-dialog" style="width:320px">
+    <div class="ws-create-title">新增資料夾</div>
+    <div class="ws-create-field">
+      <label class="ws-create-label">資料夾名稱</label>
+      <input class="ws-create-input" id="new-folder-name" placeholder="例如：數據分析、瞎聊…" onkeydown="if(event.key==='Enter')submitNewFolder();else if(event.key==='Escape')closeNewFolderModal()">
+    </div>
+    <div class="ws-create-actions">
+      <button class="ws-modal-cancel" onclick="closeNewFolderModal()">取消</button>
+      <button class="ws-modal-submit" onclick="submitNewFolder()">建立</button>
     </div>
   </div>
 </div>
@@ -915,7 +1037,24 @@ let currentView = 'welcome';
 
 // ── Init ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadAgents(), loadModels(), loadSessions(), loadConfig(), loadSkills(), loadWorkspaces()]);
+  await Promise.all([loadAgents(), loadModels(), loadConfig(), loadSkills(), loadScenarios()]);
+  await loadWorkspaces();
+  // Ensure at least one workspace exists
+  if (!workspaceData.length) {
+    const r = await fetch('/workspaces', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name: '預設', description: '' }),
+    }).then(x => x.json()).catch(() => ({}));
+    if (r.id) await loadWorkspaces();
+  }
+  // Always select first workspace
+  if (workspaceData.length) {
+    selectedWorkspaceId = workspaceData[0].id;
+  }
+  updateSidebarSpaceName();
+  renderDockSpaces();
+  await loadSessions();
 }
 
 async function loadModels() {
@@ -1072,41 +1211,205 @@ async function moveSessionToWorkspace(sessionId, wsId) {
   await loadSessions();
 }
 
+// ── Context mode (Phase 1.2) ──────────────────────────────────────
+let contextMode = 'workspace';  // 'workspace' | 'scenario' | 'blank'
+let selectedScenarioId = null;
+let scenariosCache = [];
+
+async function loadScenarios() {
+  try {
+    const resp = await fetch('/scenarios');
+    scenariosCache = resp.ok ? await resp.json() : [];
+  } catch (_) {
+    scenariosCache = [];
+  }
+}
+
+function setContextMode(mode) {
+  contextMode = mode;
+  if (mode !== 'scenario') selectedScenarioId = null;
+  document.querySelectorAll('.context-mode-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById(`ctx-${mode}-btn`);
+  if (btn) btn.classList.add('active');
+  const picker = document.getElementById('scenario-picker');
+  if (picker) {
+    if (mode === 'scenario') {
+      picker.classList.add('visible');
+      renderScenarioPicker();
+    } else {
+      picker.classList.remove('visible');
+    }
+  }
+}
+
+function renderScenarioPicker() {
+  const picker = document.getElementById('scenario-picker');
+  if (!picker) return;
+  if (!scenariosCache.length) {
+    picker.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:0.82rem;padding:20px">尚無情境模板</div>';
+    return;
+  }
+  picker.innerHTML = scenariosCache.map(s => `
+    <div class="scenario-card${selectedScenarioId === s.id ? ' selected' : ''}"
+         onclick="selectScenario(${JSON.stringify(s.id)}, ${JSON.stringify(s.topic_hint || '')}, ${JSON.stringify((s.suggested_agents || []).join(','))})">
+      <div class="scenario-card-name">${esc(s.name || '')}</div>
+      <div class="scenario-card-desc">${esc(s.description || '')}</div>
+      ${(s.suggested_agents || []).length ? `<div class="scenario-card-agents">${(s.suggested_agents || []).map(a => `<span class="scenario-agent-badge">${esc(a)}</span>`).join('')}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function selectScenario(id, topicHint, suggestedAgentsStr) {
+  if (selectedScenarioId === id) {
+    selectedScenarioId = null;  // deselect on second click
+  } else {
+    selectedScenarioId = id;
+    // Pre-fill topic hint if topic input is empty
+    if (topicHint) {
+      const topicInput = document.getElementById('topic-input');
+      if (topicInput && !topicInput.value.trim()) topicInput.value = topicHint;
+    }
+    // Pre-check suggested agents
+    const suggested = suggestedAgentsStr ? suggestedAgentsStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+    if (suggested.length) {
+      document.querySelectorAll('.agent-checkbox').forEach(cb => {
+        const name = (cb.dataset.agent || cb.value || '').toLowerCase();
+        cb.checked = suggested.includes(name);
+      });
+    }
+  }
+  renderScenarioPicker();
+}
+
 // ── Workspaces ────────────────────────────────────────────────
 let selectedWorkspaceId = null;
-let openFolders = new Set();  // workspace IDs that are expanded
+let openFolders = new Set();  // UI folder IDs that are expanded
 
 async function loadWorkspaces() {
   workspaceData = await fetch('/workspaces').then(r => r.json()).catch(() => []);
-  // Default: all folders expanded on first load
-  workspaceData.forEach(w => { if (!openFolders.has(w.id)) openFolders.add(w.id); });
+  renderDockSpaces();
 }
 
 function selectWorkspace(wsId) {
+  if (!wsId || wsId === selectedWorkspaceId) return;  // no-op if already selected
   selectedWorkspaceId = wsId;
-  const ctxEl = document.getElementById('ws-context');
-  const nameEl = document.getElementById('ws-context-name');
-  if (wsId) {
-    const ws = workspaceData.find(w => w.id === wsId);
-    ctxEl.style.display = 'flex';
-    nameEl.textContent = ws ? ws.name : wsId;
-    // Force-open the folder (clicking folder name always expands)
-    openFolders.add(wsId);
-  } else {
-    ctxEl.style.display = 'none';
+  const ws = workspaceData.find(w => w.id === wsId);
+  if (ws) {
+    const defaults = ws.default_agents || [];
+    document.querySelectorAll('.agent-chip').forEach(chip => {
+      // If workspace has configured agents, apply them; otherwise select all
+      chip.classList.toggle('checked', defaults.length ? defaults.includes(chip.dataset.name) : true);
+    });
+    updateParticipantsLabel();
   }
-  // Apply default agents if workspace has them
-  if (wsId) {
-    const ws = workspaceData.find(w => w.id === wsId);
-    if (ws && ws.default_agents && ws.default_agents.length) {
-      document.querySelectorAll('.agent-chip').forEach(chip => {
-        chip.classList.toggle('checked', ws.default_agents.includes(chip.dataset.name));
-      });
-      updateParticipantsLabel();
-    }
-  }
-  loadSessions();  // redraw sidebar to reflect selected + open state
+  updateSidebarSpaceName();
+  renderDockSpaces();
+  loadSessions();
   showWelcome();
+}
+
+function updateSidebarSpaceName() {
+  let el = document.getElementById('sidebar-space-name');
+  const ws = workspaceData.find(w => w.id === selectedWorkspaceId);
+  const name = ws ? ws.name : '工作區';
+  if (!el) {
+    // Element may have been replaced by rename input; recreate the span in the header
+    const header = document.getElementById('sidebar-space-header');
+    if (!header) return;
+    const span = document.createElement('span');
+    span.id = 'sidebar-space-name';
+    span.ondblclick = startRenameWorkspace;
+    span.title = '雙擊重新命名';
+    span.style.cursor = 'default';
+    span.textContent = name;
+    header.insertBefore(span, header.firstChild);
+    return;
+  }
+  // If it's an input (rename in progress), don't overwrite
+  if (el.tagName === 'INPUT') return;
+  el.textContent = name;
+}
+
+function renderDockSpaces() {
+  const dock = document.getElementById('dock-spaces');
+  if (!dock) return;
+  dock.innerHTML = '';
+  workspaceData.forEach(ws => {
+    const initials = ws.name.trim().slice(0, 2).toUpperCase();
+    const hue = [...ws.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) & 0xffff, 0) % 360;
+    const btn = document.createElement('button');
+    btn.className = 'dock-space-btn' + (selectedWorkspaceId === ws.id ? ' active' : '');
+    btn.title = ws.name;
+    btn.style.background = `hsl(${hue},40%,32%)`;
+    btn.style.color = `hsl(${hue},60%,80%)`;
+    btn.textContent = initials;
+    btn.onclick = () => selectWorkspace(ws.id);  // selectWorkspace is no-op if already active
+    dock.appendChild(btn);
+  });
+}
+
+function togglePlusMenu() {
+  const menu = document.getElementById('dock-plus-menu');
+  menu.classList.toggle('open');
+  if (menu.classList.contains('open')) {
+    // Close when clicking outside
+    setTimeout(() => document.addEventListener('click', closePlusMenuOnOutside, {once: true}), 0);
+  }
+}
+
+function closePlusMenu() {
+  document.getElementById('dock-plus-menu')?.classList.remove('open');
+}
+
+function closePlusMenuOnOutside(e) {
+  if (!document.getElementById('dock-plus-wrap')?.contains(e.target)) {
+    closePlusMenu();
+  }
+}
+
+function getWorkspaceFolders(wsId) {
+  const key = wsId || '__personal__';
+  const all = JSON.parse(localStorage.getItem('sidebar_folders') || '{}');
+  return all[key] || [];
+}
+
+function saveWorkspaceFolders(wsId, folders) {
+  const key = wsId || '__personal__';
+  const all = JSON.parse(localStorage.getItem('sidebar_folders') || '{}');
+  all[key] = folders;
+  localStorage.setItem('sidebar_folders', JSON.stringify(all));
+}
+
+function getSessionFolderMap() {
+  return JSON.parse(localStorage.getItem('sidebar_session_folder') || '{}');
+}
+
+function promptNewFolder() {
+  if (!selectedWorkspaceId) return;
+  const modal = document.getElementById('new-folder-modal');
+  document.getElementById('new-folder-name').value = '';
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('new-folder-name').focus(), 50);
+}
+
+function closeNewFolderModal() {
+  document.getElementById('new-folder-modal').style.display = 'none';
+}
+
+function submitNewFolder() {
+  const name = document.getElementById('new-folder-name').value.trim();
+  if (!name) return;
+  closeNewFolderModal();
+  const folders = getWorkspaceFolders(selectedWorkspaceId);
+  folders.push({ id: 'folder-' + Date.now(), name });
+  saveWorkspaceFolders(selectedWorkspaceId, folders);
+  renderSessionList();
+}
+
+function toggleUiFolder(folderId) {
+  if (openFolders.has(folderId)) openFolders.delete(folderId);
+  else openFolders.add(folderId);
+  renderSessionList();
 }
 
 // ── Workspace settings tab ─────────────────────────────────────
@@ -1176,7 +1479,7 @@ async function renderWsDetail(wsId) {
     <div class="ws-section">
       <div class="ws-section-header">
         <span class="ws-section-title">Instructions</span>
-        <button class="ws-section-icon-btn" title="編輯指引" onclick="openInstructionsModal('${wsId}', ${JSON.stringify(ws.system_prompt || '')})">
+        <button class="ws-section-icon-btn" title="編輯指引" onclick="openInstructionsModal('${wsId}')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
       </div>
@@ -1278,12 +1581,15 @@ async function submitNewWorkspace() {
 }
 
 async function deleteWorkspace(wsId) {
-  if (!confirm(`刪除工作區後，現有對話將變為獨立對話。確定刪除？`)) return;
+  if (workspaceData.length <= 1) {
+    alert('至少要保留一個工作區，無法刪除。');
+    return;
+  }
+  if (!confirm('刪除工作區後，現有對話將不再顯示在任何工作區。確定刪除？')) return;
   await fetch(`/workspaces/${wsId}`, { method: 'DELETE' });
-  // Clean sidebar state
   openFolders.delete(wsId);
-  if (selectedWorkspaceId === wsId) selectWorkspace(null);
-  // Clean settings state
+  // Select a different workspace
+  const nextWs = workspaceData.find(w => w.id !== wsId);
   if (wsSettingsSelectedId === wsId) {
     wsSettingsSelectedId = null;
     const empty = document.getElementById('ws-detail-empty');
@@ -1293,28 +1599,19 @@ async function deleteWorkspace(wsId) {
   }
   await loadWorkspaces();
   await loadSessions();
-  // Re-render list panel only (don't auto-select anything)
-  const inner = document.getElementById('ws-list-inner');
-  if (inner) {
-    inner.innerHTML = '';
-    workspaceData.forEach(w => {
-      const item = document.createElement('div');
-      item.className = 'ws-list-item';
-      item.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        <span class="ws-list-item-name">${esc(w.name)}</span>`;
-      item.onclick = () => selectWsInSettings(w.id);
-      inner.appendChild(item);
-    });
-    if (!workspaceData.length) inner.innerHTML = `<div style="color:var(--text-muted);font-size:0.78rem;padding:16px 8px;text-align:center;line-height:1.5">尚無工作區<br>點擊下方新增</div>`;
+  if (selectedWorkspaceId === wsId) {
+    selectWorkspace(workspaceData[0]?.id || nextWs?.id);
   }
+  renderWorkspacesTab();
 }
 
 // ── Instructions modal ─────────────────────────────────────────
 let wsInstructionsTargetId = null;
 
-function openInstructionsModal(wsId, currentPrompt) {
+function openInstructionsModal(wsId) {
   wsInstructionsTargetId = wsId;
-  document.getElementById('ws-instructions-textarea').value = currentPrompt || '';
+  const ws = workspaceData.find(w => w.id === wsId);
+  document.getElementById('ws-instructions-textarea').value = ws?.system_prompt || '';
   document.getElementById('ws-instructions-modal').classList.add('open');
   setTimeout(() => document.getElementById('ws-instructions-textarea').focus(), 50);
 }
@@ -1422,6 +1719,101 @@ function openSidebarAddWorkspace() {
   openAddWorkspace();
 }
 
+function startRenameWorkspace() {
+  if (!selectedWorkspaceId) return;
+  const el = document.getElementById('sidebar-space-name');
+  if (!el || el.tagName === 'INPUT') return;
+  const current = el.textContent;
+  const input = document.createElement('input');
+  input.value = current;
+  input.style.cssText = 'font-size:inherit;font-weight:600;width:120px;background:var(--surface2);border:1px solid var(--accent);border-radius:4px;color:var(--text);padding:1px 5px;outline:none;';
+  el.replaceWith(input);
+  input.focus(); input.select();
+  let cancelled = false;
+  const finish = async () => {
+    if (cancelled) return;
+    const newName = input.value.trim();
+    if (newName && newName !== current) {
+      const ws = workspaceData.find(w => w.id === selectedWorkspaceId);
+      await fetch(`/workspaces/${selectedWorkspaceId}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name: newName, system_prompt: ws?.system_prompt || '' }),
+      });
+      await loadWorkspaces();
+    }
+    renderSessionList();  // restores the span via updateSidebarSpaceName
+  };
+  input.addEventListener('blur', finish);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') {
+      cancelled = true;
+      input.blur();
+      const span = document.createElement('span');
+      span.id = 'sidebar-space-name';
+      span.ondblclick = startRenameWorkspace;
+      span.title = '雙擊重新命名';
+      span.style.cursor = 'default';
+      span.textContent = current;
+      input.replaceWith(span);
+    }
+  });
+}
+
+function toggleWsHeaderMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('sidebar-ws-menu');
+  const isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(() => document.addEventListener('click', closeWsHeaderMenuOnOutside, { once: true }), 0);
+  }
+}
+
+function closeWsHeaderMenu() {
+  document.getElementById('sidebar-ws-menu').style.display = 'none';
+}
+
+function closeWsHeaderMenuOnOutside(e) {
+  const menu = document.getElementById('sidebar-ws-menu');
+  if (menu && !document.getElementById('sidebar-ws-menu-btn')?.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+}
+
+function openSidebarInstructions() {
+  if (!selectedWorkspaceId) return;
+  openInstructionsModal(selectedWorkspaceId);
+}
+
+function openRenameWorkspaceModal() {
+  if (!selectedWorkspaceId) return;
+  const ws = workspaceData.find(w => w.id === selectedWorkspaceId);
+  document.getElementById('rename-ws-input').value = ws ? ws.name : '';
+  document.getElementById('rename-ws-modal').style.display = 'flex';
+  setTimeout(() => { const el = document.getElementById('rename-ws-input'); el.focus(); el.select(); }, 50);
+}
+
+function closeRenameWorkspaceModal() {
+  document.getElementById('rename-ws-modal').style.display = 'none';
+}
+
+async function submitRenameWorkspace() {
+  const newName = document.getElementById('rename-ws-input').value.trim();
+  if (!newName || !selectedWorkspaceId) return;
+  closeRenameWorkspaceModal();
+  const ws = workspaceData.find(w => w.id === selectedWorkspaceId);
+  await fetch(`/workspaces/${selectedWorkspaceId}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name: newName, system_prompt: ws?.system_prompt || '' }),
+  });
+  await loadWorkspaces();
+  updateSidebarSpaceName();
+  renderDockSpaces();
+}
+
 function filterSessions(q) {
   const term = q.toLowerCase().trim();
   document.querySelectorAll('#session-list .session-item').forEach(el => {
@@ -1452,74 +1844,87 @@ async function loadSessions(reset = true) {
 }
 
 function renderSessionList() {
-  const sessions = _allLoadedSessions;
   const list = document.getElementById('session-list');
   list.innerHTML = '';
 
-  // Group sessions by workspace_id
-  const wsMap = {};
-  const standalone = [];
-  sessions.forEach(s => {
-    if (s.workspace_id) {
-      if (!wsMap[s.workspace_id]) wsMap[s.workspace_id] = [];
-      wsMap[s.workspace_id].push(s);
-    } else {
-      standalone.push(s);
-    }
-  });
+  if (!selectedWorkspaceId) { updateSidebarSpaceName(); renderDockSpaces(); return; }
 
-  // Workspace folders
-  workspaceData.forEach(workspace => {
-    const wsSessions = wsMap[workspace.id] || [];
-    const isOpen = openFolders.has(workspace.id);
-    const isSelected = selectedWorkspaceId === workspace.id;
-    const folder = document.createElement('div');
-    folder.className = 'ws-folder';
+  // Sessions for this workspace; null workspace_id sessions go to the first workspace
+  const defaultWsId = workspaceData[0]?.id;
+  const wsSessions = _allLoadedSessions.filter(s =>
+    s.workspace_id === selectedWorkspaceId ||
+    (!s.workspace_id && selectedWorkspaceId === defaultWsId)
+  );
 
-    const folderColor = isSelected ? 'var(--accent)' : 'currentColor';
+  const folders = getWorkspaceFolders(selectedWorkspaceId);
+  const sessionFolderMap = getSessionFolderMap();
+
+  // --- Folder section (pinned area, Arc-style) ---
+  folders.forEach(folder => {
+    const folderSessions = wsSessions.filter(s => sessionFolderMap[s.id] === folder.id);
+    const isOpen = openFolders.has(folder.id);
+
+    const folderEl = document.createElement('div');
+    folderEl.className = 'ws-folder';
+
     const header = document.createElement('div');
-    header.className = 'ws-folder-header' + (isSelected ? ' ws-selected' : '');
+    header.className = 'ws-folder-header';
     header.innerHTML = `
-      <span class="ws-folder-toggle ${isOpen ? 'open' : 'closed'}" title="展開/收合" onclick="toggleWsFolder('${workspace.id}')">
+      <span class="ws-folder-toggle ${isOpen ? 'open' : 'closed'}" onclick="toggleUiFolder('${folder.id}')">
         <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
       </span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${folderColor}" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-      <span class="ws-folder-name" style="${isSelected ? 'color:var(--accent)' : ''}" onclick="selectWorkspace('${workspace.id}')">${esc(workspace.name)}</span>
-      <span class="ws-folder-count">${wsSessions.length}</span>`;
-    folder.appendChild(header);
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      <span class="ws-folder-name" style="font-weight:600">${esc(folder.name)}</span>
+      <span class="ws-folder-count">${folderSessions.length}</span>`;
+    folderEl.appendChild(header);
 
     const body = document.createElement('div');
     body.className = 'ws-folder-body';
     body.style.display = isOpen ? '' : 'none';
-    wsSessions.map(s => makeSessionEl(s)).forEach(el => body.appendChild(el));
+    folderSessions.forEach(s => {
+      const el = makeSessionEl(s);
+      el.style.paddingLeft = '24px';
+      body.appendChild(el);
+    });
+    // + 新增對話 inside folder
+    const addInFolder = document.createElement('div');
+    addInFolder.className = 'ws-new-session-btn';
+    addInFolder.style.paddingLeft = '28px';
+    addInFolder.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增對話`;
+    addInFolder.onclick = showWelcome;
+    body.appendChild(addInFolder);
 
-    const addBtn = document.createElement('div');
-    addBtn.className = 'ws-new-session-btn';
-    addBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增對話`;
-    addBtn.onclick = () => selectWorkspace(workspace.id);
-    body.appendChild(addBtn);
-
-    folder.appendChild(body);
-    list.appendChild(folder);
+    folderEl.appendChild(body);
+    list.appendChild(folderEl);
   });
 
-  // "+ 新增工作區" button
-  const addWsRow = document.createElement('div');
-  addWsRow.className = 'ws-add-row';
-  addWsRow.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增工作區`;
-  addWsRow.onclick = openSidebarAddWorkspace;
-  list.appendChild(addWsRow);
+  // + 新增資料夾
+  const addFolderBtn = document.createElement('div');
+  addFolderBtn.className = 'ws-new-session-btn';
+  addFolderBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> 新增資料夾`;
+  addFolderBtn.onclick = promptNewFolder;
+  list.appendChild(addFolderBtn);
 
-  if (standalone.length > 0) {
-    const divider = document.createElement('div');
-    divider.className = 'ws-divider';
-    divider.innerHTML = `<div class="ws-divider-line"></div><span class="ws-divider-label">獨立對話</span><div class="ws-divider-line"></div>`;
-    list.appendChild(divider);
-  }
+  // Divider
+  const divider = document.createElement('div');
+  divider.style.cssText = 'border-top:1px solid var(--border);margin:5px 8px;';
+  list.appendChild(divider);
 
-  standalone.forEach(s => list.appendChild(makeSessionEl(s)));
+  // + 新增對話 (unfiled)
+  const addBtn = document.createElement('div');
+  addBtn.className = 'ws-new-session-btn';
+  addBtn.style.paddingLeft = '8px';
+  addBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> 新增對話`;
+  addBtn.onclick = showWelcome;
+  list.appendChild(addBtn);
 
-  // "Load more" button if there are more sessions
+  // Unfiled sessions
+  const unfiled = wsSessions.filter(s =>
+    !sessionFolderMap[s.id] || !folders.find(f => f.id === sessionFolderMap[s.id])
+  );
+  unfiled.forEach(s => list.appendChild(makeSessionEl(s)));
+
+  // Load more
   if (_sessionsOffset < _sessionsTotal) {
     const moreBtn = document.createElement('div');
     moreBtn.className = 'session-load-more';
@@ -1527,6 +1932,9 @@ function renderSessionList() {
     moreBtn.onclick = () => loadSessions(false);
     list.appendChild(moreBtn);
   }
+
+  updateSidebarSpaceName();
+  renderDockSpaces();
 }
 
 // ── Load historical session ───────────────────────────────────
@@ -1637,12 +2045,8 @@ function showWelcome() {
   // Update title to reflect workspace context
   const h2 = document.querySelector('#welcome h2');
   if (h2) {
-    if (selectedWorkspaceId) {
-      const wsObj = workspaceData.find(w => w.id === selectedWorkspaceId);
-      h2.textContent = wsObj ? wsObj.name : 'New Session';
-    } else {
-      h2.textContent = 'MeowTiehEightgent';
-    }
+    const wsObj = workspaceData.find(w => w.id === selectedWorkspaceId);
+    h2.textContent = wsObj ? wsObj.name : 'MeowTiehEightgent';
   }
   document.getElementById('topic-input').focus();
 }
@@ -1803,6 +2207,8 @@ function startSession() {
     rounds: getManualRounds(),
     silence: document.getElementById('silence-check')?.checked ?? false,
     workspace_id: selectedWorkspaceId || null,
+    scenario_id: contextMode === 'scenario' ? selectedScenarioId : null,
+    blank_mode: contextMode === 'blank',
   };
 
   _wsIntentionalClose = false;
@@ -1863,9 +2269,22 @@ function handleMessage(data) {
     if (s) {
       const badge = document.createElement('span');
       badge.className = 'agent-error-badge';
-      badge.title = data.message || 'Agent error';
-      badge.textContent = data.partial_text === null ? ' ⚠ 截斷' : ' ⚠ 無回應';
+      const msg = data.message || '';
+      badge.title = msg || 'Agent error';
+      let label;
+      if (data.partial_text === null) {
+        label = ' ⚠ 截斷';
+      } else if (msg.includes('no output within') || msg.includes('timeout')) {
+        label = ' ⚠ 逾時';
+      } else if (msg.includes('not found') || msg.includes('permission') || msg.includes('No such')) {
+        label = ' ⚠ 找不到指令';
+      } else {
+        label = ' ⚠ 無回應';
+      }
+      badge.textContent = label;
       s.textEl.appendChild(badge);
+      // Also log to console for debugging
+      console.warn(`[agent_error] ${data.agent}: ${msg} (type: ${data.error_type})`);
       delete streamingRows[data.agent];
     }
   } else if (data.type === 'message') {
@@ -2244,6 +2663,8 @@ function sendNext() {
 }
 function stopSession() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  _wsIntentionalClose = true;   // prevent auto-reconnect after intentional stop
+  clearTimeout(_wsReconnectTimer);
   ws.send(JSON.stringify({ type: 'stop' }));
 }
 
@@ -2285,7 +2706,6 @@ function switchSettingsTab(tab) {
   if (tab === 'skills') renderSkillsTab();
   if (tab === 'workspaces') renderWorkspacesTab();
   if (tab === 'default') renderDefaultTab();
-  if (tab === 'about') renderAboutTab();
 }
 
 // ── 模型 tab (LLM connections) ────────────────────────────────
@@ -2814,19 +3234,29 @@ const _defaultTmplMeta = {
     hint: '靈魂文件讓同名代理人在不同對話中保持一致的「感覺」。',
     endpoint: '/agents/_default/soul',
   },
+  'user-md': {
+    icon: '👤',
+    title: 'USER.md',
+    subtitle: '關於你自己',
+    desc: '告訴代理人你是誰、你的背景和偏好。每個代理人都會在對話前讀取這份文件。',
+    hint: '可以寫你的職業、習慣、偏好語言、技術背景等。',
+    endpoint: '/user/md',
+  },
 };
 
 async function renderDefaultTab() {
   const body = document.getElementById('tab-default-body');
   body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem;padding:20px">載入中…</div>`;
-  const [agentMd, identity, soul] = await Promise.all([
+  const [agentMd, identity, soul, userMd] = await Promise.all([
     fetch('/agents/_default/agent-md').then(r => r.json()).catch(() => ({content: ''})),
     fetch('/agents/_default/identity').then(r => r.json()).catch(() => ({content: ''})),
     fetch('/agents/_default/soul').then(r => r.json()).catch(() => ({content: ''})),
+    fetch('/user/md').then(r => r.json()).catch(() => ({content: ''})),
   ]);
   _defaultTmplCache['agent-md'] = agentMd.content;
   _defaultTmplCache['identity'] = identity.content;
   _defaultTmplCache['soul'] = soul.content;
+  _defaultTmplCache['user-md'] = userMd.content;
 
   const cardHtml = Object.entries(_defaultTmplMeta).map(([key, m]) => `
     <div class="default-tmpl-card" onclick="openDefaultEdit('${key}')">
@@ -2876,23 +3306,6 @@ async function saveDefaultEdit() {
   renderDefaultTab();  // refresh card previews
 }
 
-async function renderAboutTab() {
-  const body = document.getElementById('tab-about-body');
-  body.innerHTML = `<div style="color:var(--text-muted);font-size:0.84rem">載入中…</div>`;
-  const r = await fetch('/user/md').then(x => x.json()).catch(() => ({content: ''}));
-  body.innerHTML = `
-    <div class="about-label">USER.md — 關於你</div>
-    <textarea class="about-textarea" id="about-md-editor">${esc(r.content)}</textarea>
-    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">這個文件會被每個代理人讀取，幫助他們更了解你的背景和偏好。</div>`;
-}
-
-async function saveAboutTab() {
-  const content = document.getElementById('about-md-editor')?.value || '';
-  const btn = document.getElementById('save-about-btn');
-  btn.textContent = '儲存中…'; btn.disabled = true;
-  await fetch('/user/md', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({content}) });
-  btn.textContent = '儲存'; btn.disabled = false;
-}
 
 async function renderMarketTab() {
   const body = document.getElementById('tab-market-body');
@@ -3069,9 +3482,9 @@ async function openSkillEdit(slug) {
       <span class="asst-edit-label">描述</span>
       <input class="asst-edit-input" id="skill-edit-desc" value="${esc(s.description)}">
     </div>
-    <div class="asst-edit-field" style="flex:1">
+    <div class="asst-edit-field" style="flex:1;min-height:0;display:flex;flex-direction:column">
       <span class="asst-edit-label">內容（Markdown）</span>
-      <textarea class="asst-edit-input asst-edit-textarea" id="skill-edit-body-text">${esc(s.body)}</textarea>
+      <textarea class="asst-edit-input asst-edit-textarea" id="skill-edit-body-text" style="flex:1;min-height:0;resize:none">${esc(s.body)}</textarea>
     </div>`;
 }
 
