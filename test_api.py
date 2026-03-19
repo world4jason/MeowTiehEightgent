@@ -1385,3 +1385,113 @@ class TestProtectedPaths:
             files={"file": ("x;y.txt", b"bad", "text/plain")},
         )
         assert r.status_code == 403
+
+
+class TestAgentMode:
+    """Phase 1.1 — agent chat/think mode."""
+
+    def test_build_prompt_chat_mode_adds_concise_prefix(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(agent, "history", mode="chat")
+        assert "concise" in prompt.lower() or "2-3 sentences" in prompt
+
+    def test_build_prompt_think_mode_no_concise_prefix(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(agent, "history", mode="think")
+        assert "2-3 sentences" not in prompt
+
+    def test_build_prompt_default_mode_is_chat(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt_default = a.build_prompt(agent, "history")
+        prompt_chat = a.build_prompt(agent, "history", mode="chat")
+        assert ("2-3 sentences" in prompt_default) == ("2-3 sentences" in prompt_chat)
+
+    @pytest.mark.asyncio
+    async def test_stream_cli_adds_extended_thinking_when_supported(self, tmp_project):
+        import app as a
+        captured = {}
+
+        async def mock_create_subprocess(*args, **kwargs):
+            captured["args"] = args
+            raise FileNotFoundError("mock")
+
+        agent = {
+            "name": "claude",
+            "cmd": ["claude", "--print"],
+            "workspace": tmp_project,
+            "supports_thinking": True,
+            "supports_image": False,
+            "idle_timeout_seconds": 5,
+            "startup_timeout_seconds": 3,
+        }
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess):
+            try:
+                async for _ in a.stream_cli_agent(agent, "prompt", mode="think"):
+                    pass
+            except Exception:
+                pass
+        assert "--extended-thinking" in captured.get("args", []), f"args: {captured.get('args')}"
+
+    @pytest.mark.asyncio
+    async def test_stream_cli_no_extended_thinking_when_not_supported(self, tmp_project):
+        import app as a
+        captured = {}
+
+        async def mock_create_subprocess(*args, **kwargs):
+            captured["args"] = args
+            raise FileNotFoundError("mock")
+
+        agent = {
+            "name": "claude",
+            "cmd": ["claude", "--print"],
+            "workspace": tmp_project,
+            "supports_thinking": False,
+            "supports_image": False,
+            "idle_timeout_seconds": 5,
+            "startup_timeout_seconds": 3,
+        }
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess):
+            try:
+                async for _ in a.stream_cli_agent(agent, "prompt", mode="think"):
+                    pass
+            except Exception:
+                pass
+        assert "--extended-thinking" not in captured.get("args", []), f"args: {captured.get('args')}"
+
+    @pytest.mark.asyncio
+    async def test_stream_cli_no_extended_thinking_in_chat_mode(self, tmp_project):
+        import app as a
+        captured = {}
+
+        async def mock_create_subprocess(*args, **kwargs):
+            captured["args"] = args
+            raise FileNotFoundError("mock")
+
+        agent = {
+            "name": "claude",
+            "cmd": ["claude", "--print"],
+            "workspace": tmp_project,
+            "supports_thinking": True,
+            "supports_image": False,
+            "idle_timeout_seconds": 5,
+            "startup_timeout_seconds": 3,
+        }
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess):
+            try:
+                async for _ in a.stream_cli_agent(agent, "prompt", mode="chat"):
+                    pass
+            except Exception:
+                pass
+        assert "--extended-thinking" not in captured.get("args", []), f"args: {captured.get('args')}"

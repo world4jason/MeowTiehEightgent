@@ -372,12 +372,17 @@ def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str,
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
-def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None, all_agents: list[dict] | None = None) -> str:
+def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None, all_agents: list[dict] | None = None, mode: str = "chat", scenario_system_prompt: str | None = None, blank_mode: bool = False) -> str:
     ws: Path = agent["workspace"]
     parts = []
+    mode_prefix = "Keep your response concise — 2-3 sentences max.\n\n" if mode == "chat" else ""
 
-    # Workspace guide injected first (before agent identity)
-    if workspace_id:
+    # Context injection: scenario > workspace > blank
+    if scenario_system_prompt is not None:
+        if scenario_system_prompt:
+            parts.append(f"## Session Context\n\n{scenario_system_prompt}")
+    elif not blank_mode and workspace_id:
+        # Workspace guide injected first (before agent identity)
         ws_dir = WORKSPACES_DIR / workspace_id
         ws_cfg_path = ws_dir / "config.json"
         if ws_cfg_path.exists():
@@ -404,6 +409,7 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
                         guide_parts.append(f"### {fp.name} (too large — use @{fp.name} to load)")
             if guide_parts:
                 parts.append("## Workspace Guide\n\n" + "\n\n".join(guide_parts))
+    # blank_mode: inject nothing
 
     # AGENT.md first — main operational instructions
     for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
@@ -455,7 +461,7 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
         agent["pending_continuation"] = False
 
     return (
-        f"{context}\n\n===== DISCUSSION =====\n\n"
+        f"{mode_prefix}{context}\n\n===== DISCUSSION =====\n\n"
         f"{participants_header}\n{history_text}"
         f"{continuation_hint}\n\n"
         "Your turn. Respond as your persona dictates."
@@ -654,7 +660,7 @@ async def call_agent(agent: dict, prompt: str) -> str:
     return await call_cli_agent(agent, prompt)
 
 
-async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None):
+async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
     """Async generator: yield text chunks from CLI stdout.
 
     Raises SubprocessStartupError, SubprocessTimeoutError, or SubprocessCrashError
@@ -669,6 +675,9 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
     extra_args: list[str] = []
     if images and _resolve_supports_image(agent):
         tmp_paths, extra_args = write_temp_images(images)
+
+    if mode == "think" and agent.get("supports_thinking", False):
+        extra_args = extra_args + ["--extended-thinking"]
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -783,13 +792,13 @@ async def stream_api_agent(agent: dict, prompt: str):
                         pass
 
 
-async def stream_agent(agent: dict, prompt: str, images: list[dict] | None = None):
+async def stream_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
     """Dispatch to streaming implementation."""
     if agent.get("type") == "api":
         async for chunk in stream_api_agent(agent, prompt):
             yield chunk
     else:
-        async for chunk in stream_cli_agent(agent, prompt, images=images):
+        async for chunk in stream_cli_agent(agent, prompt, images=images, mode=mode):
             yield chunk
 
 
