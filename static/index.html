@@ -255,6 +255,11 @@
   .member-remove { width: 20px; height: 20px; border-radius: 4px; border: none; background: transparent; color: transparent; cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; flex-shrink: 0; }
   .member-row:hover .member-remove { color: var(--text-muted); }
   .member-remove:hover { background: #dc262620 !important; color: #f87171 !important; }
+  /* Phase 1.1: Per-agent mode toggle in Members panel */
+  .agent-mode-toggle { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+  .agent-mode-btn { padding: 3px 9px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 0.75rem; cursor: pointer; transition: all 0.12s; }
+  .agent-mode-btn.active { background: var(--surface); color: var(--text); border-color: #555; }
+  .agent-mode-btn:disabled { opacity: 0.35; cursor: not-allowed; }
   #members-add-wrap { padding: 8px; flex-shrink: 0; border-top: 1px solid var(--border); position: relative; }
   #members-add-btn { width: 100%; padding: 7px 10px; border-radius: 7px; border: 1px dashed var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 6px; transition: background 0.12s, color 0.12s, border-color 0.12s; }
   #members-add-btn:hover { background: var(--surface); color: var(--text); border-color: #555; }
@@ -2094,10 +2099,18 @@ function renderMembersPanel() {
     const row = document.createElement('div');
     row.className = 'member-row';
     const count = msgCountMap[name] || 0;
+    const agentName = name;
     row.innerHTML = `
       <span class="member-dot" style="background:${a ? a.color : '#888'}"></span>
       <span class="member-name">${a ? a.emoji + ' ' : ''}${name}</span>
       ${count ? `<span class="member-count">×${count}</span>` : ''}
+      <div class="agent-mode-toggle" id="mode-toggle-${agentName}">
+        <button class="agent-mode-btn active" id="mode-chat-${agentName}"
+          onclick="sendSetMode(${JSON.stringify(agentName)}, 'chat')">Chat</button>
+        <button class="agent-mode-btn" id="mode-think-${agentName}"
+          onclick="sendSetMode(${JSON.stringify(agentName)}, 'think')"
+          ${a && !a.supports_thinking ? 'disabled title="This agent does not support extended thinking"' : ''}>Think</button>
+      </div>
       <button class="member-remove" title="移除" onclick="removeMemberFromSession('${name}')">✕</button>`;
     list.appendChild(row);
   });
@@ -2157,6 +2170,12 @@ function removeMemberFromSession(name) {
   activeSessionAgents = activeSessionAgents.filter(n => n !== name);
   renderMembersPanel();
   renderHeaderPills();
+}
+
+function sendSetMode(agentName, mode) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'set_mode', agent: agentName, mode: mode }));
+  }
 }
 
 // Close add-dropdown when clicking outside
@@ -2295,6 +2314,13 @@ function handleMessage(data) {
     if (data.session_id) activeSessionId = data.session_id;
   } else if (data.type === 'ready' && data.pause) {
     document.getElementById('next-btn').classList.add('visible');
+  } else if (data.type === 'mode_update') {
+    const agentName = data.agent;
+    const mode = data.mode;
+    const chatBtn = document.getElementById(`mode-chat-${agentName}`);
+    const thinkBtn = document.getElementById(`mode-think-${agentName}`);
+    if (chatBtn) chatBtn.classList.toggle('active', mode === 'chat');
+    if (thinkBtn) thinkBtn.classList.toggle('active', mode === 'think');
   }
 }
 
