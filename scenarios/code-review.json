@@ -1,0 +1,8 @@
+{
+  "id": "code-review",
+  "name": "Code Review",
+  "description": "深度審查程式碼品質與架構",
+  "system_prompt": "You are reviewing code in a multi-agent session. Focus on correctness, performance, security, and maintainability. Be specific with line references and suggest concrete improvements.",
+  "suggested_agents": ["claude", "gemini"],
+  "topic_hint": "請貼上要審查的程式碼"
+}

@@ -57,6 +57,7 @@ def tmp_project(tmp_path, monkeypatch):
     monkeypatch.setattr(a, "PROJECT_DIR", tmp_path)
     monkeypatch.setattr(a, "MARKETPLACE_DIR", marketplace_dir)
     monkeypatch.setattr(a, "WORKSPACES_DIR", workspaces_dir)
+    monkeypatch.setattr(a, "SCENARIOS_DIR", tmp_path / "scenarios")
 
     # Ensure _default template exists
     default_dir = agents_dir / "_default"
@@ -1704,3 +1705,81 @@ class TestInterceptModeCommand:
         assert "error" in updates[0]
         assert "Nobody" in updates[0]["error"]
         assert modes["Claude"] == "chat"  # unchanged
+
+
+class TestScenarios:
+    """Phase 1.2 — scenario templates."""
+
+    def test_get_scenarios_empty_when_no_dir(self, client):
+        """GET /scenarios returns [] when scenarios/ dir does not exist."""
+        resp = client.get("/scenarios")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_get_scenarios_returns_all_valid_files(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir()
+        (scenarios_dir / "test1.json").write_text(json.dumps({
+            "id": "test1", "name": "Test 1", "description": "Desc",
+            "system_prompt": "You are helpful."
+        }))
+        (scenarios_dir / "test2.json").write_text(json.dumps({
+            "id": "test2", "name": "Test 2", "description": "Desc 2",
+            "system_prompt": "Be concise."
+        }))
+        with TestClient(a.app) as client:
+            resp = client.get("/scenarios")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        ids = {s["id"] for s in data}
+        assert ids == {"test1", "test2"}
+
+    def test_get_scenarios_skips_malformed_json(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir()
+        (scenarios_dir / "valid.json").write_text(json.dumps({
+            "id": "valid", "name": "Valid", "description": "ok", "system_prompt": "ok"
+        }))
+        (scenarios_dir / "broken.json").write_text("NOT VALID JSON {{{")
+        with TestClient(a.app) as client:
+            resp = client.get("/scenarios")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == "valid"
+
+    def test_scenario_system_prompt_injected_in_build_prompt(self, tmp_project):
+        """When scenario_system_prompt is set, it appears in the prompt."""
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(
+            agent, "history",
+            scenario_system_prompt="Review this code carefully.",
+        )
+        assert "Review this code carefully." in prompt
+
+    def test_blank_mode_injects_no_context(self, tmp_project):
+        """blank_mode=True skips both workspace guide and scenario."""
+        import app as a
+        ws_dir = tmp_project / "workspaces" / "ws1"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "config.json").write_text(json.dumps({
+            "id": "ws1", "name": "WS", "system_prompt": "Secret guide"
+        }))
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(
+            agent, "history",
+            workspace_id="ws1",
+            blank_mode=True,
+        )
+        assert "Secret guide" not in prompt
+        assert "Workspace Guide" not in prompt

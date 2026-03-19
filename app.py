@@ -1385,6 +1385,8 @@ async def upload_skills(file: UploadFile = File(...)):
 WORKSPACES_DIR = PROJECT_DIR / "workspaces"
 WORKSPACES_DIR.mkdir(exist_ok=True)
 
+SCENARIOS_DIR = PROJECT_DIR / "scenarios"
+
 
 def workspace_config_path(workspace_id: str) -> Path:
     return WORKSPACES_DIR / workspace_id / "config.json"
@@ -1525,6 +1527,22 @@ async def move_session_to_workspace(session_id: str, body: dict):
         m["workspace_id"] = workspace_id
     mf.write_text(json.dumps(msgs, indent=2, ensure_ascii=False))
     return {"ok": True}
+
+
+# ── Scenarios ─────────────────────────────────────────────────────────────────
+
+@app.get("/scenarios")
+async def list_scenarios():
+    """Return all scenario JSON files from the scenarios/ directory."""
+    if not SCENARIOS_DIR.exists():
+        return []
+    result = []
+    for f in sorted(SCENARIOS_DIR.glob("*.json")):
+        try:
+            result.append(json.loads(f.read_text()))
+        except Exception:
+            pass  # skip malformed files
+    return result
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────

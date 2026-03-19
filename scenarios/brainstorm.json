@@ -1,0 +1,8 @@
+{
+  "id": "brainstorm",
+  "name": "腦力激盪",
+  "description": "發散式思考，探索可能性",
+  "system_prompt": "This is a creative brainstorming session. Explore diverse perspectives, challenge assumptions, and generate unconventional ideas. Quantity over quality in early rounds — judgment comes later.",
+  "suggested_agents": ["claude", "gemini"],
+  "topic_hint": "我想探索..."
+}
