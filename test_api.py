@@ -1153,3 +1153,51 @@ class TestSubprocessRecovery:
         agent = {"name": "claude", "workspace": agent_dir}
         prompt = a.build_prompt(agent, "history")
         assert "打斷" not in prompt
+
+
+class TestHistorySliding:
+    """Phase 0.2 — history sliding window truncation."""
+
+    def _h(self, turns):
+        return "".join(f"\n[{a}]: {t}\n" for a, t in turns)
+
+    def test_no_truncation_when_under_limit(self):
+        import app as a
+        h = self._h([("Claude", "hello"), ("Gemini", "world")])
+        result = a.truncate_history(h, max_chars=10000)
+        assert result == h
+        assert a.TRUNCATION_MARKER not in result
+
+    def test_truncation_removes_oldest_turns(self):
+        import app as a
+        h = self._h([("A", "x" * 100), ("B", "y" * 100), ("C", "z" * 100), ("D", "w" * 100)])
+        result = a.truncate_history(h, max_chars=220)
+        assert "[D]:" in result
+        assert "[A]:" not in result
+        assert a.TRUNCATION_MARKER in result
+
+    def test_truncation_marker_appears_once(self):
+        import app as a
+        h = self._h([("A", "x" * 200), ("B", "y" * 200)])
+        result = a.truncate_history(h, max_chars=50)
+        assert result.count(a.TRUNCATION_MARKER) == 1
+
+    def test_no_mid_sentence_cut(self):
+        import app as a
+        h = self._h([("A", "line1\nline2\nline3"), ("B", "short")])
+        result = a.truncate_history(h, max_chars=30)
+        stripped = result.replace(a.TRUNCATION_MARKER, "").strip()
+        if stripped:
+            assert stripped.startswith("[")
+
+    def test_equal_to_limit_not_truncated(self):
+        import app as a
+        h = self._h([("A", "hello")])
+        result = a.truncate_history(h, len(h))
+        assert result == h
+
+    def test_single_oversized_turn(self):
+        import app as a
+        h = self._h([("A", "x" * 500)])
+        result = a.truncate_history(h, max_chars=10)
+        assert a.TRUNCATION_MARKER in result

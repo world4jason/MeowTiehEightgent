@@ -494,6 +494,19 @@ class SubprocessCrashError(SubprocessError):
         self.cause = cause
 
 
+TRUNCATION_MARKER = "[... 較早對話已省略 ...]\n\n"
+
+def truncate_history(history_text: str, max_chars: int) -> str:
+    """Sliding window: remove oldest [Agent]: blocks until under max_chars."""
+    if len(history_text) <= max_chars:
+        return history_text
+    segments = re.split(r'(?=\n\[[\w\s\-]+\]: )', history_text)
+    while segments and len("".join(segments)) > max_chars:
+        segments.pop(0)
+    truncated = "".join(segments)
+    return TRUNCATION_MARKER + truncated.lstrip("\n")
+
+
 def _resolve_timeout(agent: dict, key: str, default: float) -> float:
     """Precedence: agent config > model_config > default."""
     if key in agent:
@@ -1685,9 +1698,12 @@ async def websocket_endpoint(ws: WebSocket):
             turn_images = current_images[:]
             current_images = []  # consume once
 
+            _max_hist = load_config().get("max_history_chars", 80000)
+            _trimmed_history = truncate_history(history_text, _max_hist)
+
             async def _produce():
                 try:
-                    async for chunk in stream_agent(agent, build_prompt(agent, history_text, workspace_id, active_agents), images=turn_images or None):
+                    async for chunk in stream_agent(agent, build_prompt(agent, _trimmed_history, workspace_id, active_agents), images=turn_images or None):
                         await chunk_q.put(chunk)
                 except SubprocessError as e:
                     await chunk_q.put(e)  # sentinel: SubprocessError in queue
