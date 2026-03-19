@@ -1495,3 +1495,212 @@ class TestAgentMode:
             except Exception:
                 pass
         assert "--extended-thinking" not in captured.get("args", []), f"args: {captured.get('args')}"
+
+    def test_set_mode_broadcast_to_all_clients(self, tmp_project):
+        """set_mode WS message triggers mode_update broadcast."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    for _ in range(30):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "set_mode", "agent": "claude", "mode": "think"})
+                    for _ in range(10):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "mode_update":
+                            assert msg["agent"] == "claude"
+                            assert msg["mode"] == "think"
+                            break
+                    else:
+                        pytest.fail("No mode_update received")
+
+    def test_set_mode_unknown_agent_returns_error(self, tmp_project):
+        """set_mode with unknown agent sends error to sender only."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    for _ in range(30):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "set_mode", "agent": "nonexistent", "mode": "think"})
+                    for _ in range(10):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "error":
+                            assert "nonexistent" in msg.get("message", "").lower() or "unknown" in msg.get("message", "").lower()
+                            break
+                    else:
+                        pytest.fail("No error received for unknown agent")
+
+    def test_tui_think_command_sets_all_agents(self, tmp_project):
+        """/think command sets all agents to think mode."""
+        import app as a
+
+        for name in ["claude", "gemini"]:
+            d = tmp_project / "agents" / name
+            d.mkdir(parents=True)
+            (d / "config.json").write_text(json.dumps({"emoji": "🟣", "color": "#aaa", "enabled": True}))
+            (d / "AGENT.md").write_text(f"You are {name}.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude", "gemini"], "auto": False})
+                    for _ in range(50):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "human", "text": "/think"})
+                    updates = []
+                    for _ in range(15):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "mode_update":
+                            updates.append(msg)
+                        if len(updates) == 2:
+                            break
+                    assert len(updates) == 2
+                    modes = {u["agent"]: u["mode"] for u in updates}
+                    assert all(m == "think" for m in modes.values())
+
+    def test_tui_think_at_agent_sets_only_that_agent(self, tmp_project):
+        """/think @claude sets only claude."""
+        import app as a
+
+        for name in ["claude", "gemini"]:
+            d = tmp_project / "agents" / name
+            d.mkdir(parents=True)
+            (d / "config.json").write_text(json.dumps({"emoji": "🟣", "color": "#aaa", "enabled": True}))
+            (d / "AGENT.md").write_text(f"You are {name}.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude", "gemini"], "auto": False})
+                    for _ in range(50):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "human", "text": "/think @claude"})
+                    updates = []
+                    for _ in range(15):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "mode_update":
+                            updates.append(msg)
+                        if len(updates) >= 1:
+                            # wait a bit more for potential second update
+                            break
+                    assert len(updates) == 1
+                    assert updates[0]["agent"] == "claude"
+                    assert updates[0]["mode"] == "think"
+
+    def test_tui_command_not_forwarded_to_agents(self, tmp_project):
+        """/think command is NOT sent to agents as a human message."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({"emoji": "🟣", "color": "#a78bfa", "enabled": True}))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        received_prompts = []
+
+        async def mock_stream(agent, prompt, **kwargs):
+            received_prompts.append(prompt)
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    for _ in range(30):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "human", "text": "/think"})
+                    for _ in range(10):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+        for p in received_prompts:
+            assert "/think" not in p
+
+
+class TestInterceptModeCommand:
+    """Unit tests for intercept_mode_command() helper."""
+
+    def _agents(self):
+        return [{"name": "Claude"}, {"name": "Gemini"}]
+
+    def test_non_command_not_intercepted(self):
+        import app as a
+        modes = {"Claude": "chat", "Gemini": "chat"}
+        intercepted, _ = a.intercept_mode_command("hello world", modes, self._agents())
+        assert not intercepted
+
+    def test_think_sets_all_agents(self):
+        import app as a
+        modes = {"Claude": "chat", "Gemini": "chat"}
+        intercepted, updates = a.intercept_mode_command("/think", modes, self._agents())
+        assert intercepted
+        assert all(u["mode"] == "think" for u in updates)
+        assert len(updates) == 2
+        assert modes["Claude"] == "think"
+        assert modes["Gemini"] == "think"
+
+    def test_chat_at_agent_sets_only_that_agent(self):
+        import app as a
+        modes = {"Claude": "think", "Gemini": "think"}
+        intercepted, updates = a.intercept_mode_command("/chat @Claude", modes, self._agents())
+        assert intercepted
+        assert len(updates) == 1
+        assert updates[0]["agent"] == "Claude"
+        assert updates[0]["mode"] == "chat"
+        assert modes["Gemini"] == "think"  # unchanged
+
+    def test_unknown_agent_returns_error(self):
+        import app as a
+        modes = {"Claude": "chat"}
+        intercepted, updates = a.intercept_mode_command("/think @Nobody", modes, self._agents())
+        assert intercepted
+        assert len(updates) == 1
+        assert "error" in updates[0]
+        assert "Nobody" in updates[0]["error"]
+        assert modes["Claude"] == "chat"  # unchanged

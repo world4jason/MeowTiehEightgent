@@ -343,6 +343,47 @@ def get_agent_registry() -> dict[str, dict]:
 
 # ── Skill resolver ────────────────────────────────────────────────────────────
 
+_THINK_RE = re.compile(r'^/think(?:\s+@(\S+))?$', re.IGNORECASE)
+_CHAT_RE = re.compile(r'^/chat(?:\s+@(\S+))?$', re.IGNORECASE)
+
+
+def intercept_mode_command(
+    text: str,
+    agent_modes: dict,
+    active_agents: list,
+) -> tuple[bool, list[dict]]:
+    """Check if text is a /think or /chat TUI command.
+
+    Returns (intercepted: bool, mode_updates: list[dict]).
+    Each update is either {"agent": str, "mode": str} or {"error": str}.
+    If intercepted=True, caller must NOT forward text to agents.
+    """
+    m = _THINK_RE.match(text.strip()) or _CHAT_RE.match(text.strip())
+    if not m:
+        return False, []
+
+    target_mode = "think" if text.strip().lower().startswith("/think") else "chat"
+    target_name = m.group(1)  # None if no @name
+
+    updates: list[dict] = []
+    if target_name:
+        found = next(
+            (a["name"] for a in active_agents if a["name"].lower() == target_name.lower()),
+            None,
+        )
+        if found:
+            agent_modes[found] = target_mode
+            updates.append({"agent": found, "mode": target_mode})
+        else:
+            return True, [{"error": f'No agent named "{target_name}" found.'}]
+    else:
+        for a in active_agents:
+            agent_modes[a["name"]] = target_mode
+            updates.append({"agent": a["name"], "mode": target_mode})
+
+    return True, updates
+
+
 def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str, str | None]:
     if text.startswith("/"):
         skill_name = text[1:].strip().lower()
@@ -1622,6 +1663,8 @@ async def websocket_endpoint(ws: WebSocket):
     silence_mode: bool = data.get("silence", False)   # probabilistic silence on/off
     resume_id: str | None = data.get("resume_from")
     workspace_id: str | None = data.get("workspace_id") or None
+    scenario_id: str | None = data.get("scenario_id") or None
+    blank_mode: bool = bool(data.get("blank_mode", False))
 
     session_id = resume_id if resume_id else (
         datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_" + uuid.uuid4().hex[:6]
@@ -1648,6 +1691,25 @@ async def websocket_endpoint(ws: WebSocket):
     if not active_agents:
         await ws.send_json({"type": "system", "text": "No agents selected."})
         return
+
+    # Phase 1.1 — per-agent mode state
+    agent_modes: dict[str, str] = {
+        a["name"]: a.get("mode", "chat") for a in active_agents
+    }
+
+    # Phase 1.2 — scenario context
+    scenario_system_prompt: str | None = None
+    if scenario_id:
+        scenario_file = PROJECT_DIR / "scenarios" / f"{scenario_id}.json"
+        if scenario_file.exists():
+            try:
+                sc = json.loads(scenario_file.read_text())
+                scenario_system_prompt = sc.get("system_prompt") or None
+            except Exception:
+                pass
+        if scenario_system_prompt is None and scenario_id:
+            # scenario_id given but file not found or parse failed → blank mode
+            blank_mode = True
 
     # Build history_text
     if resume_id:
@@ -1697,6 +1759,10 @@ async def websocket_endpoint(ws: WebSocket):
         "session_id": session_id,
     })
     log({"type": "system", "text": f"Topic: {topic}", "workspace_id": workspace_id, "timestamp": datetime.now().isoformat()})
+
+    # Broadcast initial mode state so clients know defaults on connect
+    for _ag in active_agents:
+        await ws.send_json({"type": "mode_update", "agent": _ag["name"], "mode": agent_modes[_ag["name"]]})
 
     engine = ConversationEngine(active_agents, silence=silence_mode)
 
@@ -1769,7 +1835,14 @@ async def websocket_endpoint(ws: WebSocket):
 
             async def _produce():
                 try:
-                    async for chunk in stream_agent(agent, build_prompt(agent, _trimmed_history, workspace_id, active_agents), images=turn_images or None):
+                    _current_mode = agent_modes.get(agent["name"], "chat")
+                    _prompt = build_prompt(
+                        agent, _trimmed_history, workspace_id, active_agents,
+                        mode=_current_mode,
+                        scenario_system_prompt=scenario_system_prompt,
+                        blank_mode=blank_mode,
+                    )
+                    async for chunk in stream_agent(agent, _prompt, images=turn_images or None, mode=_current_mode):
                         await chunk_q.put(chunk)
                 except SubprocessError as e:
                     await chunk_q.put(e)  # sentinel: SubprocessError in queue
@@ -1813,6 +1886,16 @@ async def websocket_endpoint(ws: WebSocket):
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
+                    elif t == "set_mode":
+                        _sm_agent = evt.get("agent", "")
+                        _sm_mode = evt.get("mode", "")
+                        if _sm_agent not in agent_modes:
+                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+                        elif _sm_mode not in ("chat", "think"):
+                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+                        else:
+                            agent_modes[_sm_agent] = _sm_mode
+                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
                     elif t == "human":
                         pending_humans.append(evt)
 
@@ -1870,6 +1953,16 @@ async def websocket_endpoint(ws: WebSocket):
                     if imgs:
                         current_images = imgs  # use for next turn
                     img_refs = save_session_images(session_id, imgs)
+                    # TUI command interception
+                    _intercepted, _mode_updates = intercept_mode_command(text, agent_modes, active_agents)
+                    if _intercepted:
+                        for _upd in _mode_updates:
+                            if "error" in _upd:
+                                history_text += f"\n[System]: {_upd['error']}\n"
+                                await ws.send_json({"type": "system", "text": _upd["error"]})
+                            else:
+                                await ws.send_json({"type": "mode_update", "agent": _upd["agent"], "mode": _upd["mode"]})
+                        continue  # do NOT forward command to agents
                     history_entry, skill_name = resolve_human_text(text, workspace_id)
                     history_text += f"\n[Human]: {history_entry}\n"
                     hmsg = {
@@ -1901,29 +1994,49 @@ async def websocket_endpoint(ws: WebSocket):
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
+                    elif t == "set_mode":
+                        _sm_agent = evt.get("agent", "")
+                        _sm_mode = evt.get("mode", "")
+                        if _sm_agent not in agent_modes:
+                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+                        elif _sm_mode not in ("chat", "think"):
+                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+                        else:
+                            agent_modes[_sm_agent] = _sm_mode
+                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
                     elif t == "human":
                         text = evt["text"]
                         imgs = evt.get("images") or []
                         if imgs:
                             current_images = imgs
                         img_refs = save_session_images(session_id, imgs)
-                        history_entry, skill_name = resolve_human_text(text, workspace_id)
-                        history_text += f"\n[Human]: {history_entry}\n"
-                        hmsg = {
-                            "type": "message", "agent": "Human",
-                            "color": "#60a5fa", "text": text,
-                            "skill": skill_name,
-                            "timestamp": datetime.now().isoformat(),
-                            **({"images": img_refs} if img_refs else {}),
-                        }
-                        await ws.send_json(hmsg)
-                        log(hmsg)
-                        mention = ConversationEngine.extract_mention(text, active_agents)
-                        if mention and engine.on_mention(mention) is not None:
-                            pass  # engine reordered; next next_speaker() returns @target
+                        # TUI command interception
+                        _intercepted, _mode_updates = intercept_mode_command(text, agent_modes, active_agents)
+                        if _intercepted:
+                            for _upd in _mode_updates:
+                                if "error" in _upd:
+                                    history_text += f"\n[System]: {_upd['error']}\n"
+                                    await ws.send_json({"type": "system", "text": _upd["error"]})
+                                else:
+                                    await ws.send_json({"type": "mode_update", "agent": _upd["agent"], "mode": _upd["mode"]})
                         else:
-                            engine.on_human()
-                        batch_turns = 0
+                            history_entry, skill_name = resolve_human_text(text, workspace_id)
+                            history_text += f"\n[Human]: {history_entry}\n"
+                            hmsg = {
+                                "type": "message", "agent": "Human",
+                                "color": "#60a5fa", "text": text,
+                                "skill": skill_name,
+                                "timestamp": datetime.now().isoformat(),
+                                **({"images": img_refs} if img_refs else {}),
+                            }
+                            await ws.send_json(hmsg)
+                            log(hmsg)
+                            mention = ConversationEngine.extract_mention(text, active_agents)
+                            if mention and engine.on_mention(mention) is not None:
+                                pass  # engine reordered; next next_speaker() returns @target
+                            else:
+                                engine.on_human()
+                            batch_turns = 0
             else:
                 batch_turns = 0
                 while True:
@@ -1938,29 +2051,49 @@ async def websocket_endpoint(ws: WebSocket):
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
+                    elif t == "set_mode":
+                        _sm_agent = evt.get("agent", "")
+                        _sm_mode = evt.get("mode", "")
+                        if _sm_agent not in agent_modes:
+                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+                        elif _sm_mode not in ("chat", "think"):
+                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+                        else:
+                            agent_modes[_sm_agent] = _sm_mode
+                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
                     elif t == "human":
                         text = evt["text"]
                         imgs = evt.get("images") or []
                         if imgs:
                             current_images = imgs
                         img_refs = save_session_images(session_id, imgs)
-                        history_entry, skill_name = resolve_human_text(text, workspace_id)
-                        history_text += f"\n[Human]: {history_entry}\n"
-                        hmsg = {
-                            "type": "message", "agent": "Human",
-                            "color": "#60a5fa", "text": text,
-                            "skill": skill_name,
-                            "timestamp": datetime.now().isoformat(),
-                            **({"images": img_refs} if img_refs else {}),
-                        }
-                        await ws.send_json(hmsg)
-                        log(hmsg)
-                        mention = ConversationEngine.extract_mention(text, active_agents)
-                        if mention and engine.on_mention(mention) is not None:
-                            pass  # engine reordered; next next_speaker() returns @target
+                        # TUI command interception
+                        _intercepted, _mode_updates = intercept_mode_command(text, agent_modes, active_agents)
+                        if _intercepted:
+                            for _upd in _mode_updates:
+                                if "error" in _upd:
+                                    history_text += f"\n[System]: {_upd['error']}\n"
+                                    await ws.send_json({"type": "system", "text": _upd["error"]})
+                                else:
+                                    await ws.send_json({"type": "mode_update", "agent": _upd["agent"], "mode": _upd["mode"]})
                         else:
-                            engine.on_human()
-                        break
+                            history_entry, skill_name = resolve_human_text(text, workspace_id)
+                            history_text += f"\n[Human]: {history_entry}\n"
+                            hmsg = {
+                                "type": "message", "agent": "Human",
+                                "color": "#60a5fa", "text": text,
+                                "skill": skill_name,
+                                "timestamp": datetime.now().isoformat(),
+                                **({"images": img_refs} if img_refs else {}),
+                            }
+                            await ws.send_json(hmsg)
+                            log(hmsg)
+                            mention = ConversationEngine.extract_mention(text, active_agents)
+                            if mention and engine.on_mention(mention) is not None:
+                                pass  # engine reordered; next next_speaker() returns @target
+                            else:
+                                engine.on_human()
+                            break
 
     except WebSocketDisconnect:
         pass
