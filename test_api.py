@@ -1397,7 +1397,7 @@ class TestAgentMode:
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir}
         prompt = a.build_prompt(agent, "history", mode="chat")
-        assert "concise" in prompt.lower() or "2-3 sentences" in prompt
+        assert "Keep your response concise" in prompt
 
     def test_build_prompt_think_mode_no_concise_prefix(self, tmp_project):
         import app as a
@@ -1416,7 +1416,7 @@ class TestAgentMode:
         agent = {"name": "claude", "workspace": agent_dir}
         prompt_default = a.build_prompt(agent, "history")
         prompt_chat = a.build_prompt(agent, "history", mode="chat")
-        assert ("2-3 sentences" in prompt_default) == ("2-3 sentences" in prompt_chat)
+        assert "Keep your response concise" in prompt_default
 
     @pytest.mark.asyncio
     async def test_stream_cli_adds_extended_thinking_when_supported(self, tmp_project):

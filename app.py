@@ -378,9 +378,9 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
     mode_prefix = "Keep your response concise — 2-3 sentences max.\n\n" if mode == "chat" else ""
 
     # Context injection: scenario > workspace > blank
-    if scenario_system_prompt is not None:
-        if scenario_system_prompt:
-            parts.append(f"## Session Context\n\n{scenario_system_prompt}")
+    # scenario_system_prompt="" is treated same as None (no scenario active)
+    if scenario_system_prompt:
+        parts.append(f"## Session Context\n\n{scenario_system_prompt}")
     elif not blank_mode and workspace_id:
         # Workspace guide injected first (before agent identity)
         ws_dir = WORKSPACES_DIR / workspace_id
