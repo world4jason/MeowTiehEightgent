@@ -1776,6 +1776,7 @@ async def websocket_endpoint(ws: WebSocket):
                 agent = registry[name]
                 ensure_workspace(agent)
                 active_agents.append(agent)
+                agent_modes[name] = agent.get("mode", "chat")
                 engine.add_agent(agent)
                 history_text += f"\n[System]: {name} joined the conversation\n"
                 smsg = {"type": "system", "text": f"{agent.get('emoji', '')} {name} 加入聊天室"}

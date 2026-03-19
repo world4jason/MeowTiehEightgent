@@ -1619,12 +1619,12 @@ class TestAgentMode:
                             break
                     ws.send_json({"type": "human", "text": "/think @claude"})
                     updates = []
-                    for _ in range(15):
+                    # Collect mode_updates, stop after receiving 'ready' or hitting the limit
+                    for _ in range(20):
                         msg = ws.receive_json()
                         if msg.get("type") == "mode_update":
                             updates.append(msg)
-                        if len(updates) >= 1:
-                            # wait a bit more for potential second update
+                        elif msg.get("type") == "ready":
                             break
                     assert len(updates) == 1
                     assert updates[0]["agent"] == "claude"
