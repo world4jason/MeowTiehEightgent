@@ -102,6 +102,7 @@ DEFAULT_MODELS = {
         "cmd": ["claude", "--print"],
         "color": "#a78bfa",
         "emoji": "🟣",
+        "supports_image": True,
         "idle_timeout_seconds": 60,
         "startup_timeout_seconds": 10,
     },
@@ -110,6 +111,7 @@ DEFAULT_MODELS = {
         "cmd": ["gemini", "-p"],
         "color": "#34d399",
         "emoji": "🟢",
+        "supports_image": True,
         "idle_timeout_seconds": 60,
         "startup_timeout_seconds": 10,
     },
@@ -125,6 +127,7 @@ DEFAULT_MODELS = {
         "cmd": ["codex", "-q", "--no-project-doc", "--approval-mode", "full-auto", "-p"],
         "color": "#38bdf8",
         "emoji": "🔵",
+        "supports_image": False,
         "idle_timeout_seconds": 120,   # codex has higher startup + generation overhead
         "startup_timeout_seconds": 20,
     },
@@ -517,6 +520,55 @@ def _resolve_timeout(agent: dict, key: str, default: float) -> float:
     return default
 
 
+def _resolve_supports_image(agent: dict) -> bool:
+    """Precedence: agent-level > model_config > DEFAULT_MODELS > True (safe default)."""
+    if "supports_image" in agent:
+        return bool(agent["supports_image"])
+    model_cfg = agent.get("model_config") or {}
+    if "supports_image" in model_cfg:
+        return bool(model_cfg["supports_image"])
+    model_name = agent.get("model", "")
+    if model_name in DEFAULT_MODELS and "supports_image" in DEFAULT_MODELS[model_name]:
+        return bool(DEFAULT_MODELS[model_name]["supports_image"])
+    return True
+
+
+PROTECTED_FILENAMES: frozenset[str] = frozenset({
+    "guide.md",
+    "config.json",
+    ".env",
+    "requirements.txt",
+})
+
+_SAFE_FILENAME_RE = re.compile(r'^[\w\-. ]+$')
+_MAX_FILENAME_LENGTH = 255
+
+
+def validate_filename(filename: str, *, allow_protected: bool = False) -> None:
+    """Raise ValueError if filename is unsafe or protected."""
+    if not filename:
+        raise ValueError("Filename cannot be empty")
+    if len(filename) > _MAX_FILENAME_LENGTH:
+        raise ValueError(f"Filename too long: {len(filename)} chars")
+    if "/" in filename or "\\" in filename:
+        raise ValueError(f"Filename must not contain path separators: {filename!r}")
+    if ".." in filename:
+        raise ValueError(f"Filename must not contain '..': {filename!r}")
+    if not _SAFE_FILENAME_RE.match(filename):
+        raise ValueError(f"Filename contains invalid characters: {filename!r}")
+    if not allow_protected and filename in PROTECTED_FILENAMES:
+        raise ValueError(f"Filename is protected and cannot be written by agents: {filename!r}")
+
+
+def safe_workspace_path(workspace_dir: str, filename: str) -> str:
+    """Return safe full path; raise ValueError if it resolves outside workspace_dir."""
+    full_path = os.path.realpath(os.path.join(workspace_dir, filename))
+    workspace_real = os.path.realpath(workspace_dir)
+    if not full_path.startswith(workspace_real + os.sep) and full_path != workspace_real:
+        raise ValueError(f"Path traversal detected: {filename!r} resolves outside workspace")
+    return full_path
+
+
 def _error_message(e: "SubprocessError") -> str:
     if isinstance(e, SubprocessTimeoutError):
         return f"Agent {e.agent} timed out after {e.timeout_seconds}s of inactivity"
@@ -615,7 +667,7 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
 
     tmp_paths: list[str] = []
     extra_args: list[str] = []
-    if images:
+    if images and _resolve_supports_image(agent):
         tmp_paths, extra_args = write_temp_images(images)
 
     try:
@@ -1390,6 +1442,11 @@ async def upload_workspace_file(workspace_id: str, file: UploadFile = File(...))
     d = WORKSPACES_DIR / workspace_id / "files"
     if not d.exists():
         raise HTTPException(status_code=404, detail="Workspace not found")
+    try:
+        validate_filename(file.filename)
+        safe_workspace_path(str(d), file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     content = await file.read()
     (d / file.filename).write_bytes(content)
     return {"ok": True, "filename": file.filename}

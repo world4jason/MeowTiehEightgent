@@ -3,6 +3,7 @@ Regression + unit tests for agent-cli-converation API.
 
 Run with:  python3 -m pytest test_api.py -v
 """
+import asyncio
 import io
 import json
 import shutil
@@ -1201,3 +1202,186 @@ class TestHistorySliding:
         h = self._h([("A", "x" * 500)])
         result = a.truncate_history(h, max_chars=10)
         assert a.TRUNCATION_MARKER in result
+
+
+class TestImageCompat:
+    """Phase 0.3 — supports_image flag per agent/model."""
+
+    def test_resolve_supports_image_agent_level_false(self, tmp_project):
+        import app as a
+        agent = {"name": "codex", "workspace": tmp_project, "supports_image": False}
+        assert a._resolve_supports_image(agent) is False
+
+    def test_resolve_supports_image_agent_true_overrides_model(self, tmp_project):
+        import app as a
+        # agent-level True wins over model-level False
+        agent = {"name": "codex", "workspace": tmp_project, "supports_image": True}
+        assert a._resolve_supports_image(agent) is True
+
+    def test_resolve_supports_image_defaults_true(self, tmp_project):
+        import app as a
+        # no flag anywhere → default True
+        agent = {"name": "unknown-model", "workspace": tmp_project}
+        assert a._resolve_supports_image(agent) is True
+
+    def test_codex_default_models_false(self):
+        import app as a
+        assert a.DEFAULT_MODELS["codex"].get("supports_image") is False
+
+    def test_claude_default_models_true(self):
+        import app as a
+        assert a.DEFAULT_MODELS["claude"].get("supports_image") is True
+
+    @pytest.mark.asyncio
+    async def test_no_image_args_when_not_supported(self, tmp_project):
+        import app as a
+        agent = {"name": "codex", "workspace": tmp_project,
+                 "cmd": ["cat"], "supports_image": False,
+                 "startup_timeout_seconds": 5, "idle_timeout_seconds": 5}
+
+        images = [{"name": "test.png", "mime": "image/png",
+                   "base64": "iVBORw0KGgo="}]  # tiny fake png
+
+        captured_args = {}
+
+        async def mock_exec(*args, **kwargs):
+            captured_args["args"] = args
+            # Return a mock that yields nothing and exits 0
+            mock_proc = MagicMock()
+            mock_proc.stdout = MagicMock()
+            call_count = [0]
+            async def _read(n):
+                call_count[0] += 1
+                return b"hello" if call_count[0] == 1 else b""
+            mock_proc.stdout.read = _read
+            mock_proc.stderr = MagicMock()
+            mock_proc.stderr.read = AsyncMock(return_value=b"")
+            mock_proc.kill = MagicMock()
+            mock_proc.wait = AsyncMock()
+            mock_proc.returncode = 0
+            return mock_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+            chunks = []
+            async for chunk in a.stream_cli_agent(agent, "hello", images=images):
+                chunks.append(chunk)
+
+        assert "--add-file" not in " ".join(str(x) for x in captured_args.get("args", []))
+
+
+# ── Phase 0.4: Protected Paths ────────────────────────────────────────────────
+
+class TestProtectedPaths:
+    """Phase 0.4 — filename validation and path protection."""
+
+    # ── validate_filename unit tests ──────────────────────────────────────────
+
+    def test_valid_filename_passes(self):
+        import app as a
+        a.validate_filename("note.txt")  # no exception
+
+    def test_valid_filename_with_space(self):
+        import app as a
+        a.validate_filename("my note.md")
+
+    def test_valid_filename_with_dash_and_numbers(self):
+        import app as a
+        a.validate_filename("report-2026.pdf")
+
+    def test_dotdot_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match=r"\.\."):
+            a.validate_filename("../secret.txt")
+
+    def test_slash_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="path separator"):
+            a.validate_filename("subdir/file.txt")
+
+    def test_backslash_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="path separator"):
+            a.validate_filename("subdir\\file.txt")
+
+    def test_double_dot_in_middle_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match=r"\.\."):
+            a.validate_filename("file..txt")
+
+    def test_protected_filename_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="protected"):
+            a.validate_filename("guide.md")
+
+    def test_protected_filename_allowed_when_flag_set(self):
+        import app as a
+        a.validate_filename("guide.md", allow_protected=True)  # no exception
+
+    def test_empty_filename_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="empty"):
+            a.validate_filename("")
+
+    def test_too_long_filename_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="too long"):
+            a.validate_filename("a" * 256)
+
+    def test_semicolon_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="invalid characters"):
+            a.validate_filename("file;rm.txt")
+
+    # ── safe_workspace_path unit tests ────────────────────────────────────────
+
+    def test_safe_path_returns_correct_path(self, tmp_path):
+        import app as a
+        result = a.safe_workspace_path(str(tmp_path), "note.txt")
+        assert result == str(tmp_path / "note.txt")
+
+    def test_safe_path_detects_symlink_traversal(self, tmp_path):
+        import app as a
+        outside = tmp_path.parent / "outside_secret.txt"
+        outside.write_text("secret")
+        link = tmp_path / "link.txt"
+        link.symlink_to(outside)
+        with pytest.raises(ValueError, match="traversal"):
+            a.safe_workspace_path(str(tmp_path), "link.txt")
+
+    # ── integration tests on upload endpoint ──────────────────────────────────
+
+    def test_upload_valid_file(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Valid"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("note.txt", b"hello world", "text/plain")},
+        )
+        assert r.status_code == 200
+
+    def test_upload_path_traversal_403(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Traversal"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("../../etc/passwd", b"bad", "text/plain")},
+        )
+        assert r.status_code == 403
+
+    def test_upload_protected_filename_403(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Protected"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("guide.md", b"hacked", "text/plain")},
+        )
+        assert r.status_code == 403
+
+    def test_upload_invalid_char_403(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Invalid"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("x;y.txt", b"bad", "text/plain")},
+        )
+        assert r.status_code == 403
