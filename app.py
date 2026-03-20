@@ -388,10 +388,20 @@ def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str,
     if text.startswith("/"):
         skill_name = text[1:].strip().lower()
         skill_file = find_skill_file(PROJECT_DIR / "skills" / skill_name)
+        # Fallback: handle "source:slug" format (e.g. "gstack:review")
+        if not skill_file and ":" in skill_name:
+            source_prefix, slug_part = skill_name.split(":", 1)
+            # Try skills/{slug} (symlink from gstack setup)
+            skill_file = find_skill_file(PROJECT_DIR / "skills" / slug_part)
+            # Try skills/{source}/{slug} (direct subdirectory)
+            if not skill_file:
+                skill_file = find_skill_file(PROJECT_DIR / "skills" / source_prefix / slug_part)
         if skill_file:
-            s = parse_skill(skill_file)
-            history_entry = f"[Skill invoked: {s['name']}]\n\n{s['body']}\n\nAll agents: apply this skill now in your next response."
-            return history_entry, s["name"]
+            slug_dir = skill_file.parent
+            s = parse_skill(skill_file, slug_dir=slug_dir)
+            display_name = f"{s['source']}:{s['name']}" if s.get("source") else s["name"]
+            history_entry = f"[Skill invoked: {display_name}]\n\n{s['body']}\n\nAll agents: apply this skill now in your next response."
+            return history_entry, display_name
 
     # @filename.ext injection
     if workspace_id:
@@ -1468,10 +1478,20 @@ async def list_skills():
             continue
         sf = find_skill_file(slug_dir)
         if sf:
-            s = parse_skill(sf)
-            result.append({"slug": slug_dir.name, "name": s["name"], "description": s["description"], "missing": False})
+            s = parse_skill(sf, slug_dir=slug_dir)
+            display_name = f"{s['source']}:{s['name']}" if s.get("source") else s["name"]
+            result.append({
+                "slug": slug_dir.name,
+                "name": display_name,
+                "description": s["description"],
+                "missing": False,
+                "source": s["source"],
+                "source_url": s["source_url"],
+                "source_version": s["source_version"],
+            })
         else:
-            result.append({"slug": slug_dir.name, "name": slug_dir.name, "description": "", "missing": True})
+            result.append({"slug": slug_dir.name, "name": slug_dir.name, "description": "", "missing": True,
+                           "source": "", "source_url": "", "source_version": ""})
     return result
 
 
@@ -1480,8 +1500,9 @@ async def get_skill(slug: str):
     sf = find_skill_file(PROJECT_DIR / "skills" / slug)
     if not sf:
         raise HTTPException(status_code=404, detail="Skill not found")
-    s = parse_skill(sf)
-    return {"slug": slug, "name": s["name"], "description": s["description"], "body": s["body"]}
+    s = parse_skill(sf, slug_dir=PROJECT_DIR / "skills" / slug)
+    return {"slug": slug, "name": s["name"], "description": s["description"], "body": s["body"],
+            "source": s["source"], "source_url": s["source_url"], "source_version": s["source_version"]}
 
 
 @app.put("/skills/{slug}")

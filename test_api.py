@@ -1850,3 +1850,72 @@ class TestParseSkillSource:
         assert s["source"] == "gstack"
         assert s["source_url"] == "https://github.com/garrytan/gstack"
         assert s["source_version"] == "0.9.0"
+
+
+# ── Task 2: list_skills / get_skill expose source metadata ────────────────────
+
+class TestListSkillsSource:
+    def _make_skill(self, root, slug, source="", name=None):
+        d = root / "skills" / slug
+        d.mkdir(parents=True, exist_ok=True)
+        n = name or slug
+        fm = f"name: {n}\n"
+        if source:
+            fm += f"source: {source}\n"
+        (d / "SKILL.md").write_text(f"---\n{fm}---\n\nBody")
+
+    def test_list_includes_source_fields(self, client, tmp_project):
+        self._make_skill(tmp_project, "my-review", source="gstack", name="review")
+        r = client.get("/skills")
+        assert r.status_code == 200
+        item = next(x for x in r.json() if x["slug"] == "my-review")
+        assert item["source"] == "gstack"
+        assert "source_url" in item
+        assert "source_version" in item
+
+    def test_list_display_name_with_source(self, client, tmp_project):
+        self._make_skill(tmp_project, "my-review", source="gstack", name="review")
+        r = client.get("/skills")
+        item = next(x for x in r.json() if x["slug"] == "my-review")
+        assert item["name"] == "gstack:review"
+
+    def test_list_display_name_without_source(self, client, tmp_project):
+        self._make_skill(tmp_project, "brainstorm", name="brainstorm")
+        r = client.get("/skills")
+        item = next(x for x in r.json() if x["slug"] == "brainstorm")
+        assert item["name"] == "brainstorm"
+
+    def test_get_skill_includes_source(self, client, tmp_project):
+        self._make_skill(tmp_project, "my-skill", source="gstack", name="myskill")
+        r = client.get("/skills/my-skill")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["source"] == "gstack"
+        assert "source_url" in data
+        assert "source_version" in data
+
+
+# ── Task 3: resolve_human_text handles source:slug format ─────────────────────
+
+class TestResolveSkillWithSource:
+    def _make_gstack_skill(self, root, slug):
+        gstack = root / "skills" / "gstack" / slug
+        gstack.mkdir(parents=True, exist_ok=True)
+        (gstack / "SKILL.md").write_text(f"---\nname: {slug}\ndescription: Gstack {slug}\n---\n\nSkill body for {slug}")
+        link = root / "skills" / slug
+        if not link.exists():
+            link.symlink_to(gstack)
+
+    def test_resolve_with_source_prefix(self, tmp_project):
+        import app as a
+        self._make_gstack_skill(tmp_project, "review")
+        text, skill_name = a.resolve_human_text("/gstack:review")
+        assert skill_name is not None
+        assert "review" in skill_name.lower()
+        assert "Skill body for review" in text
+
+    def test_resolve_without_source_prefix_still_works(self, tmp_project):
+        import app as a
+        self._make_gstack_skill(tmp_project, "review")
+        text, skill_name = a.resolve_human_text("/review")
+        assert skill_name is not None
