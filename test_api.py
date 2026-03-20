@@ -222,6 +222,36 @@ class TestAgents:
         assert (agent_dir / "MEMORY.md").exists()
         assert (agent_dir / "config.json").exists()
 
+    def test_agent_test_endpoint_unknown_agent(self, client):
+        r = client.post("/agents/ghost-xyz/test")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert "Unknown agent" in data["error"]
+
+    def test_agent_test_endpoint_ok(self, client, tmp_project):
+        """Test endpoint with a mock CLI (echo) — should return ok=True."""
+        import json as _json
+        # Add a CLI echo model to the config
+        cfg = _json.loads((tmp_project / "config.json").read_text())
+        cfg["models"]["echo-model"] = {
+            "type": "cli",
+            "cmd": ["echo", "I am ready"],
+            "emoji": "🔊",
+            "color": "#aaa",
+        }
+        (tmp_project / "config.json").write_text(_json.dumps(cfg))
+
+        name = "echo-agent"
+        self._create_agent(client, name)
+        client.put(f"/agents/{name}", json={"model": "echo-model"})
+
+        r = client.post(f"/agents/{name}/test")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["response"]
+
 
 # ── Skills ────────────────────────────────────────────────────────────────────
 
@@ -1783,3 +1813,40 @@ class TestScenarios:
         )
         assert "Secret guide" not in prompt
         assert "Workspace Guide" not in prompt
+
+
+class TestParseSkillSource:
+    def test_reads_source_from_frontmatter(self, tmp_path):
+        from app import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: review\nsource: gstack\nsource_url: https://github.com/garrytan/gstack\nsource_version: 0.9.0\ndescription: Code review\n---\n\nBody here")
+        s = parse_skill(f)
+        assert s["source"] == "gstack"
+        assert s["source_url"] == "https://github.com/garrytan/gstack"
+        assert s["source_version"] == "0.9.0"
+
+    def test_source_defaults_empty_when_absent(self, tmp_path):
+        from app import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: brainstorm\ndescription: Think\n---\n\nBody")
+        s = parse_skill(f)
+        assert s["source"] == ""
+        assert s["source_url"] == ""
+        assert s["source_version"] == ""
+
+    def test_autodetects_gstack_symlink(self, tmp_path):
+        from app import parse_skill
+        # Set up: skills/gstack/review/SKILL.md
+        gstack_dir = tmp_path / "gstack" / "review"
+        gstack_dir.mkdir(parents=True)
+        skill_file = gstack_dir / "SKILL.md"
+        skill_file.write_text("---\nname: review\ndescription: Review\n---\n\nBody")
+        # Create VERSION file
+        (tmp_path / "gstack" / "VERSION").write_text("0.9.0")
+        # Create symlink: review -> gstack/review
+        link_dir = tmp_path / "review"
+        link_dir.symlink_to(gstack_dir)
+        s = parse_skill(link_dir / "SKILL.md", slug_dir=link_dir)
+        assert s["source"] == "gstack"
+        assert s["source_url"] == "https://github.com/garrytan/gstack"
+        assert s["source_version"] == "0.9.0"

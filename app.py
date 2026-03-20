@@ -103,8 +103,8 @@ DEFAULT_MODELS = {
         "color": "#a78bfa",
         "emoji": "🟣",
         "supports_image": True,
-        "idle_timeout_seconds": 60,
-        "startup_timeout_seconds": 10,
+        "idle_timeout_seconds": 120,
+        "startup_timeout_seconds": 120,  # full AGENT.md prompt can take 15s+ for first byte
     },
     "gemini": {
         "type": "cli",
@@ -112,8 +112,8 @@ DEFAULT_MODELS = {
         "color": "#34d399",
         "emoji": "🟢",
         "supports_image": True,
-        "idle_timeout_seconds": 60,
-        "startup_timeout_seconds": 10,
+        "idle_timeout_seconds": 120,
+        "startup_timeout_seconds": 120,  # gemini MCP context init takes 19s+ before first byte
     },
     "ollama": {
         "type": "api",
@@ -128,8 +128,8 @@ DEFAULT_MODELS = {
         "color": "#38bdf8",
         "emoji": "🔵",
         "supports_image": False,
-        "idle_timeout_seconds": 120,   # codex has higher startup + generation overhead
-        "startup_timeout_seconds": 20,
+        "idle_timeout_seconds": 120,
+        "startup_timeout_seconds": 120,
     },
 }
 
@@ -544,6 +544,93 @@ class SubprocessCrashError(SubprocessError):
         self.cause = cause
 
 
+class TokenUsage:
+    """Sentinel yielded at end of a JSON-mode CLI stream with per-turn token counts."""
+    __slots__ = ("input_tokens", "output_tokens", "cached_tokens")
+
+    def __init__(self, input_tokens: int = 0, output_tokens: int = 0, cached_tokens: int = 0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cached_tokens = cached_tokens
+
+
+def _get_json_output_flags(agent: dict) -> list[str]:
+    """Return extra CLI flags to enable JSON streaming output for token tracking.
+
+    Returns [] if the model does not support JSON output, or if explicitly disabled.
+    """
+    if agent.get("json_output") is False:
+        return []
+    model_id = agent.get("model_id", "")
+    if model_id == "claude":
+        return ["--output-format", "stream-json", "--verbose"]
+    if model_id == "gemini":
+        return ["--output-format", "stream-json"]
+    return []
+
+
+def _parse_jsonl_line(line: str, model_id: str) -> tuple[str | None, dict | None]:
+    """Parse one JSONL line from a stream-json CLI output.
+
+    Returns (text_chunk, usage_dict).
+    - text_chunk: incremental text from this event, or None
+    - usage_dict: {"input": int, "output": int, "cached": int}, or None
+    """
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return (line, None)  # non-JSON line: pass through as raw text
+
+    t = obj.get("type", "")
+
+    if model_id == "claude":
+        if t == "assistant":
+            msg = obj.get("message") or {}
+            content = msg.get("content") or []
+            texts = [b.get("text", "") for b in content
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            text = "".join(texts)
+            return (text or None, None)
+        if t == "result":
+            u = obj.get("usage") or {}
+            return (None, {
+                "input": int(u.get("input_tokens", 0)),
+                "output": int(u.get("output_tokens", 0)),
+                "cached": int(u.get("cache_read_input_tokens", 0)),
+            })
+
+    elif model_id == "gemini":
+        if t == "assistant":
+            msg = obj.get("message") or {}
+            text = ""
+            if isinstance(msg, str):
+                text = msg
+            elif isinstance(msg, dict):
+                direct = msg.get("text", "")
+                if direct:
+                    text = str(direct)
+                else:
+                    parts_texts = []
+                    for item in (msg.get("content") or []):
+                        if isinstance(item, dict):
+                            item_t = item.get("type", "")
+                            if item_t in ("text", "output_text", "content", ""):
+                                part_text = item.get("text", "") or item.get("content", "")
+                                if part_text:
+                                    parts_texts.append(str(part_text))
+                    text = "".join(parts_texts)
+            return (text or None, None)
+        if t == "result":
+            u = obj.get("usage") or obj.get("usageMetadata") or {}
+            src = u.get("usageMetadata") or u
+            input_tok = int(src.get("input_tokens", src.get("inputTokens", src.get("promptTokenCount", 0))))
+            output_tok = int(src.get("output_tokens", src.get("outputTokens", src.get("candidatesTokenCount", 0))))
+            cached_tok = int(src.get("cached_input_tokens", src.get("cachedInputTokens", src.get("cachedContentTokenCount", 0))))
+            return (None, {"input": input_tok, "output": output_tok, "cached": cached_tok})
+
+    return (None, None)
+
+
 TRUNCATION_MARKER = "[... 較早對話已省略 ...]\n\n"
 
 def truncate_history(history_text: str, max_chars: int) -> str:
@@ -558,12 +645,14 @@ def truncate_history(history_text: str, max_chars: int) -> str:
 
 
 def _resolve_timeout(agent: dict, key: str, default: float) -> float:
-    """Precedence: agent config > model_config > default."""
+    """Precedence: agent config > DEFAULT_MODELS > hard default."""
     if key in agent:
         return float(agent[key])
-    model_cfg = agent.get("model_config") or {}
-    if key in model_cfg:
-        return float(model_cfg[key])
+    # Fall back to DEFAULT_MODELS so built-in defaults apply even when
+    # the user's config.json overrides the models dict without timeout fields.
+    model_id = agent.get("model_id", "")
+    if model_id in DEFAULT_MODELS and key in DEFAULT_MODELS[model_id]:
+        return float(DEFAULT_MODELS[model_id][key])
     return default
 
 
@@ -702,7 +791,11 @@ async def call_agent(agent: dict, prompt: str) -> str:
 
 
 async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
-    """Async generator: yield text chunks from CLI stdout.
+    """Async generator: yield text chunks from CLI stdout, then optionally a TokenUsage.
+
+    When the model supports JSON output (claude/gemini), adds --output-format stream-json
+    flags, reads line-by-line, parses JSONL events for text and token usage, and yields
+    a TokenUsage object as the last item after all text chunks.
 
     Raises SubprocessStartupError, SubprocessTimeoutError, or SubprocessCrashError
     on failure.  Already-yielded chunks are preserved in the exception's
@@ -720,6 +813,13 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
     if mode == "think" and agent.get("supports_thinking", False):
         extra_args = extra_args + ["--extended-thinking"]
 
+    # JSON output mode: adds stream-json flags for token tracking
+    json_flags = _get_json_output_flags(agent)
+    if json_flags:
+        extra_args = extra_args + json_flags
+    model_id = agent.get("model_id", "")
+    _usage: dict[str, int] = {"input": 0, "output": 0, "cached": 0}
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *agent["cmd"], *extra_args, prompt,
@@ -734,10 +834,11 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
     stderr_task = asyncio.create_task(proc.stderr.read())
 
     try:
-        # --- startup timeout: wait for first byte ---
+        # --- startup timeout: wait for first byte/line ---
         try:
-            first_chunk = await asyncio.wait_for(
-                proc.stdout.read(256), timeout=startup_timeout
+            first_data = await asyncio.wait_for(
+                proc.stdout.readline() if json_flags else proc.stdout.read(256),
+                timeout=startup_timeout,
             )
         except asyncio.TimeoutError:
             proc.kill()
@@ -747,7 +848,7 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
                 cause=f"no output within {startup_timeout}s",
             )
 
-        if not first_chunk:
+        if not first_data:
             # EOF immediately after startup
             await proc.wait()
             stderr_out = await stderr_task
@@ -759,15 +860,28 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
                 cause="empty output",
             )
 
-        decoded = first_chunk.decode(errors='replace')
-        buffer += decoded
-        yield decoded
+        decoded = first_data.decode(errors='replace')
+        if json_flags:
+            line = decoded.strip()
+            if line:
+                text, usage = _parse_jsonl_line(line, model_id)
+                if usage:
+                    for k, v in usage.items():
+                        if v > _usage.get(k, 0):
+                            _usage[k] = v
+                if text:
+                    buffer += text
+                    yield text
+        else:
+            buffer += decoded
+            yield decoded
 
-        # --- idle timeout: per-chunk reads ---
+        # --- idle timeout: per-chunk/line reads ---
         while True:
             try:
-                chunk = await asyncio.wait_for(
-                    proc.stdout.read(256), timeout=idle_timeout
+                data = await asyncio.wait_for(
+                    proc.stdout.readline() if json_flags else proc.stdout.read(256),
+                    timeout=idle_timeout,
                 )
             except asyncio.TimeoutError:
                 proc.kill()
@@ -779,11 +893,23 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
                     stderr_output=stderr_out.decode(errors='replace'),
                     timeout_seconds=idle_timeout,
                 )
-            if not chunk:
+            if not data:
                 break
-            decoded = chunk.decode(errors='replace')
-            buffer += decoded
-            yield decoded
+            decoded = data.decode(errors='replace')
+            if json_flags:
+                line = decoded.strip()
+                if line:
+                    text, usage = _parse_jsonl_line(line, model_id)
+                    if usage:
+                        for k, v in usage.items():
+                            if v > _usage.get(k, 0):
+                                _usage[k] = v
+                    if text:
+                        buffer += text
+                        yield text
+            else:
+                buffer += decoded
+                yield decoded
 
     except SubprocessError:
         raise
@@ -811,6 +937,14 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
             partial_output=buffer,
             stderr_output=stderr_out.decode(errors='replace'),
             exit_code=proc.returncode,
+        )
+
+    # Yield token usage if JSON mode was active and we captured any counts
+    if json_flags and (_usage["input"] or _usage["output"]):
+        yield TokenUsage(
+            input_tokens=_usage["input"],
+            output_tokens=_usage["output"],
+            cached_tokens=_usage["cached"],
         )
 
 
@@ -1276,10 +1410,13 @@ def find_skill_file(slug_dir: Path) -> Path | None:
     return None
 
 
-def parse_skill(skill_file: Path) -> dict:
+def parse_skill(skill_file: Path, slug_dir: Path | None = None) -> dict:
     raw = skill_file.read_text().strip()
     name = skill_file.parent.name
     description = ""
+    source = ""
+    source_url = ""
+    source_version = ""
     body = raw
     if raw.startswith("---"):
         end = raw.find("---", 3)
@@ -1291,10 +1428,35 @@ def parse_skill(skill_file: Path) -> dict:
                     name = line[5:].strip()
                 elif line.startswith("description:"):
                     description = line[12:].strip()
+                elif line.startswith("source:"):
+                    source = line[7:].strip()
+                elif line.startswith("source_url:"):
+                    source_url = line[11:].strip()
+                elif line.startswith("source_version:"):
+                    source_version = line[15:].strip()
     if not description:
         lines = [l for l in body.splitlines() if l.strip() and not l.startswith("#")]
         description = lines[0].strip() if lines else ""
-    return {"name": name, "description": description, "body": body}
+    # Auto-detect gstack via symlink
+    if not source and slug_dir and slug_dir.is_symlink():
+        target = os.readlink(slug_dir)
+        if "gstack" in target:
+            source = "gstack"
+            source_url = "https://github.com/garrytan/gstack"
+            # Try to read VERSION from gstack dir
+            version_file = slug_dir.resolve().parent.parent / "VERSION"
+            if not version_file.exists():
+                version_file = slug_dir.resolve().parent / "VERSION"
+            if version_file.exists():
+                source_version = version_file.read_text().strip()
+    return {
+        "name": name,
+        "description": description,
+        "body": body,
+        "source": source,
+        "source_url": source_url,
+        "source_version": source_version,
+    }
 
 
 @app.get("/skills")
@@ -1742,7 +1904,15 @@ async def websocket_endpoint(ws: WebSocket):
         else:
             history_text = f"Topic: {topic}\n"
     else:
-        history_text = f"Topic: {topic}\n"
+        # First message from welcome screen: treat as the opening human turn,
+        # not just a session label, so agents see [Human]: from the start.
+        history_text = f"[Human]: {topic}\n"
+        hmsg = {
+            "type": "message", "agent": "Human",
+            "color": "#60a5fa", "text": topic,
+            "timestamp": datetime.now().isoformat(),
+        }
+        log(hmsg)
 
     event_queue: asyncio.Queue = asyncio.Queue()
 
@@ -1851,6 +2021,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             _max_hist = load_config().get("max_history_chars", 80000)
             _trimmed_history = truncate_history(history_text, _max_hist)
+            _turn_usage: list[TokenUsage] = []
 
             async def _produce():
                 try:
@@ -1862,7 +2033,10 @@ async def websocket_endpoint(ws: WebSocket):
                         blank_mode=blank_mode,
                     )
                     async for chunk in stream_agent(agent, _prompt, images=turn_images or None, mode=_current_mode):
-                        await chunk_q.put(chunk)
+                        if isinstance(chunk, TokenUsage):
+                            _turn_usage.append(chunk)
+                        else:
+                            await chunk_q.put(chunk)
                 except SubprocessError as e:
                     await chunk_q.put(e)  # sentinel: SubprocessError in queue
                 except asyncio.CancelledError:
@@ -1960,7 +2134,11 @@ async def websocket_endpoint(ws: WebSocket):
                 "timestamp": ts,
                 "duration_ms": duration_ms,
             }
-            await ws.send_json({"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms})
+            _usage_obj = _turn_usage[0] if _turn_usage else None
+            _msg_end: dict = {"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms}
+            if _usage_obj:
+                _msg_end["usage"] = {"input": _usage_obj.input_tokens, "output": _usage_obj.output_tokens, "cached": _usage_obj.cached_tokens}
+            await ws.send_json(_msg_end)
             log(msg)
             batch_turns += 1
 
