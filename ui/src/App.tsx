@@ -296,7 +296,8 @@ function NoCompaniesStartPage() {
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<ChatMode>(() => {
-    return (localStorage.getItem("preferred-mode") as ChatMode) ?? "chat";
+    const stored = localStorage.getItem("preferred-mode");
+    return stored === "chat" || stored === "cowork" ? stored : "chat";
   });
   const { hasUnreadChat, setHasUnreadChat } = useChatContext();
   const { online: chatOnline } = useHealthCheck(`${CHAT_URL}/health`);
@@ -333,6 +334,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
         <div className={mode === "chat" ? "flex h-full" : "hidden"}>
           <ChatPage isVisible={mode === "chat"} />
         </div>
+        {/* Cowork unmounts on mode switch (Phase 1 acceptable — no WS state to preserve yet).
+            If cowork ever needs persistent state, apply the same hidden-div strategy as ChatPage. */}
         {mode === "cowork" && <div className="flex h-full">{children}</div>}
       </main>
     </div>
