@@ -269,6 +269,23 @@
   .add-agent-item:hover { background: var(--surface); }
   #members-toggle { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; flex-shrink: 0; }
   #members-toggle:hover, #members-toggle.active { background: var(--surface); color: var(--text); }
+  /* ── Runs/Stats Panel ── */
+  #runs-toggle { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; flex-shrink: 0; }
+  #runs-toggle:hover, #runs-toggle.active { background: var(--surface); color: var(--text); }
+  #runs-panel { width: 0; min-width: 0; overflow: hidden; transition: width 0.2s ease, min-width 0.2s ease; border-left: 0px solid var(--border); display: flex; flex-direction: column; background: var(--panel-bg); flex-shrink: 0; }
+  #runs-panel.open { width: 260px; min-width: 260px; border-left-width: 1px; }
+  #runs-panel-header { padding: 12px 14px 8px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); flex-shrink: 0; }
+  #runs-body { flex: 1; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 10px; }
+  .runs-agent-block { display: flex; flex-direction: column; gap: 4px; }
+  .runs-agent-label { display: flex; align-items: center; gap: 6px; padding: 4px 4px; font-size: 0.78rem; font-weight: 600; }
+  .runs-agent-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .runs-table { width: 100%; border-collapse: collapse; font-size: 0.71rem; }
+  .runs-table th { text-align: right; color: var(--text-muted); padding: 2px 5px; font-weight: 500; font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .runs-table th:first-child { text-align: left; }
+  .runs-table td { text-align: right; padding: 3px 5px; color: var(--text); border-top: 1px solid var(--border); }
+  .runs-table td:first-child { text-align: left; color: var(--text-muted); }
+  .runs-empty { font-size: 0.75rem; color: var(--text-muted); padding: 8px 4px; font-style: italic; }
+  .runs-total-row td { color: var(--accent); font-weight: 600; border-top: 2px solid var(--border); }
 
   /* ── Skill Picker ── */
   #skill-picker { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: #1e1e1e; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 100; }
@@ -364,6 +381,9 @@
   .model-save-btn:hover { opacity: 0.85; }
   .model-del-btn { padding: 7px 14px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.84rem; transition: background 0.12s, color 0.12s, border-color 0.12s; }
   .model-del-btn:hover { background: #dc262615; color: #f87171; border-color: #dc2626; }
+  .model-test-btn { padding: 7px 14px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.84rem; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+  .model-test-btn:hover { background: #16325015; color: #34d399; border-color: #34d399; }
+  .model-test-btn:disabled { opacity: 0.6; cursor: not-allowed; }
   /* USER.md section (merged into 關於 tab) */
   .about-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
   .about-textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-size: 0.84rem; outline: none; width: 100%; min-height: 400px; resize: vertical; line-height: 1.7; font-family: ui-monospace, 'Cascadia Code', monospace; }
@@ -701,9 +721,16 @@
       <button id="members-toggle" onclick="toggleMembersPanel()" title="成員">
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       </button>
+      <button id="runs-toggle" onclick="toggleRunsPanel()" title="Token 用量">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8h2M11 8h6M7 12h3M14 12h3"/></svg>
+      </button>
     </div>
     <div id="chat-body">
       <div id="messages"></div>
+      <div id="runs-panel">
+        <div id="runs-panel-header">Token 用量</div>
+        <div id="runs-body"></div>
+      </div>
       <div id="members-panel">
         <div id="members-panel-header">
           <span>成員</span>
@@ -1971,6 +1998,10 @@ async function loadSession(id, el) {
   membersPanelOpen = false;
   document.getElementById('members-panel').classList.remove('open');
   document.getElementById('members-toggle').classList.remove('active');
+  agentRuns = {};
+  runsPanelOpen = false;
+  document.getElementById('runs-panel').classList.remove('open');
+  document.getElementById('runs-toggle').classList.remove('active');
 
   // Build initial message counts from history
   msgCountMap = {};
@@ -2074,6 +2105,69 @@ function setMode(m) {
 
 function getManualRounds() {
   return parseInt(document.getElementById('rounds-input').value) || 2;
+}
+
+// ── Runs / Token stats panel ──────────────────────────────────
+let runsPanelOpen = false;
+// agentRuns: { agentName: [{n, input, output, cached, duration_ms, color}] }
+let agentRuns = {};
+
+function toggleRunsPanel() {
+  runsPanelOpen = !runsPanelOpen;
+  document.getElementById('runs-panel').classList.toggle('open', runsPanelOpen);
+  document.getElementById('runs-toggle').classList.toggle('active', runsPanelOpen);
+  if (runsPanelOpen) renderRunsPanel();
+}
+
+function recordRun(agent, color, usage, duration_ms) {
+  if (!agentRuns[agent]) agentRuns[agent] = [];
+  agentRuns[agent].push({
+    n: agentRuns[agent].length + 1,
+    input: usage.input || 0,
+    output: usage.output || 0,
+    cached: usage.cached || 0,
+    duration_ms,
+    color,
+  });
+  if (runsPanelOpen) renderRunsPanel();
+}
+
+function renderRunsPanel() {
+  const body = document.getElementById('runs-body');
+  if (!body) return;
+  const agents = Object.keys(agentRuns);
+  if (!agents.length) {
+    body.innerHTML = '<div class="runs-empty">No token data yet.<br>Runs appear after each agent reply.</div>';
+    return;
+  }
+  body.innerHTML = '';
+  for (const agentName of agents) {
+    const runs = agentRuns[agentName];
+    if (!runs.length) continue;
+    const color = runs[0].color || '#888';
+    const block = document.createElement('div');
+    block.className = 'runs-agent-block';
+    // Totals
+    const totIn = runs.reduce((s, r) => s + r.input, 0);
+    const totOut = runs.reduce((s, r) => s + r.output, 0);
+    const totCached = runs.reduce((s, r) => s + r.cached, 0);
+    const rows = runs.map(r =>
+      `<tr><td>#${r.n}</td><td>${r.input.toLocaleString()}</td><td>${r.output.toLocaleString()}</td><td>${r.cached.toLocaleString()}</td></tr>`
+    ).join('');
+    block.innerHTML = `
+      <div class="runs-agent-label">
+        <div class="runs-agent-dot" style="background:${color}"></div>
+        <span style="color:${color}">${esc(agentName)}</span>
+      </div>
+      <table class="runs-table">
+        <thead><tr><th>Run</th><th>In</th><th>Out</th><th>Cache</th></tr></thead>
+        <tbody>
+          ${rows}
+          ${runs.length > 1 ? `<tr class="runs-total-row"><td>Total</td><td>${totIn.toLocaleString()}</td><td>${totOut.toLocaleString()}</td><td>${totCached.toLocaleString()}</td></tr>` : ''}
+        </tbody>
+      </table>`;
+    body.appendChild(block);
+  }
 }
 
 // ── Members panel ─────────────────────────────────────────────
@@ -2200,6 +2294,8 @@ function startSession() {
   showChatArea();
   document.getElementById('messages').innerHTML = '';
   document.getElementById('chat-topic').textContent = topic;
+  // Show first input as a Human message bubble, not just the topic header
+  addMessage('Human', topicRaw, '#60a5fa', new Date().toISOString());
   document.getElementById('msg-input').focus();
   document.getElementById('next-btn').classList.remove('visible');
 
@@ -2209,6 +2305,11 @@ function startSession() {
   membersPanelOpen = false;
   document.getElementById('members-panel').classList.remove('open');
   document.getElementById('members-toggle').classList.remove('active');
+  // Reset runs panel
+  agentRuns = {};
+  runsPanelOpen = false;
+  document.getElementById('runs-panel').classList.remove('open');
+  document.getElementById('runs-toggle').classList.remove('active');
   renderMembersPanel();
 
   // Join messages
@@ -2275,6 +2376,7 @@ function handleMessage(data) {
   } else if (data.type === 'message_end') {
     finalizeStreamingMessage(data.agent, data.timestamp, data.duration_ms);
     msgCountMap[data.agent] = (msgCountMap[data.agent] || 0) + 1;
+    if (data.usage) recordRun(data.agent, data.color, data.usage, data.duration_ms);
     renderMembersPanel();
     flushMsgQueue();
   } else if (data.type === 'agent_error') {
@@ -3009,7 +3111,11 @@ function renderSkillChips() {
   } else if (currentAgentSkills.length === 0) {
     chips.innerHTML = `<span class="skill-chip-none">未選擇任何技能</span>`;
   } else {
-    chips.innerHTML = currentAgentSkills.map(s => `<span class="skill-chip-tag">${esc(s)}</span>`).join('');
+    chips.innerHTML = currentAgentSkills.map(slug => {
+      const skill = skillData.find(s => s.slug === slug);
+      const label = skill ? skill.name : slug;
+      return `<span class="skill-chip-tag">${esc(label)}</span>`;
+    }).join('');
   }
 }
 
@@ -3138,8 +3244,10 @@ async function renderPersonaConfig(name) {
     </div>
     <div class="model-save-bar">
       <button class="model-save-btn" onclick="savePersonaConfig('${esc(name)}')">儲存</button>
+      <button class="model-test-btn" id="pcfg-test-btn" onclick="testAgent('${esc(name)}')">測試連線</button>
       <button class="model-del-btn" onclick="deletePersona('${esc(name)}')">停用</button>
-    </div>`;
+    </div>
+    <div id="pcfg-test-result" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;font-size:13px;"></div>`;
 
   renderSkillChips();
   renderSkillChecklist();
@@ -3170,6 +3278,37 @@ async function savePersonaConfig(name) {
   await loadAgents();
   renderPersonaList();
   renderAgentChips();
+}
+
+async function testAgent(name) {
+  const btn = document.getElementById('pcfg-test-btn');
+  const result = document.getElementById('pcfg-test-result');
+  if (!btn || !result) return;
+  btn.disabled = true;
+  btn.textContent = '測試中…';
+  result.style.display = 'none';
+  try {
+    const res = await fetch(`/agents/${encodeURIComponent(name)}/test`, { method: 'POST' });
+    const data = await res.json();
+    result.style.display = 'block';
+    if (data.ok) {
+      result.style.background = '#14532d';
+      result.style.color = '#86efac';
+      result.textContent = `✅ 回應正常：${data.response}`;
+    } else {
+      result.style.background = '#450a0a';
+      result.style.color = '#fca5a5';
+      result.textContent = `❌ 錯誤：${data.error}`;
+    }
+  } catch (e) {
+    result.style.display = 'block';
+    result.style.background = '#450a0a';
+    result.style.color = '#fca5a5';
+    result.textContent = `❌ 請求失敗：${e.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '測試連線';
+  }
 }
 
 async function deletePersona(name) {
