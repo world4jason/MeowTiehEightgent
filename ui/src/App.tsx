@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
+import { ModeToggle } from "./components/ModeToggle";
 import { authApi } from "./api/auth";
 import { healthApi } from "./api/health";
 import { Dashboard } from "./pages/Dashboard";
@@ -40,6 +41,14 @@ import { useCompany } from "./context/CompanyContext";
 import { useDialog } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
+import { ChatProvider, useChatContext } from "./context/ChatContext";
+import { ChatPage } from "./chat";
+import { useHealthCheck } from "./hooks/useHealthCheck";
+import { useState, useEffect } from "react";
+import type { ChatMode } from "./chat/types";
+
+const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
+const COWORK_URL = import.meta.env.VITE_COWORK_URL ?? "http://localhost:3100";
 
 function BootstrapPendingPage({ hasActiveInvite = false }: { hasActiveInvite?: boolean }) {
   return (
@@ -285,9 +294,55 @@ function NoCompaniesStartPage() {
   );
 }
 
+function AppShell({ children }: { children: React.ReactNode }) {
+  const [mode, setMode] = useState<ChatMode>(() => {
+    return (localStorage.getItem("preferred-mode") as ChatMode) ?? "chat";
+  });
+  const { hasUnreadChat, setHasUnreadChat } = useChatContext();
+  const { online: chatOnline } = useHealthCheck(`${CHAT_URL}/health`);
+  const { online: coworkOnline } = useHealthCheck(`${COWORK_URL}/health`);
+
+  useEffect(() => {
+    localStorage.setItem("preferred-mode", mode);
+    if (mode === "chat") setHasUnreadChat(false);
+  }, [mode, setHasUnreadChat]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "1") { e.preventDefault(); setMode("chat"); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "2") { e.preventDefault(); setMode("cowork"); }
+    }
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  return (
+    <div className="flex h-screen flex-col">
+      <header className="flex items-center justify-center border-b border-border px-4 py-2">
+        <ModeToggle
+          mode={mode}
+          onModeChange={setMode}
+          chatOnline={chatOnline}
+          coworkOnline={coworkOnline}
+          hasUnreadChat={hasUnreadChat}
+        />
+      </header>
+      <main className="flex-1 overflow-hidden">
+        {/* ChatPage always mounts so WS persists; isVisible controls unread badge */}
+        <div className={mode === "chat" ? "flex h-full" : "hidden"}>
+          <ChatPage isVisible={mode === "chat"} />
+        </div>
+        {mode === "cowork" && <div className="flex h-full">{children}</div>}
+      </main>
+    </div>
+  );
+}
+
 export function App() {
   return (
-    <>
+    <ChatProvider>
+      <AppShell>
       <Routes>
         <Route path="auth" element={<AuthPage />} />
         <Route path="board-claim/:token" element={<BoardClaimPage />} />
@@ -328,6 +383,7 @@ export function App() {
         </Route>
       </Routes>
       <OnboardingWizard />
-    </>
+      </AppShell>
+    </ChatProvider>
   );
 }
