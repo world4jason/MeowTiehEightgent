@@ -1919,3 +1919,15 @@ class TestResolveSkillWithSource:
         self._make_gstack_skill(tmp_project, "review")
         text, skill_name = a.resolve_human_text("/review")
         assert skill_name is not None
+
+
+class TestHealth:
+    """Phase 1 — GET /health endpoint for offline badge detection."""
+
+    def test_health_returns_200(self, client):
+        r = client.get("/health")
+        assert r.status_code == 200
+
+    def test_health_returns_status_ok(self, client):
+        r = client.get("/health")
+        assert r.json() == {"status": "ok"}

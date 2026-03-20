@@ -1071,6 +1071,11 @@ def save_hidden(ids: set[str]):
 
 # ── HTTP endpoints ────────────────────────────────────────────────────────────
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
 @app.get("/")
 async def index():
     return FileResponse("static/index.html")
