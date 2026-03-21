@@ -1,4 +1,4 @@
-# @paperclipai/shared
+# @meowtieheightgent/shared
 
 ## 0.3.1
 

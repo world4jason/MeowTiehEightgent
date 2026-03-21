@@ -339,7 +339,7 @@ grep '"name"' packages/shared/package.json
 grep '"name"' packages/adapter-utils/package.json
 ```
 
-Expected: all show `@paperclipai/...` (will rename in Task 7)
+Expected: all show `@meowtieheightgent/...` (will rename in Task 7)
 
 - [ ] **Step 5.3: Commit (before rename)**
 
@@ -387,8 +387,8 @@ This is the most critical task. Search all files for `@paperclipai` and replace 
 - `server/src/**/*.ts` — import statements
 - `packages/**/*.ts` — import statements
 - `ui/package.json` — workspace dep references
-- `ui/src/**/*.ts` / `.tsx` — any imports from `@paperclipai/...`
-- Root `package.json` — scripts referencing `@paperclipai/server`
+- `ui/src/**/*.ts` / `.tsx` — any imports from `@meowtieheightgent/...`
+- Root `package.json` — scripts referencing `@meowtieheightgent/server`
 
 - [ ] **Step 7.1: Count occurrences before rename**
 
@@ -415,7 +415,7 @@ find . -type f \( \
 \) \
   -not -path "*/node_modules/*" \
   -not -path "*/.git/*" \
-  -exec sed -i '' 's/@paperclipai/@meowtieheightgent/g' {} +
+  -exec sed -i '' 's/@meowtieheightgent/@meowtieheightgent/g' {} +
 
 echo "Rename complete"
 ```

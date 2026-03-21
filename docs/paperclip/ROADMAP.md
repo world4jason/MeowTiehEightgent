@@ -1,7 +1,7 @@
-# 開發路線圖（整合 Paperclip 研究）
+# 開發路線圖（整合 Mth 研究）
 
 > 日期：2026-03-20
-> 來源：TODO.md + MassGen 研究 + Paperclip 深度研究
+> 來源：TODO.md + MassGen 研究 + Mth 深度研究
 > 原始版本：docs/plans/2026-03-20-roadmap.md
 
 ---
@@ -15,7 +15,7 @@
   └── 輸出 = Sprint Backlog（可執行的任務清單）
 
 未來的實作層  ≈  Sprint Execution
-  └── Agents 實際把 backlog 裡的票做掉（Paperclip 的領域）
+  └── Agents 實際把 backlog 裡的票做掉（Mth 的領域）
 ```
 
 ---
@@ -74,7 +74,7 @@
 
 ---
 
-## Phase 3 — Paperclip 啟發：討論室強化
+## Phase 3 — Mth 啟發：討論室強化
 
 ### 3.1 Token / 成本追蹤 ★★★
 
@@ -94,7 +94,7 @@
 
 ### 3.2 Agent Task Session 持久化 ★★★
 
-**Paperclip 的做法：** 把 Claude 的 `session_id`（或 Gemini 的 `checkpoint_id`）存到 DB，下次 heartbeat 帶 `--resume <session_id>` 呼叫，直接接續上次的對話。
+**Mth 的做法：** 把 Claude 的 `session_id`（或 Gemini 的 `checkpoint_id`）存到 DB，下次 heartbeat 帶 `--resume <session_id>` 呼叫，直接接續上次的對話。
 
 **你可以做的版本：**
 - [ ] `run_agent()` parse CLI JSON output 的 session_id
@@ -181,7 +181,7 @@
 ## Phase 5 — 從討論到實作的橋接層
 
 > 這是最大的架構轉變。如果你決定從「討論室」擴展到「實作工作台」。
-> Paperclip 走的這條路，你選擇性借鑑。
+> Mth 走的這條路，你選擇性借鑑。
 
 ### 5.1 「建立任務」功能 ★★★（橋接入口）
 
@@ -196,13 +196,13 @@
 
 ### 5.2 Heartbeat 任務執行模式 ★★★
 
-**Paperclip 的核心機制。** 讓 agent 真的去「做事」。
+**Mth 的核心機制。** 讓 agent 真的去「做事」。
 
 - [ ] 任務型 session：agent 收到任務 → 執行 → 回報結果
 - [ ] Context payload：`{ task_id, description, acceptance_criteria, prior_attempts }`
 - [ ] Agent 輸出：`{ status, output, blockers }`
 - [ ] Orchestrator 讀結果：完成 / 重試 / 升級到 human
-- [ ] requestDepth 計數（防止無限自我委派，借鑑 Paperclip）
+- [ ] requestDepth 計數（防止無限自我委派，借鑑 Mth）
 - [ ] max_attempts 硬停
 
 ---

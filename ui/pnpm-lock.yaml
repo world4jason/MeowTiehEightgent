@@ -20,31 +20,31 @@ importers:
       '@mdxeditor/editor':
         specifier: ^3.52.4
         version: 3.52.4(@codemirror/language@6.12.2)(@lezer/highlight@1.2.3)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(yjs@13.6.30)
-      '@paperclipai/adapter-claude-local':
+      '@meowtieheightgent/adapter-claude-local':
         specifier: workspace:*
         version: link:packages/claude-local
-      '@paperclipai/adapter-codex-local':
+      '@meowtieheightgent/adapter-codex-local':
         specifier: workspace:*
         version: link:packages/codex-local
-      '@paperclipai/adapter-cursor-local':
+      '@meowtieheightgent/adapter-cursor-local':
         specifier: workspace:*
         version: link:packages/cursor-local
-      '@paperclipai/adapter-gemini-local':
+      '@meowtieheightgent/adapter-gemini-local':
         specifier: workspace:*
         version: link:packages/gemini-local
-      '@paperclipai/adapter-openclaw-gateway':
+      '@meowtieheightgent/adapter-openclaw-gateway':
         specifier: workspace:*
         version: link:packages/openclaw-gateway
-      '@paperclipai/adapter-opencode-local':
+      '@meowtieheightgent/adapter-opencode-local':
         specifier: workspace:*
         version: link:packages/opencode-local
-      '@paperclipai/adapter-pi-local':
+      '@meowtieheightgent/adapter-pi-local':
         specifier: workspace:*
         version: link:packages/pi-local
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:packages/adapter-utils
-      '@paperclipai/shared':
+      '@meowtieheightgent/shared':
         specifier: workspace:*
         version: link:packages/shared
       '@radix-ui/react-slot':
@@ -147,7 +147,7 @@ importers:
 
   packages/claude-local:
     dependencies:
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils
       picocolors:
@@ -163,7 +163,7 @@ importers:
 
   packages/codex-local:
     dependencies:
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils
       picocolors:
@@ -179,7 +179,7 @@ importers:
 
   packages/cursor-local:
     dependencies:
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils
       picocolors:
@@ -195,7 +195,7 @@ importers:
 
   packages/gemini-local:
     dependencies:
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils
       picocolors:
@@ -211,7 +211,7 @@ importers:
 
   packages/openclaw-gateway:
     dependencies:
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils
       picocolors:
@@ -233,7 +233,7 @@ importers:
 
   packages/opencode-local:
     dependencies:
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils
       picocolors:
@@ -249,7 +249,7 @@ importers:
 
   packages/pi-local:
     dependencies:
-      '@paperclipai/adapter-utils':
+      '@meowtieheightgent/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils
       picocolors:

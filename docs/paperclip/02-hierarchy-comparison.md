@@ -31,7 +31,7 @@ Config（全域 config.json）
 
 ---
 
-## Paperclip 的架構
+## Mth 的架構
 
 ```
 Instance（伺服器實例）
@@ -117,7 +117,7 @@ Instance（伺服器實例）
 
 ## 層次對應關係
 
-| 你的概念 | Paperclip 概念 | 差異 |
+| 你的概念 | Mth 概念 | 差異 |
 |---|---|---|
 | Config（全域）| Instance settings | 相似 |
 | Model | Agent adapter config | 你的 model 是連線設定，他的 agent 直接包含 adapter 設定 |
@@ -139,7 +139,7 @@ Instance（伺服器實例）
 
 ### Session vs Issue
 
-| | 你的 Session | Paperclip Issue |
+| | 你的 Session | Mth Issue |
 |---|---|---|
 | **生命週期** | 一場對話，結束就結束 | 一張票，跨天、跨次執行 |
 | **性質** | 對話紀錄（transcript）| 任務狀態機 + 執行歷史 + 產出物 |
@@ -152,17 +152,17 @@ Instance（伺服器實例）
 ### Agent 扁平 vs org chart
 
 你的 agents 是**平等的討論參與者**，無上下級關係。
-Paperclip 的 agents 有 `reportsTo`，形成 CEO → Manager → Worker 的樹狀結構，委派就是在這個樹上流動。
+Mth 的 agents 有 `reportsTo`，形成 CEO → Manager → Worker 的樹狀結構，委派就是在這個樹上流動。
 
 ---
 
 ## 你的專案獨有的設計
 
-Paperclip 沒有、你有的，而且**不應該拋棄**的：
+Mth 沒有、你有的，而且**不應該拋棄**的：
 
 1. **即時同步對話** — agents 同時在線，互相「聽」彼此說話
 2. **Human-as-moderator** — 主持人在對話中途介入，不是等 task 完成後才看結果
 3. **Agent 個性三層**（SOUL/IDENTITY/AGENT.md）— 有「靈魂」的角色扮演，不只是 role/capability
 4. **Skills 動態注入** — 對話中途改變所有 agent 的行為模式
-5. **跨 model 混搭** — 同一討論室 Claude + Gemini + Ollama，Paperclip 一個 agent 只有一個 adapter
+5. **跨 model 混搭** — 同一討論室 Claude + Gemini + Ollama，Mth 一個 agent 只有一個 adapter
 6. **Markdown persona 文件** — 人類可讀可編輯的角色設定，不是 code/JSON

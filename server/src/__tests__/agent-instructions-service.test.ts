@@ -25,15 +25,15 @@ function makeAgent(adapterConfig: Record<string, unknown>): TestAgent {
 }
 
 describe("agent instructions service", () => {
-  const originalPaperclipHome = process.env.PAPERCLIP_HOME;
-  const originalPaperclipInstanceId = process.env.PAPERCLIP_INSTANCE_ID;
+  const originalMthHome = process.env.MTH_HOME;
+  const originalMthInstanceId = process.env.MTH_INSTANCE_ID;
   const cleanupDirs = new Set<string>();
 
   afterEach(async () => {
-    if (originalPaperclipHome === undefined) delete process.env.PAPERCLIP_HOME;
-    else process.env.PAPERCLIP_HOME = originalPaperclipHome;
-    if (originalPaperclipInstanceId === undefined) delete process.env.PAPERCLIP_INSTANCE_ID;
-    else process.env.PAPERCLIP_INSTANCE_ID = originalPaperclipInstanceId;
+    if (originalMthHome === undefined) delete process.env.MTH_HOME;
+    else process.env.MTH_HOME = originalMthHome;
+    if (originalMthInstanceId === undefined) delete process.env.MTH_INSTANCE_ID;
+    else process.env.MTH_INSTANCE_ID = originalMthInstanceId;
 
     await Promise.all([...cleanupDirs].map(async (dir) => {
       await fs.rm(dir, { recursive: true, force: true });
@@ -42,12 +42,12 @@ describe("agent instructions service", () => {
   });
 
   it("copies the existing bundle into the managed root when switching to managed mode", async () => {
-    const paperclipHome = await makeTempDir("paperclip-agent-instructions-home-");
-    const externalRoot = await makeTempDir("paperclip-agent-instructions-external-");
-    cleanupDirs.add(paperclipHome);
+    const mthHome = await makeTempDir("mth-agent-instructions-home-");
+    const externalRoot = await makeTempDir("mth-agent-instructions-external-");
+    cleanupDirs.add(mthHome);
     cleanupDirs.add(externalRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.MTH_HOME = mthHome;
+    process.env.MTH_INSTANCE_ID = "test-instance";
 
     await fs.writeFile(path.join(externalRoot, "AGENTS.md"), "# External Agent\n", "utf8");
     await fs.mkdir(path.join(externalRoot, "docs"), { recursive: true });
@@ -66,7 +66,7 @@ describe("agent instructions service", () => {
     expect(result.bundle.mode).toBe("managed");
     expect(result.bundle.managedRootPath).toBe(
       path.join(
-        paperclipHome,
+        mthHome,
         "instances",
         "test-instance",
         "companies",
@@ -82,9 +82,9 @@ describe("agent instructions service", () => {
   });
 
   it("creates the target entry file when switching to a new external root", async () => {
-    const paperclipHome = await makeTempDir("paperclip-agent-instructions-home-");
+    const mthHome = await makeTempDir("mth-agent-instructions-home-");
     const managedRoot = path.join(
-      paperclipHome,
+      mthHome,
       "instances",
       "test-instance",
       "companies",
@@ -93,11 +93,11 @@ describe("agent instructions service", () => {
       "agent-1",
       "instructions",
     );
-    const externalRoot = await makeTempDir("paperclip-agent-instructions-new-external-");
-    cleanupDirs.add(paperclipHome);
+    const externalRoot = await makeTempDir("mth-agent-instructions-new-external-");
+    cleanupDirs.add(mthHome);
     cleanupDirs.add(externalRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.MTH_HOME = mthHome;
+    process.env.MTH_INSTANCE_ID = "test-instance";
 
     await fs.mkdir(managedRoot, { recursive: true });
     await fs.writeFile(path.join(managedRoot, "AGENTS.md"), "# Managed Agent\n", "utf8");
@@ -122,7 +122,7 @@ describe("agent instructions service", () => {
   });
 
   it("filters junk files, dependency bundles, and python caches from bundle listings and exports", async () => {
-    const externalRoot = await makeTempDir("paperclip-agent-instructions-ignore-");
+    const externalRoot = await makeTempDir("mth-agent-instructions-ignore-");
     cleanupDirs.add(externalRoot);
 
     await fs.writeFile(path.join(externalRoot, "AGENTS.md"), "# External Agent\n", "utf8");

@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AGENT_ADAPTER_TYPES } from "@paperclipai/shared";
+import { AGENT_ADAPTER_TYPES } from "@meowtieheightgent/shared";
 import type {
   Agent,
   AdapterEnvironmentTestResult,
   CompanySecret,
   EnvBinding,
-} from "@paperclipai/shared";
+} from "@meowtieheightgent/shared";
 import type { AdapterModel } from "../api/agents";
 import { agentsApi } from "../api/agents";
 import { secretsApi } from "../api/secrets";
@@ -14,9 +14,9 @@ import { assetsApi } from "../api/assets";
 import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
   DEFAULT_CODEX_LOCAL_MODEL,
-} from "@paperclipai/adapter-codex-local";
-import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
-import { DEFAULT_GEMINI_LOCAL_MODEL } from "@paperclipai/adapter-gemini-local";
+} from "@meowtieheightgent/adapter-codex-local";
+import { DEFAULT_CURSOR_LOCAL_MODEL } from "@meowtieheightgent/adapter-cursor-local";
+import { DEFAULT_GEMINI_LOCAL_MODEL } from "@meowtieheightgent/adapter-gemini-local";
 import {
   Popover,
   PopoverContent,
@@ -48,10 +48,10 @@ import { shouldShowLegacyWorkingDirectoryField } from "../lib/legacy-agent-confi
 
 /* ---- Create mode values ---- */
 
-// Canonical type lives in @paperclipai/adapter-utils; re-exported here
+// Canonical type lives in @meowtieheightgent/adapter-utils; re-exported here
 // so existing imports from this file keep working.
-export type { CreateConfigValues } from "@paperclipai/adapter-utils";
-import type { CreateConfigValues } from "@paperclipai/adapter-utils";
+export type { CreateConfigValues } from "@meowtieheightgent/adapter-utils";
+import type { CreateConfigValues } from "@meowtieheightgent/adapter-utils";
 
 /* ---- Props ---- */
 
@@ -1262,7 +1262,7 @@ function EnvVarEditor({
       })}
       {sealError && <p className="text-[11px] text-destructive">{sealError}</p>}
       <p className="text-[11px] text-muted-foreground/60">
-        PAPERCLIP_* variables are injected automatically at runtime.
+        MTH_* variables are injected automatically at runtime.
       </p>
     </div>
   );

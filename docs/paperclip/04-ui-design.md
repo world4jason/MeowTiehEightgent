@@ -1,11 +1,11 @@
 # UI 設計模式與借鑑方向
 
-> Paperclip 用 React + Vite，你用 Vanilla JS。
+> Mth 用 React + Vite，你用 Vanilla JS。
 > 以下列出值得借鑑的 UI 概念，都可以用 Vanilla JS 實作。
 
 ---
 
-## Paperclip UI 的主要頁面
+## Mth UI 的主要頁面
 
 從截圖和程式碼可以確認的頁面：
 
@@ -27,7 +27,7 @@
 
 ### 1. Kanban 任務看板
 
-**Paperclip 的做法：**
+**Mth 的做法：**
 - 六狀態：Triage → Backlog → Unstarted → Started → Completed / Cancelled
 - 每個 issue 有 priority badge（urgent / high / medium / low）
 - 每個 issue 顯示 assignee avatar
@@ -51,7 +51,7 @@ Tasks（list view，不需要完整 kanban）
 
 ### 2. Costs 儀表板
 
-**Paperclip 的設計（從截圖確認）：**
+**Mth 的設計（從截圖確認）：**
 ```
 ┌──────────┬──────────────┬──────────────┬──────────┐
 │ Input    │ Output       │ Cached       │ Total    │
@@ -73,7 +73,7 @@ Mar 20     a23018f8       21       4.2k      -
 
 ### 3. Approval Center UI
 
-**Paperclip 的設計（從截圖確認）：**
+**Mth 的設計（從截圖確認）：**
 ```
 ┌─────────────────────────────────────────┐
 │ ✓ Approval confirmed                    │  [Review linked issue]
@@ -100,7 +100,7 @@ Hire Agent                        [approved]
 
 ### 4. Activity Feed（即時活動）
 
-**Paperclip 的設計：**
+**Mth 的設計：**
 - Inbox 有未讀 badge（紅點數字）
 - Activity log 記錄所有操作：agent 做了什麼、board 批准了什麼、token 花了多少
 
@@ -113,7 +113,7 @@ Hire Agent                        [approved]
 
 ### 5. Org Chart（組織架構圖）
 
-**Paperclip 的設計：**
+**Mth 的設計：**
 - 樹狀圖，CEO 在頂端，連線顯示 reportsTo 關係
 - 每個 agent node 顯示：icon + name + status badge（idle/running/paused）
 - 點擊 agent → 側邊面板顯示詳情
@@ -126,7 +126,7 @@ Hire Agent                        [approved]
 
 ### 6. Issue 詳情頁
 
-**Paperclip 的設計：**
+**Mth 的設計：**
 - 頂部：status badge + identifier（JAS-1）
 - 側邊欄：assignee、priority、project、goal、linked issues
 - 主體：description + comments thread
@@ -140,7 +140,7 @@ Hire Agent                        [approved]
 
 ### 7. Connection String Onboarding
 
-**Paperclip 的設計：**
+**Mth 的設計：**
 - 創建 agent 時生成一個 connection string
 - 包含：server URL + API key + 指令
 - 一個字串搞定所有設定
@@ -153,7 +153,7 @@ Hire Agent                        [approved]
 
 ## 不值得直接借鑑的 UI
 
-| Paperclip 功能 | 原因 |
+| Mth 功能 | 原因 |
 |---|---|
 | 完整 Kanban 看板 | 你的主要產出是對話，不是任務；先做 list view |
 | Budget Policies 設定 | 你目前不需要複雜的預算規則 |

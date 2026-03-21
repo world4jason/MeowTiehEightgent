@@ -1,13 +1,13 @@
 # 完整功能對比表
 
-> 你的專案 vs Paperclip
+> 你的專案 vs Mth
 > 評分：★★★ 高借鑑價值 / ★★☆ 中 / ★☆☆ 低 / — 不適用
 
 ---
 
 ## 核心定位
 
-| 面向 | 你的專案 | Paperclip |
+| 面向 | 你的專案 | Mth |
 |---|---|---|
 | **核心模型** | 討論室：agents 即時輪流說話 | 公司：agents 異步執行任務 |
 | **時間維度** | 同步（秒級）| 異步（分鐘到天）|
@@ -20,7 +20,7 @@
 
 ## Agent 設計
 
-| 功能 | 你的專案 | Paperclip | 借鑑價值 |
+| 功能 | 你的專案 | Mth | 借鑑價值 |
 |---|---|---|---|
 | Agent 個性定義 | AGENT.md + IDENTITY.md + SOUL.md | adapterConfig 裡的 instructions | — 你的更豐富 |
 | Org chart / 層級 | 無（扁平）| `reportsTo` 樹狀結構 | ★★★ 轉向實作後需要 |
@@ -36,7 +36,7 @@
 
 ## 任務 / Session 管理
 
-| 功能 | 你的專案 | Paperclip | 借鑑價值 |
+| 功能 | 你的專案 | Mth | 借鑑價值 |
 |---|---|---|---|
 | 任務層級 | 無（扁平 session）| Goal → Project → Issue → Sub-issue | ★★★ |
 | 任務狀態機 | 無 | Triage/Backlog/Unstarted/Started/Done/Cancelled | ★★★ |
@@ -56,7 +56,7 @@
 
 ## 工作環境（Workspace）
 
-| 功能 | 你的專案 | Paperclip | 借鑑價值 |
+| 功能 | 你的專案 | Mth | 借鑑價值 |
 |---|---|---|---|
 | 長期 Context 容器 | 有（Workspace + files/）| Project + Project Workspace | 相似 |
 | 共享文件注入 | 有（@filename）| 有（context injection）| 相似 |
@@ -69,7 +69,7 @@
 
 ## 財務 / 成本追蹤
 
-| 功能 | 你的專案 | Paperclip | 借鑑價值 |
+| 功能 | 你的專案 | Mth | 借鑑價值 |
 |---|---|---|---|
 | Token 追蹤 | 無 | per-run token 數 + cost_usd | ★★★ |
 | 成本歸因 | 無 | agent → issue → project → goal | ★★★ |
@@ -82,7 +82,7 @@
 
 ## 治理 / 審批
 
-| 功能 | 你的專案 | Paperclip | 借鑑價值 |
+| 功能 | 你的專案 | Mth | 借鑑價值 |
 |---|---|---|---|
 | Approval 系統 | 無 | hire/strategy/budget/terminate 都要人類確認 | ★★☆ |
 | 審批通知 | 無 | Inbox badge | ★★☆ |
@@ -93,7 +93,7 @@
 
 ## 技術能力
 
-| 功能 | 你的專案 | Paperclip | 備註 |
+| 功能 | 你的專案 | Mth | 備註 |
 |---|---|---|---|
 | Streaming 輸出 | 有（逐字）| 有（WebSocket）| 相似 |
 | Token 追蹤 | 無 | 有（parse CLI JSON output）| ★★★ 可立刻實作 |
@@ -108,7 +108,7 @@
 
 ---
 
-## Paperclip 獨有、你完全沒有的概念
+## Mth 獨有、你完全沒有的概念
 
 按借鑑優先度排序：
 
@@ -124,13 +124,13 @@
 
 ---
 
-## 你有、Paperclip 沒有的核心優勢
+## 你有、Mth 沒有的核心優勢
 
 | 概念 | 你的設計 | 為何要保留 |
 |---|---|---|
-| **即時同步討論** | agents 同時在線互相「聽」 | Paperclip 是異步，無法做這個 |
-| **Human-as-moderator** | 主持人在進行中隨時介入 | Paperclip 的人類是 Board，在任務完成後才看結果 |
+| **即時同步討論** | agents 同時在線互相「聽」 | Mth 是異步，無法做這個 |
+| **Human-as-moderator** | 主持人在進行中隨時介入 | Mth 的人類是 Board，在任務完成後才看結果 |
 | **Agent 個性層** | SOUL/IDENTITY/AGENT.md | 角色扮演、多元觀點討論的基礎 |
-| **Skills 動態注入** | 對話中途改變 agent 行為 | Paperclip 沒有這個概念 |
-| **跨 model 混搭** | 同一討論室 Claude + Gemini + Ollama | Paperclip 一個 agent 只有一個 adapter |
-| **Markdown 設定** | 人類可讀可編輯 | Paperclip 的 agent config 是 JSON，需要 UI 才能改 |
+| **Skills 動態注入** | 對話中途改變 agent 行為 | Mth 沒有這個概念 |
+| **跨 model 混搭** | 同一討論室 Claude + Gemini + Ollama | Mth 一個 agent 只有一個 adapter |
+| **Markdown 設定** | 人類可讀可編輯 | Mth 的 agent config 是 JSON，需要 UI 才能改 |

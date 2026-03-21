@@ -15,7 +15,7 @@ Chat  = 現在的聊天室（Sprint Planning）
          多 agent 即時討論、腦力激盪
          Python FastAPI :8000
 
-Cowork = Paperclip fork（Sprint Execution）
+Cowork = Mth fork（Sprint Execution）
          Agents 異步執行任務、產出程式碼/文件
          Node.js / Hono :3100
 ```
@@ -30,16 +30,16 @@ Cowork = Paperclip fork（Sprint Execution）
 
 重點：
 
-1. **不合併後端**。Chat 繼續用 Python，Cowork 是 Paperclip fork（Node.js）。Phase 3 才考慮統一（可選）。
+1. **不合併後端**。Chat 繼續用 Python，Cowork 是 Mth fork（Node.js）。Phase 3 才考慮統一（可選）。
 
-2. **UI 用 Paperclip fork**。把 Chat module 加進去，不是重寫 Paperclip。
+2. **UI 用 Mth fork**。把 Chat module 加進去，不是重寫 Mth。
 
 3. **Filesystem 寫入所有權**：
    - Chat Server 負責寫 `agents/`、`skills/`、`workspaces/`
    - Cowork Server 負責寫自己的 DB
    - 不交叉寫入
 
-4. **Marketplace = GitHub repo**（參考 paperclipai/companies）。
+4. **Marketplace = GitHub repo**（參考 meowtieheightgent/companies）。
    - `marketplace/skills/<source>/<slug>/` — 從 git pull，唯讀
    - `skills/<slug>/` — 本地或 fork 下來的，可改
    - Source 由路徑判斷，不是 symlink（已移除 symlink 自動偵測）
@@ -73,7 +73,7 @@ Cowork = Paperclip fork（Sprint Execution）
 
 ---
 
-## Paperclip 在哪裡
+## Mth 在哪裡
 
 ```
 /Users/jasonyeh/code_ground/paperclip/
@@ -81,13 +81,13 @@ Cowork = Paperclip fork（Sprint Execution）
 
 已 clone 在本機。你要 fork 它，把 Chat module 加進去。
 
-**Paperclip 研究報告：** `docs/paperclip/`（README 先看）
+**Mth 研究報告：** `docs/paperclip/`（README 先看）
 
 ---
 
 ## Phase 1 已完成 ✅
 
-1. Fork Paperclip repo → Paperclip UI 已複製到 `ui/` ✅
+1. Fork Mth repo → Mth UI 已複製到 `ui/` ✅
 2. Chat module (ChatPage, SessionSidebar, MessageList, AgentMembers) ✅
 3. App.tsx ModeToggle（⌘1 / ⌘2）✅
 4. Chat module 接 Python WebSocket :8000 (useWebSocket singleton hook) ✅
@@ -108,9 +108,9 @@ Cowork = Paperclip fork（Sprint Execution）
 |---|---|
 | `docs/superpowers/specs/2026-03-20-chat-cowork-platform-design.md` | 完整平台 spec（主要設計決策都在這）|
 | `docs/paperclip/ROADMAP.md` | 功能路線圖（Phase 0-5）|
-| `docs/paperclip/01-overview.md` | Paperclip 架構概覽 |
+| `docs/paperclip/01-overview.md` | Mth 架構概覽 |
 | `docs/paperclip/03-cli-token-tracking.md` | Claude/Gemini/Codex token 追蹤機制 |
-| `docs/paperclip/05-feature-comparison.md` | 功能對比表（你有什麼 / Paperclip 有什麼）|
+| `docs/paperclip/05-feature-comparison.md` | 功能對比表（你有什麼 / Mth 有什麼）|
 | `TODO.md` | 待辦清單（已更新至今天）|
 | `app.py` | 現有 Chat backend（Python/FastAPI）|
 
@@ -121,7 +121,7 @@ Cowork = Paperclip fork（Sprint Execution）
 - **不要 symlink 偵測 source**：已移除，source 只從 frontmatter 讀
 - **不要合並兩個後端的 DB**：Chat 用 filesystem，Cowork 用自己的 SQLite
 - **不要 auto-push git**：publish to marketplace 是使用者手動操作
-- **Paperclip 的 54 張 DB table 幾乎全是 Cowork 的**：Chat 不需要 DB，別被嚇到
+- **Mth 的 54 張 DB table 幾乎全是 Cowork 的**：Chat 不需要 DB，別被嚇到
 - **Gemini 沒有 thinking CLI flag**：切 model 就好，不要找 flag
 
 ---

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from "react";
-import { Send, Paperclip, X } from "lucide-react";
+import { Send, Mth, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AgentInfo, SkillInfo } from "./types";
 import { SkillPicker } from "./SkillPicker";
@@ -98,7 +98,7 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
               onClick={() => fileRef.current?.click()}
               className="shrink-0 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
-              <Paperclip className="h-4 w-4" />
+              <Mth className="h-4 w-4" />
             </button>
             <input
               ref={fileRef}

@@ -1,17 +1,17 @@
 # CLI Token 追蹤機制深挖
 
-> 問題：Paperclip 怎麼知道 CLI agent 用了多少 token？
-> 答案：每個 CLI 都有 JSON output flag，Paperclip parse stdout 的 JSONL event stream。
+> 問題：Mth 怎麼知道 CLI agent 用了多少 token？
+> 答案：每個 CLI 都有 JSON output flag，Mth parse stdout 的 JSONL event stream。
 
 ---
 
 ## 核心流程
 
 ```
-Paperclip heartbeat service
+Mth heartbeat service
   → 呼叫 CLI（帶 --output-format stream-json）
   → CLI 輸出 JSONL event stream 到 stdout
-  → Paperclip 的 adapter parse.ts 解析每一行
+  → Mth 的 adapter parse.ts 解析每一行
   → 從 result / turn.completed event 抓 usage 欄位
   → heartbeat.ts 呼叫 costService.createEvent() 寫入 DB
 ```

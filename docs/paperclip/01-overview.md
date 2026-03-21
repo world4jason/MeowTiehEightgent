@@ -1,6 +1,6 @@
-# Paperclip — 專案概覽
+# Mth — 專案概覽
 
-> https://github.com/paperclipai/paperclip
+> https://github.com/meowtieheightgent/paperclip
 > 30k stars / 4.1k forks（2026-03-20）
 
 ---
@@ -11,7 +11,7 @@
 
 讓你用 AI agents 組建並運營一整家公司。
 
-Tagline：*"If OpenClaw is an employee, Paperclip is the company."*
+Tagline：*"If OpenClaw is an employee, Mth is the company."*
 
 它**不是**：
 - 聊天工具
@@ -56,12 +56,12 @@ Database schema：54 個 table。
 
 ## 核心設計原則（來自 SPEC.md）
 
-1. **不干涉 agent 執行** — Paperclip 只協調，agents 愛在哪跑就在哪跑
+1. **不干涉 agent 執行** — Mth 只協調，agents 愛在哪跑就在哪跑
 2. **公司是最小組織單位** — 所有資源（agent、任務、預算、secret）company-scoped，嚴格隔離
 3. **任務是唯一溝通媒介** — 沒有 chat、沒有 DM；所有協調都透過 task 創建和評論（每個決定都可追蹤）
 4. **所有工作都追溯到目標** — Initiative → Project → Milestone → Issue → Sub-issue
 5. **Board 永遠保有治理控制** — 人類永遠有控制面板，不會被鎖出去
-6. **透明而非靜默自動化** — 卡住的任務顯示在儀表板，Paperclip 不自動修復
+6. **透明而非靜默自動化** — 卡住的任務顯示在儀表板，Mth 不自動修復
 7. **單一任務執行者** — SQL 層原子 checkout，409 on conflict，防止兩個 agent 做同一件事
 8. **Plugin 為擴充邊界** — 知識庫、artifact 管理、第三方整合全推給 plugin，核心保持精簡
 
@@ -79,7 +79,7 @@ Database schema：54 個 table。
 
 ## Heartbeat 協議
 
-Paperclip 控制 *何時* 和 *如何* 喚醒 agents，agents 不主動 poll。
+Mth 控制 *何時* 和 *如何* 喚醒 agents，agents 不主動 poll。
 
 - Context payload 分兩種：`fat`（完整任務 + 預算 + 評論）或 `thin`（只有 ID + callback URL）
 - Adapters 必須實作三個方法：`invoke()`、`status()`、`cancel()`

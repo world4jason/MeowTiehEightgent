@@ -1,15 +1,15 @@
 {
-  "name": "@paperclipai/plugin-sdk",
+  "name": "@meowtieheightgent/plugin-sdk",
   "version": "1.0.0",
-  "description": "Stable public API for Paperclip plugins — worker-side context and UI bridge hooks",
+  "description": "Stable public API for Mth plugins — worker-side context and UI bridge hooks",
   "license": "MIT",
-  "homepage": "https://github.com/paperclipai/paperclip",
+  "homepage": "https://github.com/meowtieheightgent/paperclip",
   "bugs": {
-    "url": "https://github.com/paperclipai/paperclip/issues"
+    "url": "https://github.com/meowtieheightgent/paperclip/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/paperclipai/paperclip",
+    "url": "https://github.com/meowtieheightgent/paperclip",
     "directory": "packages/plugins/sdk"
   },
   "type": "module",
@@ -52,7 +52,7 @@
     }
   },
   "bin": {
-    "paperclip-plugin-dev-server": "./dist/dev-cli.js"
+    "mth-plugin-dev-server": "./dist/dev-cli.js"
   },
   "publishConfig": {
     "access": "public",
@@ -101,13 +101,13 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm --filter @paperclipai/shared build && tsc",
+    "build": "pnpm --filter @meowtieheightgent/shared build && tsc",
     "clean": "rm -rf dist",
-    "typecheck": "pnpm --filter @paperclipai/shared build && tsc --noEmit",
+    "typecheck": "pnpm --filter @meowtieheightgent/shared build && tsc --noEmit",
     "dev:server": "tsx src/dev-cli.ts"
   },
   "dependencies": {
-    "@paperclipai/shared": "workspace:*",
+    "@meowtieheightgent/shared": "workspace:*",
     "zod": "^3.24.2"
   },
   "devDependencies": {

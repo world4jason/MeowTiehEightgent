@@ -26,14 +26,14 @@ function parseNumber(value: string | undefined, fallback: number) {
 }
 
 function jwtConfig() {
-  const secret = process.env.PAPERCLIP_AGENT_JWT_SECRET;
+  const secret = process.env.MTH_AGENT_JWT_SECRET;
   if (!secret) return null;
 
   return {
     secret,
-    ttlSeconds: parseNumber(process.env.PAPERCLIP_AGENT_JWT_TTL_SECONDS, 60 * 60 * 48),
-    issuer: process.env.PAPERCLIP_AGENT_JWT_ISSUER ?? "paperclip",
-    audience: process.env.PAPERCLIP_AGENT_JWT_AUDIENCE ?? "paperclip-api",
+    ttlSeconds: parseNumber(process.env.MTH_AGENT_JWT_TTL_SECONDS, 60 * 60 * 48),
+    issuer: process.env.MTH_AGENT_JWT_ISSUER ?? "mth",
+    audience: process.env.MTH_AGENT_JWT_AUDIENCE ?? "mth-api",
   };
 }
 
