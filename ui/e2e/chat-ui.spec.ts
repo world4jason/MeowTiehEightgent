@@ -8,7 +8,7 @@ test.describe("Chat UI Arc-style", () => {
 
   test("shows workspace folders in sidebar", async ({ page }) => {
     // At minimum the sidebar exists
-    await expect(page.locator('[class*="sidebar"]').first()).toBeVisible();
+    await expect(page.getByPlaceholder(/search sessions/i)).toBeVisible();
   });
 
   test("Settings tab opens settings mode", async ({ page }) => {
@@ -24,9 +24,9 @@ test.describe("Chat UI Arc-style", () => {
   });
 
   test("sidebar settings gear icon switches to settings", async ({ page }) => {
-    // Look for settings button in sidebar dock
-    const settingsBtn = page.getByRole("button", { name: /settings/i }).first();
-    await settingsBtn.click();
+    // Click the settings button in the mode-toggle sidebar nav area
+    // The mode-toggle "Settings" button is the canonical way to switch
+    await page.getByTestId("mode-toggle").getByRole("button", { name: /settings/i }).click();
     await expect(page.getByTestId("mode-toggle").getByRole("button", { name: /settings/i })).toHaveAttribute("aria-pressed", "true");
   });
 });
