@@ -1904,6 +1904,26 @@ class TestResolveSkillWithSource:
         assert skill_name is not None
 
 
+class TestThinkModeFlag:
+    """Task 3 — think mode must use --effort max, not --extended-thinking."""
+
+    def test_think_mode_uses_effort_max(self):
+        """app.py must contain '--effort max' for think mode, not '--extended-thinking'."""
+        from pathlib import Path
+        source = (Path(__file__).parent / "app.py").read_text()
+        assert '"--effort"' in source or '"--effort max"' in source, (
+            "app.py has no --effort flag for think mode"
+        )
+
+    def test_think_mode_does_not_use_extended_thinking_flag(self):
+        """--extended-thinking is not a valid Claude CLI flag and must not be used."""
+        from pathlib import Path
+        source = (Path(__file__).parent / "app.py").read_text()
+        assert "--extended-thinking" not in source, (
+            "Found --extended-thinking in app.py — use --effort max instead"
+        )
+
+
 class TestHealth:
     """Phase 1 — GET /health endpoint for offline badge detection."""
 

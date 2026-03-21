@@ -6,5 +6,6 @@
   "skills": [
     "brainstorming"
   ],
-  "enabled": true
+  "enabled": true,
+  "supports_thinking": false
 }

@@ -825,7 +825,7 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
         tmp_paths, extra_args = write_temp_images(images)
 
     if mode == "think" and agent.get("supports_thinking", False):
-        extra_args = extra_args + ["--extended-thinking"]
+        extra_args = extra_args + ["--effort", "max"]
 
     # JSON output mode: adds stream-json flags for token tracking
     # json_flags must come BEFORE the rest of cmd (e.g. before gemini's `-p`)
