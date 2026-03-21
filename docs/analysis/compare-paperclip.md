@@ -1,6 +1,6 @@
 # 比較報告：Mth vs Agent CLI Conversation
 
-> https://github.com/meowtieheightgent/paperclip
+> https://github.com/meowtieheightgent/mth
 > 撰寫時間：2026-03-20
 
 ---

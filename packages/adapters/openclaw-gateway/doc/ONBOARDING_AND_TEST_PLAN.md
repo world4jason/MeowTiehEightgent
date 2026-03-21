@@ -39,7 +39,7 @@ This plan is now **gateway-only**. Mth supports OpenClaw through `openclaw_gatew
 Recommended fields:
 ```json
 {
-  "paperclipApiUrl": "http://host.docker.internal:3100",
+  "mthApiUrl": "http://host.docker.internal:3100",
   "waitTimeoutMs": 120000,
   "sessionKeyStrategy": "issue",
   "role": "operator",

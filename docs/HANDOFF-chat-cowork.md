@@ -76,12 +76,12 @@ Cowork = Mth fork（Sprint Execution）
 ## Mth 在哪裡
 
 ```
-/Users/jasonyeh/code_ground/paperclip/
+$COWORK_SRC/
 ```
 
 已 clone 在本機。你要 fork 它，把 Chat module 加進去。
 
-**Mth 研究報告：** `docs/paperclip/`（README 先看）
+**Mth 研究報告：** `docs/mth/`（README 先看）
 
 ---
 
@@ -107,10 +107,10 @@ Cowork = Mth fork（Sprint Execution）
 | 文件 | 說明 |
 |---|---|
 | `docs/superpowers/specs/2026-03-20-chat-cowork-platform-design.md` | 完整平台 spec（主要設計決策都在這）|
-| `docs/paperclip/ROADMAP.md` | 功能路線圖（Phase 0-5）|
-| `docs/paperclip/01-overview.md` | Mth 架構概覽 |
-| `docs/paperclip/03-cli-token-tracking.md` | Claude/Gemini/Codex token 追蹤機制 |
-| `docs/paperclip/05-feature-comparison.md` | 功能對比表（你有什麼 / Mth 有什麼）|
+| `docs/mth/ROADMAP.md` | 功能路線圖（Phase 0-5）|
+| `docs/mth/01-overview.md` | Mth 架構概覽 |
+| `docs/mth/03-cli-token-tracking.md` | Claude/Gemini/Codex token 追蹤機制 |
+| `docs/mth/05-feature-comparison.md` | 功能對比表（你有什麼 / Mth 有什麼）|
 | `TODO.md` | 待辦清單（已更新至今天）|
 | `app.py` | 現有 Chat backend（Python/FastAPI）|
 
