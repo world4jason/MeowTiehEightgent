@@ -11,7 +11,8 @@
     "db:migrate": "pnpm --filter @meowtieheightgent/db migrate"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   },
   "engines": {
     "node": ">=20"
