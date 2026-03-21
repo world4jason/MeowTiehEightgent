@@ -8,6 +8,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Resolve workspace packages from the monorepo root packages/
+      "@meowtieheightgent/shared": path.resolve(__dirname, "../packages/shared/src/index.ts"),
+      "@meowtieheightgent/adapter-utils": path.resolve(__dirname, "../packages/adapter-utils/src/index.ts"),
     },
   },
   server: {

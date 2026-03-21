@@ -37,9 +37,7 @@ describe("forbidden token check", () => {
     const path = await import("node:path");
 
     const tokensFile = path.join(os.tmpdir(), `forbidden-tokens-${Date.now()}.txt`);
-    fs.writeFileSync(tokensFile, "# comment
-mth
-custom-token\n");
+    fs.writeFileSync(tokensFile, "# comment\nmth\ncustom-token\n");
 
     try {
       const tokens = resolveForbiddenTokens(tokensFile, { USER: "mth" }, {

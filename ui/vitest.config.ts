@@ -14,6 +14,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(__dirname, "./src"),
+      "@meowtieheightgent/shared": resolve(__dirname, "../packages/shared/src/index.ts"),
+      "@meowtieheightgent/adapter-utils": resolve(__dirname, "../packages/adapter-utils/src/index.ts"),
     },
   },
 });
