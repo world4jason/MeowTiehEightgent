@@ -658,6 +658,21 @@ def truncate_history(history_text: str, max_chars: int) -> str:
     return TRUNCATION_MARKER + truncated.lstrip("\n")
 
 
+def accumulate_token_usage(totals: dict, agent_name: str, input_tokens: int, output_tokens: int) -> None:
+    """Add turn token counts to the per-agent cumulative totals dict (mutates in place)."""
+    if agent_name not in totals:
+        totals[agent_name] = {"input": 0, "output": 0}
+    totals[agent_name]["input"] += input_tokens
+    totals[agent_name]["output"] += output_tokens
+
+
+def format_token_count(n: int) -> str:
+    """Format token count: < 1000 as integer, >= 1000 as '1.2k'."""
+    if n < 1000:
+        return str(n)
+    return f"{n / 1000:.1f}k"
+
+
 def apply_sliding_window(messages: list, max_rounds: int = 30) -> list:
     """Keep only the most recent max_rounds messages; discard older ones."""
     if len(messages) <= max_rounds:
@@ -2063,6 +2078,7 @@ async def websocket_endpoint(ws: WebSocket):
         batch_turns = 0
         pending_humans: list[dict] = []  # buffer human msgs received while agent is thinking
         current_images: list[dict] = []  # images from last human message, used for next agent turn
+        _session_token_totals: dict[str, dict] = {}  # cumulative per-agent token counts
         while running:
             agent = engine.next_speaker()
             await ws.send_json({"type": "thinking", "agent": agent["name"], "color": agent["color"]})
@@ -2197,6 +2213,13 @@ async def websocket_endpoint(ws: WebSocket):
             _msg_end: dict = {"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms}
             if _usage_obj:
                 _msg_end["usage"] = {"input": _usage_obj.input_tokens, "output": _usage_obj.output_tokens, "cached": _usage_obj.cached_tokens}
+                accumulate_token_usage(_session_token_totals, agent["name"], _usage_obj.input_tokens, _usage_obj.output_tokens)
+                await ws.send_json({
+                    "type": "token_update",
+                    "agent": agent["name"],
+                    "turn": {"input": _usage_obj.input_tokens, "output": _usage_obj.output_tokens},
+                    "cumulative": _session_token_totals[agent["name"]],
+                })
             await ws.send_json(_msg_end)
             log(msg)
             batch_turns += 1

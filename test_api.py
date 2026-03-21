@@ -1930,6 +1930,48 @@ class TestThinkModeFlag:
         )
 
 
+class TestTokenTracking:
+    """Task 5 — per-agent cumulative token tracking."""
+
+    def test_accumulate_adds_to_new_entry(self):
+        """First usage for an agent creates a new entry."""
+        from app import accumulate_token_usage
+        totals: dict = {}
+        accumulate_token_usage(totals, "claude", input_tokens=100, output_tokens=50)
+        assert totals["claude"] == {"input": 100, "output": 50}
+
+    def test_accumulate_adds_to_existing_entry(self):
+        """Subsequent calls add to existing totals."""
+        from app import accumulate_token_usage
+        totals = {"claude": {"input": 100, "output": 50}}
+        accumulate_token_usage(totals, "claude", input_tokens=200, output_tokens=80)
+        assert totals["claude"] == {"input": 300, "output": 130}
+
+    def test_accumulate_multiple_agents(self):
+        """Different agents get separate entries."""
+        from app import accumulate_token_usage
+        totals: dict = {}
+        accumulate_token_usage(totals, "claude", input_tokens=100, output_tokens=50)
+        accumulate_token_usage(totals, "gemini", input_tokens=200, output_tokens=100)
+        assert totals["claude"] == {"input": 100, "output": 50}
+        assert totals["gemini"] == {"input": 200, "output": 100}
+
+    def test_format_token_count_under_1k(self):
+        """Values under 1000 show as integers."""
+        from app import format_token_count
+        assert format_token_count(999) == "999"
+
+    def test_format_token_count_1k(self):
+        """Values over 1000 show as '1.2k' format."""
+        from app import format_token_count
+        assert format_token_count(1234) == "1.2k"
+
+    def test_format_token_count_10k(self):
+        """Values over 10k show as '12.3k' format."""
+        from app import format_token_count
+        assert format_token_count(12345) == "12.3k"
+
+
 class TestSlidingWindowHistory:
     """Task 4 — history sliding window compression."""
 
