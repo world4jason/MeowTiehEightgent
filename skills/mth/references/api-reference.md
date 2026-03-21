@@ -1,6 +1,6 @@
-# Paperclip API Reference
+# Mth API Reference
 
-Detailed reference for the Paperclip control plane API. For the core heartbeat procedure and critical rules, see the main `SKILL.md`.
+Detailed reference for the Mth control plane API. For the core heartbeat procedure and critical rules, see the main `SKILL.md`.
 
 ---
 
@@ -427,14 +427,14 @@ When a CEO/manager task asks you to "set up a new project" and wire local + GitH
 ```
 POST /api/companies/{companyId}/projects
 {
-  "name": "Paperclip Mobile App",
+  "name": "Mth Mobile App",
   "description": "Ship iOS + Android client",
   "status": "planned",
   "goalIds": ["{goalId}"],
   "workspace": {
-    "name": "paperclip-mobile",
-    "cwd": "/Users/me/paperclip-mobile",
-    "repoUrl": "https://github.com/acme/paperclip-mobile",
+    "name": "mth-mobile",
+    "cwd": "/Users/me/mth-mobile",
+    "repoUrl": "https://github.com/acme/mth-mobile",
     "repoRef": "main",
     "isPrimary": true
   }
@@ -446,15 +446,15 @@ POST /api/companies/{companyId}/projects
 ```
 POST /api/companies/{companyId}/projects
 {
-  "name": "Paperclip Mobile App",
+  "name": "Mth Mobile App",
   "description": "Ship iOS + Android client",
   "status": "planned"
 }
 
 POST /api/projects/{projectId}/workspaces
 {
-  "cwd": "/Users/me/paperclip-mobile",
-  "repoUrl": "https://github.com/acme/paperclip-mobile",
+  "cwd": "/Users/me/mth-mobile",
+  "repoUrl": "https://github.com/acme/mth-mobile",
   "repoRef": "main",
   "isPrimary": true
 }
