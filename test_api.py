@@ -1450,12 +1450,13 @@ class TestAgentMode:
         assert "Keep your response concise" in prompt_default
 
     @pytest.mark.asyncio
-    async def test_stream_cli_adds_extended_thinking_when_supported(self, tmp_project):
+    async def test_stream_cli_adds_effort_max_when_think_supported(self, tmp_project):
+        """think mode + supports_thinking=True → subprocess gets --effort max."""
         import app as a
         captured = {}
 
         async def mock_create_subprocess(*args, **kwargs):
-            captured["args"] = args
+            captured["args"] = list(args)
             raise FileNotFoundError("mock")
 
         agent = {
@@ -1473,15 +1474,19 @@ class TestAgentMode:
                     pass
             except Exception:
                 pass
-        assert "--extended-thinking" in captured.get("args", []), f"args: {captured.get('args')}"
+        args = captured.get("args", [])
+        assert "--effort" in args, f"Expected --effort in args: {args}"
+        idx = args.index("--effort")
+        assert args[idx + 1] == "max", f"Expected max after --effort, got {args[idx+1]!r}"
 
     @pytest.mark.asyncio
-    async def test_stream_cli_no_extended_thinking_when_not_supported(self, tmp_project):
+    async def test_stream_cli_no_effort_when_not_supported(self, tmp_project):
+        """think mode + supports_thinking=False → no --effort flag."""
         import app as a
         captured = {}
 
         async def mock_create_subprocess(*args, **kwargs):
-            captured["args"] = args
+            captured["args"] = list(args)
             raise FileNotFoundError("mock")
 
         agent = {
@@ -1499,15 +1504,16 @@ class TestAgentMode:
                     pass
             except Exception:
                 pass
-        assert "--extended-thinking" not in captured.get("args", []), f"args: {captured.get('args')}"
+        assert "--effort" not in captured.get("args", []), f"args: {captured.get('args')}"
 
     @pytest.mark.asyncio
-    async def test_stream_cli_no_extended_thinking_in_chat_mode(self, tmp_project):
+    async def test_stream_cli_no_effort_in_chat_mode(self, tmp_project):
+        """chat mode → no --effort flag even if supports_thinking=True."""
         import app as a
         captured = {}
 
         async def mock_create_subprocess(*args, **kwargs):
-            captured["args"] = args
+            captured["args"] = list(args)
             raise FileNotFoundError("mock")
 
         agent = {
@@ -1525,7 +1531,7 @@ class TestAgentMode:
                     pass
             except Exception:
                 pass
-        assert "--extended-thinking" not in captured.get("args", []), f"args: {captured.get('args')}"
+        assert "--effort" not in captured.get("args", []), f"args: {captured.get('args')}"
 
     def test_set_mode_broadcast_to_all_clients(self, tmp_project):
         """set_mode WS message triggers mode_update broadcast."""
@@ -1922,6 +1928,38 @@ class TestThinkModeFlag:
         assert "--extended-thinking" not in source, (
             "Found --extended-thinking in app.py — use --effort max instead"
         )
+
+
+class TestSlidingWindowHistory:
+    """Task 4 — history sliding window compression."""
+
+    def test_sliding_window_truncates_to_max_rounds(self):
+        """When messages exceed max_rounds, only keep the most recent ones."""
+        from app import apply_sliding_window
+        messages = [{"type": "message", "agent": f"agent{i}", "text": f"msg{i}"} for i in range(50)]
+        result = apply_sliding_window(messages, max_rounds=30)
+        assert len(result) == 30
+        assert result[-1]["text"] == "msg49"
+        assert result[0]["text"] == "msg20"
+
+    def test_sliding_window_passthrough_when_within_limit(self):
+        """When messages are within the limit, all are returned unchanged."""
+        from app import apply_sliding_window
+        messages = [{"type": "message", "agent": "human", "text": "only one"}]
+        result = apply_sliding_window(messages, max_rounds=30)
+        assert result == messages
+
+    def test_sliding_window_empty_list(self):
+        """Empty input returns empty output."""
+        from app import apply_sliding_window
+        assert apply_sliding_window([], max_rounds=30) == []
+
+    def test_sliding_window_exactly_at_limit(self):
+        """When exactly at the limit, no truncation happens."""
+        from app import apply_sliding_window
+        messages = [{"type": "message", "text": f"m{i}"} for i in range(30)]
+        result = apply_sliding_window(messages, max_rounds=30)
+        assert len(result) == 30
 
 
 class TestHealth:

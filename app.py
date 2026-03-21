@@ -658,6 +658,13 @@ def truncate_history(history_text: str, max_chars: int) -> str:
     return TRUNCATION_MARKER + truncated.lstrip("\n")
 
 
+def apply_sliding_window(messages: list, max_rounds: int = 30) -> list:
+    """Keep only the most recent max_rounds messages; discard older ones."""
+    if len(messages) <= max_rounds:
+        return messages
+    return messages[-max_rounds:]
+
+
 def _resolve_timeout(agent: dict, key: str, default: float) -> float:
     """Precedence: agent config > DEFAULT_MODELS > hard default."""
     if key in agent:
@@ -1942,6 +1949,9 @@ async def websocket_endpoint(ws: WebSocket):
         f = session_messages_path(resume_id)
         if f.exists():
             past = json.loads(f.read_text())
+            _cfg = _get_config()
+            _max_rounds = _cfg.get("max_history_rounds", 30)
+            past = apply_sliding_window(past, max_rounds=_max_rounds)
             lines = [f"Topic: {topic}"]
             for m in past:
                 if m.get("type") == "message":
