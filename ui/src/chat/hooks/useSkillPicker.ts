@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { SkillInfo } from "../types";
 
 export function useSkillPicker(skills: SkillInfo[]) {
@@ -9,6 +9,12 @@ export function useSkillPicker(skills: SkillInfo[]) {
   const filtered = query
     ? skills.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()) || s.slug.includes(query.toLowerCase()))
     : skills;
+
+  useEffect(() => {
+    if (filtered.length > 0) {
+      setFocusIdx((i) => Math.min(i, filtered.length - 1));
+    }
+  }, [filtered.length]);
 
   const check = useCallback((text: string) => {
     const match = text.match(/\/(\S*)$/);

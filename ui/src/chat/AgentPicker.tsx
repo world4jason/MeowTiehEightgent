@@ -16,7 +16,7 @@ export function AgentPicker({ agents, focusIdx, onSelect }: Props) {
       className="absolute bottom-full left-0 right-0 mb-1.5 overflow-hidden rounded-xl border border-border bg-popover shadow-lg z-50"
     >
       {agents.map((a, i) => (
-        <button
+        <div
           key={a.name}
           role="option"
           aria-selected={i === focusIdx}
@@ -28,7 +28,7 @@ export function AgentPicker({ agents, focusIdx, onSelect }: Props) {
         >
           <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: a.color }} />
           <span className="text-sm font-medium"><span>{a.emoji}</span> <span>{a.name}</span></span>
-        </button>
+        </div>
       ))}
     </div>
   );

@@ -16,7 +16,7 @@ export function SkillPicker({ skills, focusIdx, onSelect }: Props) {
       className="absolute bottom-full left-0 right-0 mb-1.5 overflow-hidden rounded-xl border border-border bg-popover shadow-lg z-50"
     >
       {skills.map((s, i) => (
-        <button
+        <div
           key={s.slug}
           role="option"
           aria-selected={i === focusIdx}
@@ -28,7 +28,7 @@ export function SkillPicker({ skills, focusIdx, onSelect }: Props) {
         >
           <span className="text-sm font-semibold text-foreground"><span className="opacity-50">/</span><span>{s.name}</span></span>
           <span className="truncate text-xs text-muted-foreground">{s.description}</span>
-        </button>
+        </div>
       ))}
     </div>
   );

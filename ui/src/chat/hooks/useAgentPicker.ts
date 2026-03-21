@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { AgentInfo } from "../types";
 
 export function useAgentPicker(agents: AgentInfo[]) {
@@ -9,6 +9,12 @@ export function useAgentPicker(agents: AgentInfo[]) {
   const filtered = query
     ? agents.filter((a) => a.name.toLowerCase().includes(query.toLowerCase()))
     : agents;
+
+  useEffect(() => {
+    if (filtered.length > 0) {
+      setFocusIdx((i) => Math.min(i, filtered.length - 1));
+    }
+  }, [filtered.length]);
 
   const check = useCallback((text: string) => {
     const match = text.match(/@(\S*)$/);

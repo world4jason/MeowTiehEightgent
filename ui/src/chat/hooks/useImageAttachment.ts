@@ -23,7 +23,8 @@ export function useImageAttachment(supportsImage: boolean) {
 
   const remove = useCallback((idx: number) => {
     setImages((prev) => {
-      URL.revokeObjectURL(prev[idx]!.preview);
+      const item = prev[idx];
+      if (item) URL.revokeObjectURL(item.preview);
       return prev.filter((_, i) => i !== idx);
     });
   }, []);

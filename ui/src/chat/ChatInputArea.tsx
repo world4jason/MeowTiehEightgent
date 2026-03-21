@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useCallback } from "react";
 import { Send, Paperclip, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AgentInfo, SkillInfo } from "./types";
@@ -35,15 +35,15 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
     agent.check(v);
   }
 
-  function insertSkill(slug: string) {
+  const insertSkill = useCallback((slug: string) => {
     setText((t) => t.replace(/\/\S*$/, `/${slug} `));
     skill.close();
-  }
+  }, [skill.close]);
 
-  function insertAgent(name: string) {
+  const insertAgent = useCallback((name: string) => {
     setText((t) => t.replace(/@\S*$/, `@${name} `));
     agent.close();
-  }
+  }, [agent.close]);
 
   function send() {
     const trimmed = text.trim();
@@ -67,7 +67,7 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
       {images.length > 0 && (
         <div className="mb-2 flex gap-2">
           {images.map((img, i) => (
-            <div key={i} className="relative h-16 w-16">
+            <div key={img.preview} className="relative h-16 w-16">
               <img src={img.preview} className="h-full w-full rounded-md object-cover" alt="attachment" />
               <button
                 aria-label="Remove attachment"
