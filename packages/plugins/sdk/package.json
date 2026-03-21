@@ -3,13 +3,13 @@
   "version": "1.0.0",
   "description": "Stable public API for Mth plugins — worker-side context and UI bridge hooks",
   "license": "MIT",
-  "homepage": "https://github.com/meowtieheightgent/paperclip",
+  "homepage": "https://github.com/meowtieheightgent/meowtieheightgent",
   "bugs": {
-    "url": "https://github.com/meowtieheightgent/paperclip/issues"
+    "url": "https://github.com/meowtieheightgent/meowtieheightgent/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/meowtieheightgent/paperclip",
+    "url": "https://github.com/meowtieheightgent/meowtieheightgent",
     "directory": "packages/plugins/sdk"
   },
   "type": "module",
