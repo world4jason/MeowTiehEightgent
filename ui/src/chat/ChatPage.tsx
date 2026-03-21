@@ -69,7 +69,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   // Load messages when session changes
   useEffect(() => {
     if (!activeSessionId) { setMessages([]); return; }
-    fetch(`${CHAT_URL}/sessions/${activeSessionId}/messages`)
+    fetch(`${CHAT_URL}/sessions/${activeSessionId}`)
       .then((r) => r.json())
       .then((data) => setMessages(Array.isArray(data) ? data : []))
       .catch(() => setMessages([]));
