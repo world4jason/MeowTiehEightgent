@@ -49,6 +49,8 @@ import { loadLastInboxTab } from "./lib/inbox";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 import { ChatProvider, useChatContext } from "./context/ChatContext";
 import { ChatPage } from "./chat";
+import { ChatSettings } from "./chat/ChatSettings";
+import { useAgentsList } from "./chat/hooks/useChatApi";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useState, useEffect } from "react";
 import type { ChatMode } from "./chat/types";
@@ -305,6 +307,12 @@ function NoCompaniesStartPage() {
   );
 }
 
+function ChatSettingsPage({ coworkOnline }: { coworkOnline: boolean }) {
+  const { data: rawAgents = [] } = useAgentsList();
+  const chatAgents = rawAgents.map((a) => ({ ...a, source: "chat" as const }));
+  return <ChatSettings chatAgents={chatAgents} coworkAgents={[]} coworkOnline={coworkOnline} />;
+}
+
 function AppShell({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<ChatMode>(() => {
     const stored = localStorage.getItem("preferred-mode");
@@ -353,8 +361,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
             If cowork ever needs persistent state, apply the same hidden-div strategy as ChatPage. */}
         {mode === "cowork" && <div className="flex h-full">{children}</div>}
         {mode === "settings" && (
-          <div className="flex h-full flex-1 items-center justify-center text-muted-foreground text-sm">
-            Settings — coming soon
+          <div className="flex h-full flex-1 overflow-y-auto">
+            <ChatSettingsPage coworkOnline={coworkOnline} />
           </div>
         )}
       </main>
