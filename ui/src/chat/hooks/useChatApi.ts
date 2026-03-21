@@ -118,8 +118,8 @@ export function useSessions(workspaceId?: string) {
 export function useCreateSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (_workspaceId?: string) =>
-      chatClient.post<{ id: string; name: string }>("/sessions", {}),
+    mutationFn: (workspaceId?: string) =>
+      chatClient.post<{ id: string; name: string }>("/sessions", workspaceId ? { workspaceId } : {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chat", "sessions"] }),
   });
 }

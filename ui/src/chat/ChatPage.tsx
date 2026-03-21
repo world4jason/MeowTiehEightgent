@@ -14,7 +14,7 @@ import {
   useCreateSession, useRenameSession, useDeleteSession, useMoveSession,
   useSkillsList, useScenarios,
 } from "./hooks/useChatApi";
-import { ChatMessage } from "./types";
+import { ChatMessage, AgentInfo } from "./types";
 import { applyTokenMessage, applyDoneMessage } from "./utils";
 
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
@@ -52,7 +52,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     } else if (msg.type === "done") {
       setMessages(applyDoneMessage);
     } else if (msg.type === "agents") {
-      setAgents(msg.agents as typeof agents);
+      setAgents(msg.agents as AgentInfo[]);
     } else if (msg.type === "token_usage") {
       const { agent: name, tokens } = msg as { agent: string; tokens: number };
       setAgentRuns((prev) => {
@@ -166,7 +166,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
                 agents={allAgents}
                 onSend={handleSend}
                 disabled={!isConnected}
-                supportsImage={allAgents.some((a) => a.name === agents[0]?.name && (a as any).supportsImage)}
+                supportsImage={allAgents.some((a) => a.name === agents[0]?.name && a.supportsImage)}
               />
             )}
           </main>
