@@ -2,18 +2,70 @@ services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: mth
-      POSTGRES_PASSWORD: mth
-      POSTGRES_DB: mth
+      POSTGRES_USER: ${POSTGRES_USER:-mth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mth}
+      POSTGRES_DB: ${POSTGRES_DB:-mth}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mth -d mth"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mth} -d ${POSTGRES_DB:-mth}"]
       interval: 2s
       timeout: 5s
       retries: 30
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  chat:
+    build:
+      context: .
+      dockerfile: Dockerfile.chat
+    ports:
+      - "${CHAT_PORT:-8000}:8000"
+    volumes:
+      - ./agents:/app/agents
+      - ./skills:/app/skills
+      - ./workspaces:/app/workspaces
+    environment:
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
+
+  cowork:
+    build:
+      context: .
+      dockerfile: Dockerfile.cowork
+    ports:
+      - "${COWORK_PORT:-3100}:3100"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://mth:mth@db:5432/mth}
+      PORT: "3100"
+      SERVE_UI: "false"
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-change-me-in-production}
+      MTH_DEPLOYMENT_MODE: ${MTH_DEPLOYMENT_MODE:-local}
+    volumes:
+      - ./agents:/app/agents:ro
+      - ./skills:/app/skills:ro
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+      target: dev
+    ports:
+      - "${UI_PORT:-5173}:5173"
+    depends_on:
+      - chat
+      - cowork
+    environment:
+      VITE_CHAT_URL: http://localhost:${CHAT_PORT:-8000}
+      VITE_COWORK_URL: http://localhost:${COWORK_PORT:-3100}
+    volumes:
+      - ./ui/src:/app/src
+      - ./ui/public:/app/public
+    restart: unless-stopped
 
 volumes:
   pgdata:
