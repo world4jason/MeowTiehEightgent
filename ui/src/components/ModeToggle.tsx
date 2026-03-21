@@ -10,7 +10,7 @@ interface ModeToggleProps {
 
 export function ModeToggle({ mode, onModeChange, chatOnline, coworkOnline, hasUnreadChat }: ModeToggleProps) {
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-border bg-muted p-1">
+    <div data-testid="mode-toggle" className="flex items-center gap-1 rounded-lg border border-border bg-muted p-1">
       <button
         aria-pressed={mode === "chat"}
         onClick={() => onModeChange("chat")}
