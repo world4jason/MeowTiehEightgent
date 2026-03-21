@@ -1293,6 +1293,8 @@ async def list_agents():
             "skills": a.get("skills", []),
             "enabled": a.get("enabled", False),
             "type": a.get("type", "cli"),
+            "source": "chat",
+            "supportsThinking": a.get("supports_thinking", None),
         }
         for a in registry.values()
     ]

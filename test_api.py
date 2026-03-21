@@ -252,6 +252,31 @@ class TestAgents:
         assert data["ok"] is True
         assert data["response"]
 
+    def test_list_agents_includes_source_chat(self, client):
+        """Each agent in GET /agents must carry source='chat' for the unified settings view."""
+        self._create_agent(client, name="source-test-agent")
+        r = client.get("/agents")
+        assert r.status_code == 200
+        agents = r.json()
+        matching = [a for a in agents if a["name"] == "source-test-agent"]
+        assert len(matching) == 1
+        assert matching[0]["source"] == "chat"
+
+    def test_list_agents_includes_supports_thinking(self, client):
+        """Each agent in GET /agents must carry supportsThinking field."""
+        # Create an agent with supports_thinking in config
+        name = "think-test-agent"
+        client.post("/agents", json={"name": name, "emoji": "🤔", "color": "#000",
+                                      "description": "", "model": "claude", "skills": [], "enabled": True})
+        # Manually set supports_thinking via PUT
+        client.put(f"/agents/{name}", json={"supports_thinking": True})
+        r = client.get("/agents")
+        assert r.status_code == 200
+        agents = r.json()
+        matching = [a for a in agents if a["name"] == name]
+        assert len(matching) == 1
+        assert "supportsThinking" in matching[0]
+
 
 # ── Skills ────────────────────────────────────────────────────────────────────
 
