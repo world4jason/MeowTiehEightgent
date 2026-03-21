@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ChatMessage } from "../types";
-import { applyTokenMessage, applyDoneMessage } from "../ChatPage";
+import { applyTokenMessage, applyDoneMessage } from "../utils";
 
 describe("ChatPage message logic", () => {
   it("starts a new streaming message when no prior agent message exists", () => {

@@ -1,4 +1,5 @@
-export { ChatPage, applyTokenMessage, applyDoneMessage } from "./ChatPage";
+export { ChatPage } from "./ChatPage";
+export { applyTokenMessage, applyDoneMessage } from "./utils";
 export { SessionSidebar } from "./SessionSidebar";
 export { MessageList } from "./MessageList";
 export { AgentMembers } from "./AgentMembers";

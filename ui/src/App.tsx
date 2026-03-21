@@ -336,7 +336,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-hidden">
         {/* ChatPage always mounts so WS persists; isVisible controls unread badge */}
         <div className={mode === "chat" ? "flex h-full" : "hidden"}>
-          <ChatPage isVisible={mode === "chat"} />
+          <ChatPage isVisible={mode === "chat"} onOpenSettings={() => setMode("settings")} />
         </div>
         {/* Cowork unmounts on mode switch (Phase 1 acceptable — no WS state to preserve yet).
             If cowork ever needs persistent state, apply the same hidden-div strategy as ChatPage. */}
