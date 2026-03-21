@@ -75,10 +75,16 @@ export function ChatPage({ isVisible = true }: { isVisible?: boolean }) {
   return (
     <div className="flex h-full">
       <SessionSidebar
+        workspaces={[]}
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={setActiveSessionId}
         onNewSession={() => setActiveSessionId(null)}
+        onNewSessionInWorkspace={() => {}}
+        onRenameSession={() => {}}
+        onDeleteSession={() => {}}
+        onMoveSession={() => {}}
+        onOpenSettings={() => {}}
       />
       <div className="flex flex-1 flex-col">
         <MessageList messages={messages} />
