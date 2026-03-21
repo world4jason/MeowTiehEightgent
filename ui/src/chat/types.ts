@@ -23,9 +23,13 @@ export interface AgentInfo {
   color: string;
   model: string;
   enabled: boolean;
+  description?: string;
+  skills?: string[];
+  type?: string;
   supportsThinking?: boolean;
   mode?: "chat" | "think";
   messageCount?: number;
+  supportsImage?: boolean;
 }
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -61,5 +65,7 @@ export interface ScenarioInfo {
 
 export interface SessionPage {
   sessions: ChatSession[];
-  nextCursor?: string;
+  total: number;
+  offset: number;
+  limit: number;
 }

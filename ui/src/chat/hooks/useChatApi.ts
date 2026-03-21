@@ -2,6 +2,56 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tansta
 import { chatClient } from "../chatClient";
 import type { AgentInfo, WorkspaceInfo, WorkspaceDetail, SkillInfo, ScenarioInfo, SessionPage, ChatSession } from "../types";
 
+// ─── Raw backend shapes (before transformation) ───────────────
+interface RawSession {
+  id: string;
+  first_message: string;
+  workspace_id?: string;
+  message_count: number;
+}
+
+interface RawSessionList {
+  sessions: RawSession[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+interface RawWorkspace {
+  id: string;
+  name: string;
+  description?: string;
+  system_prompt?: string;
+  default_agents?: string[];
+  created_at?: string;
+  files?: string[];
+}
+
+// ─── Transformers ─────────────────────────────────────────────
+function toSession(raw: RawSession): ChatSession {
+  return {
+    id: raw.id,
+    name: raw.first_message || raw.id.slice(0, 8),
+    workspaceId: raw.workspace_id,
+    updatedAt: Date.now(),
+    preview: raw.first_message,
+  };
+}
+
+function toWorkspaceInfo(raw: RawWorkspace): WorkspaceInfo {
+  return { id: raw.id, name: raw.name };
+}
+
+function toWorkspaceDetail(raw: RawWorkspace): WorkspaceDetail {
+  return {
+    id: raw.id,
+    name: raw.name,
+    instructions: raw.system_prompt ?? "",
+    files: raw.files ?? [],
+    defaultAgents: raw.default_agents ?? [],
+  };
+}
+
 // ─── Query keys ───────────────────────────────────────────────
 export const chatKeys = {
   agents: ["chat", "agents"] as const,
@@ -25,27 +75,42 @@ export function useAgentsList() {
 export function useWorkspaces() {
   return useQuery({
     queryKey: chatKeys.workspaces,
-    queryFn: () => chatClient.get<WorkspaceInfo[]>("/workspaces"),
+    queryFn: () =>
+      chatClient.get<RawWorkspace[]>("/workspaces").then((ws) => ws.map(toWorkspaceInfo)),
   });
 }
 
 export function useWorkspaceDetail(id: string) {
   return useQuery({
     queryKey: chatKeys.workspace(id),
-    queryFn: () => chatClient.get<WorkspaceDetail>(`/workspaces/${id}`),
+    queryFn: () =>
+      chatClient.get<RawWorkspace>(`/workspaces/${id}`).then(toWorkspaceDetail),
     enabled: Boolean(id),
   });
 }
 
-// ─── Sessions (paginated) ─────────────────────────────────────
+// ─── Sessions (offset-based infinite query) ───────────────────
+const PAGE_SIZE = 50;
+
 export function useSessions(workspaceId?: string) {
-  const params = workspaceId ? `?workspace_id=${workspaceId}&limit=50` : "?limit=50";
   return useInfiniteQuery({
     queryKey: chatKeys.sessions(workspaceId),
-    queryFn: ({ pageParam = "" }) =>
-      chatClient.get<SessionPage>(`/sessions${params}${pageParam ? `&cursor=${pageParam}` : ""}`),
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-    initialPageParam: "",
+    queryFn: ({ pageParam = 0 }) =>
+      chatClient
+        .get<RawSessionList>(`/sessions?limit=${PAGE_SIZE}&offset=${pageParam}`)
+        .then((raw): SessionPage => ({
+          sessions: raw.sessions
+            .map(toSession)
+            .filter((s) => !workspaceId || s.workspaceId === workspaceId),
+          total: raw.total,
+          offset: raw.offset,
+          limit: raw.limit,
+        })),
+    getNextPageParam: (last) => {
+      const nextOffset = last.offset + last.limit;
+      return nextOffset < last.total ? nextOffset : undefined;
+    },
+    initialPageParam: 0,
   });
 }
 
@@ -53,8 +118,8 @@ export function useSessions(workspaceId?: string) {
 export function useCreateSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (workspaceId?: string) =>
-      chatClient.post<ChatSession>("/sessions", { workspaceId }),
+    mutationFn: (_workspaceId?: string) =>
+      chatClient.post<{ id: string; name: string }>("/sessions", {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chat", "sessions"] }),
   });
 }
@@ -63,7 +128,7 @@ export function useRenameSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) =>
-      chatClient.patch(`/sessions/${id}`, { name }),
+      chatClient.put(`/sessions/${id}/topic`, { topic: name }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chat", "sessions"] }),
   });
 }
@@ -80,11 +145,10 @@ export function useMoveSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, workspaceId }: { id: string; workspaceId: string | null }) =>
-      chatClient.put(`/sessions/${id}/workspace`, { workspaceId }),
+      chatClient.put(`/sessions/${id}/workspace`, { workspace_id: workspaceId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chat", "sessions"] }),
-    onError: () => {
-      // Silent move failure is a critical gap — surface error to user
-      console.error("Failed to move session");
+    onError: (error) => {
+      console.error("Failed to move session", error);
     },
   });
 }
