@@ -25,21 +25,24 @@ export function SessionSidebar({
 }: Props) {
   const [search, setSearch] = useState("");
 
+  const q = search.trim().toLowerCase();
+
   const { byWorkspace, standalone } = useMemo(() => {
-    const filtered = search.trim()
-      ? sessions.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()))
+    const filtered = q
+      ? sessions.filter((s) => s.name.toLowerCase().includes(q))
       : sessions;
     const byWorkspace: Record<string, ChatSession[]> = {};
     const standalone: ChatSession[] = [];
+    const workspaceIds = new Set(workspaces.map((w) => w.id));
     for (const s of filtered) {
-      if (s.workspaceId) {
+      if (s.workspaceId && workspaceIds.has(s.workspaceId)) {
         (byWorkspace[s.workspaceId] ??= []).push(s);
       } else {
         standalone.push(s);
       }
     }
     return { byWorkspace, standalone };
-  }, [sessions, search]);
+  }, [sessions, workspaces, q]);
 
   return (
     <div className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar">
@@ -58,6 +61,7 @@ export function SessionSidebar({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search sessions…"
+            aria-label="Search sessions"
             className="w-full rounded-md border border-border bg-muted py-1.5 pl-8 pr-2 text-xs text-foreground placeholder:text-muted-foreground outline-none"
           />
         </div>
@@ -65,20 +69,23 @@ export function SessionSidebar({
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-1.5 pb-2 flex flex-col gap-0.5">
-        {workspaces.map((ws) => (
-          <WorkspaceFolder
-            key={ws.id}
-            workspace={ws}
-            sessions={byWorkspace[ws.id] ?? []}
-            activeSessionId={activeSessionId}
-            allWorkspaces={workspaces}
-            onSelectSession={onSelectSession}
-            onNewSession={onNewSessionInWorkspace}
-            onRenameSession={onRenameSession}
-            onDeleteSession={onDeleteSession}
-            onMoveSession={onMoveSession}
-          />
-        ))}
+        {workspaces
+          .filter((ws) => !q || (byWorkspace[ws.id]?.length ?? 0) > 0)
+          .map((ws) => (
+            <WorkspaceFolder
+              key={ws.id}
+              workspace={ws}
+              sessions={byWorkspace[ws.id] ?? []}
+              activeSessionId={activeSessionId}
+              allWorkspaces={workspaces}
+              forceExpand={q.length > 0}
+              onSelectSession={onSelectSession}
+              onNewSession={onNewSessionInWorkspace}
+              onRenameSession={onRenameSession}
+              onDeleteSession={onDeleteSession}
+              onMoveSession={onMoveSession}
+            />
+          ))}
 
         {standalone.length > 0 && (
           <div className={cn("flex flex-col gap-0.5", workspaces.length > 0 && "mt-2 border-t border-border pt-2")}>
@@ -102,6 +109,7 @@ export function SessionSidebar({
       <div className="flex items-center gap-1 border-t border-border px-2 py-2">
         <button
           onClick={onNewSession}
+          aria-label="New chat"
           className="flex-1 rounded-md bg-primary/10 px-2 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
         >
           + New Chat

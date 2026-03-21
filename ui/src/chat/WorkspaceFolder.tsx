@@ -9,6 +9,7 @@ interface Props {
   sessions: ChatSession[];
   activeSessionId: string | null;
   allWorkspaces: WorkspaceInfo[];
+  forceExpand?: boolean;
   onSelectSession: (id: string) => void;
   onNewSession: (workspaceId: string) => void;
   onRenameSession: (id: string, name: string) => void;
@@ -17,11 +18,12 @@ interface Props {
 }
 
 export function WorkspaceFolder({
-  workspace, sessions, activeSessionId, allWorkspaces,
+  workspace, sessions, activeSessionId, allWorkspaces, forceExpand,
   onSelectSession, onNewSession, onRenameSession, onDeleteSession, onMoveSession,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const Icon = open ? ChevronDown : ChevronRight;
+  const isOpen = open || Boolean(forceExpand);
+  const Icon = isOpen ? ChevronDown : ChevronRight;
 
   return (
     <div>
@@ -32,7 +34,7 @@ export function WorkspaceFolder({
         <Icon className="h-3 w-3 shrink-0" />
         <span className="truncate">{workspace.name}</span>
       </button>
-      {open && (
+      {isOpen && (
         <div className="pb-1">
           {sessions.map((s) => (
             <SessionItem

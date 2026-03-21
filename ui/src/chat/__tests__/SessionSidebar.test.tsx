@@ -55,3 +55,21 @@ it("search filters sessions (standalone)", async () => {
   await userEvent.type(screen.getByPlaceholderText(/search/i), "Stand");
   expect(screen.getByText("Standalone")).toBeInTheDocument();
 });
+
+it("search within workspace auto-expands the folder and shows matching session", async () => {
+  render(<SessionSidebar {...defaultProps} />);
+  await userEvent.type(screen.getByPlaceholderText(/search/i), "Session 1");
+  expect(screen.getByText("Session 1")).toBeInTheDocument();
+  expect(screen.getByText("Project A")).toBeInTheDocument();
+  // Unmatched workspace should not appear
+  expect(screen.queryByText("Project B")).not.toBeInTheDocument();
+});
+
+it("session with unknown workspaceId appears in standalone section", () => {
+  const sessionsWithOrphan = [
+    ...sessions,
+    { id: "s4", name: "Orphan Session", workspaceId: "nonexistent", updatedAt: Date.now() },
+  ];
+  render(<SessionSidebar {...defaultProps} sessions={sessionsWithOrphan} />);
+  expect(screen.getByText("Orphan Session")).toBeInTheDocument();
+});
