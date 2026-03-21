@@ -17,16 +17,26 @@ interface Props {
 
 export function SessionItem({ session, active, workspaces, indent, onSelect, onRename, onDelete, onMove }: Props) {
   const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState(session.name);
+  const [draft, setDraft] = useState("");
   const [moveOpen, setMoveOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const committingRef = useRef(false);
 
   useEffect(() => { if (renaming) inputRef.current?.select(); }, [renaming]);
 
+  // Sync draft when session.name changes while not in rename mode
+  useEffect(() => {
+    if (!renaming) setDraft(session.name);
+  }, [session.name, renaming]);
+
   function commitRename() {
+    if (committingRef.current) return;
+    committingRef.current = true;
     const trimmed = draft.trim();
     if (trimmed && trimmed !== session.name) onRename(session.id, trimmed);
+    setDraft(session.name); // reset draft on any exit (including empty-string abort)
     setRenaming(false);
+    committingRef.current = false;
   }
 
   return (
@@ -38,15 +48,15 @@ export function SessionItem({ session, active, workspaces, indent, onSelect, onR
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commitRename}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commitRename();
-            if (e.key === "Escape") { setDraft(session.name); setRenaming(false); }
+            if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+            if (e.key === "Escape") { committingRef.current = true; setDraft(session.name); setRenaming(false); committingRef.current = false; }
           }}
           className="flex-1 rounded border border-border bg-muted px-1.5 py-0.5 text-sm outline-none"
-          aria-label={`Rename ${session.name}`}
+          aria-label={`Rename ${session.name || "Untitled"}`}
         />
       ) : (
         <button
-          aria-label={session.name}
+          aria-label={session.name || "Untitled"}
           onClick={() => onSelect(session.id)}
           onDoubleClick={() => { setDraft(session.name); setRenaming(true); }}
           className={cn(

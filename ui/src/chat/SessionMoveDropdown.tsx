@@ -36,6 +36,7 @@ export function SessionMoveDropdown({ currentWorkspaceId, workspaces, onSelect, 
         <button
           key={ws.id}
           disabled={ws.id === currentWorkspaceId}
+          aria-current={ws.id === currentWorkspaceId ? "true" : undefined}
           className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={() => onSelect(ws.id)}
         >

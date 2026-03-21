@@ -49,3 +49,50 @@ it("calls onDelete when delete button clicked", async () => {
   fireEvent.click(screen.getByRole("button", { name: /delete/i }));
   expect(onDelete).toHaveBeenCalledWith("s1");
 });
+
+it("does NOT call onRename when Enter pressed with same name", async () => {
+  const onRename = vi.fn();
+  render(<SessionItem session={session} active={false}
+    workspaces={workspaces} onSelect={vi.fn()} onRename={onRename}
+    onDelete={vi.fn()} onMove={vi.fn()} />);
+  await userEvent.dblClick(screen.getByText("My Session"));
+  // Don't change the value, just press Enter
+  await userEvent.keyboard("{Enter}");
+  expect(onRename).not.toHaveBeenCalled();
+});
+
+it("does NOT call onRename when rename to empty string", async () => {
+  const onRename = vi.fn();
+  render(<SessionItem session={session} active={false}
+    workspaces={workspaces} onSelect={vi.fn()} onRename={onRename}
+    onDelete={vi.fn()} onMove={vi.fn()} />);
+  await userEvent.dblClick(screen.getByText("My Session"));
+  await userEvent.clear(screen.getByRole("textbox"));
+  await userEvent.keyboard("{Enter}");
+  expect(onRename).not.toHaveBeenCalled();
+});
+
+it("cancels rename on Escape without calling onRename", async () => {
+  const onRename = vi.fn();
+  render(<SessionItem session={session} active={false}
+    workspaces={workspaces} onSelect={vi.fn()} onRename={onRename}
+    onDelete={vi.fn()} onMove={vi.fn()} />);
+  await userEvent.dblClick(screen.getByText("My Session"));
+  await userEvent.clear(screen.getByRole("textbox"));
+  await userEvent.type(screen.getByRole("textbox"), "New Name");
+  await userEvent.keyboard("{Escape}");
+  expect(onRename).not.toHaveBeenCalled();
+  expect(screen.getByText("My Session")).toBeInTheDocument();
+});
+
+it("calls onRename only once per Enter press (no double-fire)", async () => {
+  const onRename = vi.fn();
+  render(<SessionItem session={session} active={false}
+    workspaces={workspaces} onSelect={vi.fn()} onRename={onRename}
+    onDelete={vi.fn()} onMove={vi.fn()} />);
+  await userEvent.dblClick(screen.getByText("My Session"));
+  const input = screen.getByRole("textbox");
+  await userEvent.clear(input);
+  await userEvent.type(input, "Renamed{Enter}");
+  expect(onRename).toHaveBeenCalledTimes(1);
+});
