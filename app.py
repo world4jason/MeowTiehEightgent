@@ -1766,6 +1766,15 @@ async def list_sessions(limit: int = 30, offset: int = 0):
     return {"sessions": sessions, "total": total, "offset": offset, "limit": limit}
 
 
+@app.post("/sessions")
+async def create_session():
+    session_id = str(uuid.uuid4())
+    session_path = HISTORY_DIR / session_id
+    session_path.mkdir(parents=True, exist_ok=True)
+    (session_path / "messages.json").write_text("[]")
+    return {"id": session_id, "name": f"Session {session_id[:8]}"}
+
+
 @app.delete("/sessions/{session_id}")
 async def hide_session(session_id: str):
     hidden = load_hidden()
