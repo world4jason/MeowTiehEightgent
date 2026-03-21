@@ -15,6 +15,7 @@ import zipfile
 import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -29,6 +30,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 PROJECT_DIR = Path(__file__).parent.resolve()
 HISTORY_DIR = PROJECT_DIR / "history"
@@ -112,7 +121,7 @@ DEFAULT_MODELS = {
         "color": "#34d399",
         "emoji": "🟢",
         "supports_image": True,
-        "idle_timeout_seconds": 120,
+        "idle_timeout_seconds": 600,       # generalist tool can take 3-5 min
         "startup_timeout_seconds": 120,  # gemini MCP context init takes 19s+ before first byte
     },
     "ollama": {
@@ -397,8 +406,7 @@ def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str,
             if not skill_file:
                 skill_file = find_skill_file(PROJECT_DIR / "skills" / source_prefix / slug_part)
         if skill_file:
-            slug_dir = skill_file.parent
-            s = parse_skill(skill_file, slug_dir=slug_dir)
+            s = parse_skill(skill_file)
             display_name = f"{s['source']}:{s['name']}" if s.get("source") else s["name"]
             history_entry = f"[Skill invoked: {display_name}]\n\n{s['body']}\n\nAll agents: apply this skill now in your next response."
             return history_entry, display_name
@@ -610,32 +618,28 @@ def _parse_jsonl_line(line: str, model_id: str) -> tuple[str | None, dict | None
             })
 
     elif model_id == "gemini":
-        if t == "assistant":
-            msg = obj.get("message") or {}
-            text = ""
-            if isinstance(msg, str):
-                text = msg
-            elif isinstance(msg, dict):
-                direct = msg.get("text", "")
-                if direct:
-                    text = str(direct)
-                else:
-                    parts_texts = []
-                    for item in (msg.get("content") or []):
-                        if isinstance(item, dict):
-                            item_t = item.get("type", "")
-                            if item_t in ("text", "output_text", "content", ""):
-                                part_text = item.get("text", "") or item.get("content", "")
-                                if part_text:
-                                    parts_texts.append(str(part_text))
-                    text = "".join(parts_texts)
-            return (text or None, None)
+        # Gemini stream-json format: type=message + role=assistant + content (str)
+        if t == "message":
+            role = obj.get("role", "")
+            if role == "assistant":
+                content = obj.get("content", "")
+                if isinstance(content, str):
+                    return (content or None, None)
+                elif isinstance(content, list):
+                    texts = []
+                    for item in content:
+                        if isinstance(item, str):
+                            texts.append(item)
+                        elif isinstance(item, dict):
+                            texts.append(str(item.get("text", "") or item.get("content", "")))
+                    return ("".join(texts) or None, None)
+            return (None, None)
+        # Gemini usage is in type=result → stats
         if t == "result":
-            u = obj.get("usage") or obj.get("usageMetadata") or {}
-            src = u.get("usageMetadata") or u
-            input_tok = int(src.get("input_tokens", src.get("inputTokens", src.get("promptTokenCount", 0))))
-            output_tok = int(src.get("output_tokens", src.get("outputTokens", src.get("candidatesTokenCount", 0))))
-            cached_tok = int(src.get("cached_input_tokens", src.get("cachedInputTokens", src.get("cachedContentTokenCount", 0))))
+            stats = obj.get("stats") or {}
+            input_tok = int(stats.get("input_tokens", 0))
+            output_tok = int(stats.get("output_tokens", 0))
+            cached_tok = int(stats.get("cached", 0))
             return (None, {"input": input_tok, "output": output_tok, "cached": cached_tok})
 
     return (None, None)
@@ -824,15 +828,17 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
         extra_args = extra_args + ["--extended-thinking"]
 
     # JSON output mode: adds stream-json flags for token tracking
+    # json_flags must come BEFORE the rest of cmd (e.g. before gemini's `-p`)
+    # to avoid yargs parsing errors like "Not enough arguments following: p"
     json_flags = _get_json_output_flags(agent)
-    if json_flags:
-        extra_args = extra_args + json_flags
+    cmd_binary = agent["cmd"][:1]   # e.g. ["gemini"] or ["claude"]
+    cmd_rest = agent["cmd"][1:]     # e.g. ["-p"] or ["--print"]
     model_id = agent.get("model_id", "")
     _usage: dict[str, int] = {"input": 0, "output": 0, "cached": 0}
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            *agent["cmd"], *extra_args, prompt,
+            *cmd_binary, *json_flags, *cmd_rest, *extra_args, prompt,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=agent["workspace"],
@@ -840,6 +846,11 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
     except (FileNotFoundError, PermissionError, OSError) as e:
         cleanup_temp_files(tmp_paths)
         raise SubprocessStartupError(agent=agent["name"], cause=str(e))
+
+    # Increase StreamReader line limit to 8MB so large tool_result JSONL lines
+    # (e.g. Gemini reading big memory files) don't raise LimitOverrunError
+    if json_flags and hasattr(proc.stdout, '_limit'):
+        proc.stdout._limit = 8 * 1024 * 1024  # 8MB per line
 
     stderr_task = asyncio.create_task(proc.stderr.read())
 
@@ -897,6 +908,9 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
                 proc.kill()
                 await proc.wait()
                 stderr_out = await stderr_task
+                with open("/tmp/agent_crash.log", "a") as _f:
+                    _f.write(f"\n=== {agent['name']} IDLE TIMEOUT ({idle_timeout}s) ===\n")
+                    _f.write(f"buffer_len: {len(buffer)}\n")
                 raise SubprocessTimeoutError(
                     agent=agent["name"],
                     partial_output=buffer,
@@ -928,10 +942,14 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
         proc.kill()
         await proc.wait()
         stderr_out = await stderr_task
+        stderr_text = stderr_out.decode(errors='replace')
+        with open("/tmp/agent_crash.log", "a") as _f:
+            _f.write(f"\n=== {agent['name']} EXCEPTION: {type(e).__name__}: {e} ===\n")
+            _f.write(f"stderr: {stderr_text[:500]}\n")
         raise SubprocessCrashError(
             agent=agent["name"],
             partial_output=buffer,
-            stderr_output=stderr_out.decode(errors='replace'),
+            stderr_output=stderr_text,
             cause=str(e),
         )
 
@@ -942,10 +960,15 @@ async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None =
     await proc.wait()
     stderr_out = await stderr_task
     if proc.returncode != 0:
+        stderr_text = stderr_out.decode(errors='replace')
+        with open("/tmp/agent_crash.log", "a") as _f:
+            _f.write(f"\n=== {agent['name']} exit {proc.returncode} ===\n")
+            _f.write(f"stderr: {stderr_text[:1000]}\n")
+            _f.write(f"buffer_len: {len(buffer)}\n")
         raise SubprocessCrashError(
             agent=agent["name"],
             partial_output=buffer,
-            stderr_output=stderr_out.decode(errors='replace'),
+            stderr_output=stderr_text,
             exit_code=proc.returncode,
         )
 
@@ -1420,7 +1443,7 @@ def find_skill_file(slug_dir: Path) -> Path | None:
     return None
 
 
-def parse_skill(skill_file: Path, slug_dir: Path | None = None) -> dict:
+def parse_skill(skill_file: Path) -> dict:
     raw = skill_file.read_text().strip()
     name = skill_file.parent.name
     description = ""
@@ -1447,18 +1470,6 @@ def parse_skill(skill_file: Path, slug_dir: Path | None = None) -> dict:
     if not description:
         lines = [l for l in body.splitlines() if l.strip() and not l.startswith("#")]
         description = lines[0].strip() if lines else ""
-    # Auto-detect gstack via symlink
-    if not source and slug_dir and slug_dir.is_symlink():
-        target = os.readlink(slug_dir)
-        if "gstack" in target:
-            source = "gstack"
-            source_url = "https://github.com/garrytan/gstack"
-            # Try to read VERSION from gstack dir
-            version_file = slug_dir.resolve().parent.parent / "VERSION"
-            if not version_file.exists():
-                version_file = slug_dir.resolve().parent / "VERSION"
-            if version_file.exists():
-                source_version = version_file.read_text().strip()
     return {
         "name": name,
         "description": description,
@@ -1478,7 +1489,7 @@ async def list_skills():
             continue
         sf = find_skill_file(slug_dir)
         if sf:
-            s = parse_skill(sf, slug_dir=slug_dir)
+            s = parse_skill(sf)
             display_name = f"{s['source']}:{s['name']}" if s.get("source") else s["name"]
             result.append({
                 "slug": slug_dir.name,
@@ -1500,7 +1511,7 @@ async def get_skill(slug: str):
     sf = find_skill_file(PROJECT_DIR / "skills" / slug)
     if not sf:
         raise HTTPException(status_code=404, detail="Skill not found")
-    s = parse_skill(sf, slug_dir=PROJECT_DIR / "skills" / slug)
+    s = parse_skill(sf)
     return {"slug": slug, "name": s["name"], "description": s["description"], "body": s["body"],
             "source": s["source"], "source_url": s["source_url"], "source_version": s["source_version"]}
 
@@ -2067,7 +2078,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             agent_task = asyncio.create_task(_produce())
             agent_done = False
-            await ws.send_json({"type": "stream_start", "agent": agent["name"], "color": agent["color"]})
+            _stream_started = False  # delay stream_start until first chunk arrives
 
             while not agent_done:
                 # Drain all ready chunks
@@ -2081,6 +2092,9 @@ async def websocket_endpoint(ws: WebSocket):
                             had_subprocess_error = chunk
                             agent_done = True
                             break
+                        if not _stream_started:
+                            _stream_started = True
+                            await ws.send_json({"type": "stream_start", "agent": agent["name"], "color": agent["color"]})
                         chunk_parts.append(chunk)
                         await ws.send_json({"type": "chunk", "agent": agent["name"], "color": agent["color"], "text": chunk})
                     except asyncio.QueueEmpty:
