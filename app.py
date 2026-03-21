@@ -1,4 +1,7 @@
 import asyncio
+import base64
+import tempfile
+import os
 from conversation_engine import ConversationEngine
 import json
 import re
@@ -10,11 +13,22 @@ import io
 import zipfile
 
 import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    migrate_if_needed()
+    migrate_history_to_folders()
+    ensure_agent_configs()
+    ensure_default_template()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 PROJECT_DIR = Path(__file__).parent.resolve()
 HISTORY_DIR = PROJECT_DIR / "history"
@@ -29,17 +43,40 @@ DEFAULT_AGENT_MD = """\
 # Agent Instructions
 
 ## Role
-You are {name}. You participate in a live multi-agent discussion with other AI agents and a human facilitator.
+You are {name}.
 
-## How to engage
-- Build on conversation history — don't repeat what's already been said
-- Pick one thread to develop rather than covering everything shallowly
-- Keep responses to 2–4 paragraphs unless depth is clearly needed
-- Plain prose. No bullet dumps. No sign-offs.
-- When the human speaks, prioritize their input and reset your focus
+## Session Startup
+
+Before anything else:
+1. Read `IDENTITY.md` — this is who you are
+2. Read `SOUL.md` — this is what drives you
+3. Read `../../USER.md` — this is who you're helping
+4. Read `memory/` latest file if it exists — recent context
+5. Check `../../skills/` for available shared skills
 
 ## Memory
-After each session, key exchanges and decisions get logged to your memory files.
+
+> ⚠️ Do NOT write to `~/.claude/`, `~/.gemini/`, `~/codex/`, or any CLI system directory.
+> Your memory belongs here, in this workspace.
+
+Working directory is `agents/{name}/`. Write to:
+
+- `MEMORY.md` — long-term notes, curated across sessions
+- `memory/YYYY-MM-DD.md` — daily log, append key exchanges each session
+
+After each significant exchange, append a short note to today's log file.
+
+## How to engage
+- Build on conversation history — don't repeat what's been said
+- When the human speaks, prioritize their input and reset your focus
+- Engage directly with what others actually said — not just your own agenda
+- Keep responses to 2–4 paragraphs unless depth is clearly needed
+- Plain prose. No bullet dumps. No sign-offs.
+- To address someone directly, use `@Name`.
+
+## Red Lines
+
+- Don't summarize the whole conversation on every turn
 """
 
 DEFAULT_IDENTITY_MD = """\
@@ -65,12 +102,18 @@ DEFAULT_MODELS = {
         "cmd": ["claude", "--print"],
         "color": "#a78bfa",
         "emoji": "🟣",
+        "supports_image": True,
+        "idle_timeout_seconds": 120,
+        "startup_timeout_seconds": 120,  # full AGENT.md prompt can take 15s+ for first byte
     },
     "gemini": {
         "type": "cli",
         "cmd": ["gemini", "-p"],
         "color": "#34d399",
         "emoji": "🟢",
+        "supports_image": True,
+        "idle_timeout_seconds": 120,
+        "startup_timeout_seconds": 120,  # gemini MCP context init takes 19s+ before first byte
     },
     "ollama": {
         "type": "api",
@@ -84,6 +127,9 @@ DEFAULT_MODELS = {
         "cmd": ["codex", "-q", "--no-project-doc", "--approval-mode", "full-auto", "-p"],
         "color": "#38bdf8",
         "emoji": "🔵",
+        "supports_image": False,
+        "idle_timeout_seconds": 120,
+        "startup_timeout_seconds": 120,
     },
 }
 
@@ -273,11 +319,20 @@ def get_agent_registry() -> dict[str, dict]:
                 m = models[model_id]
                 agent["type"] = m.get("type", "cli")
                 if "cmd" in m:
-                    agent["cmd"] = m["cmd"]
+                    base_cmd = list(m["cmd"])
+                    # Append extra_flags if defined (e.g. ["--model", "claude-opus-4-5"])
+                    for flag in m.get("extra_flags", []):
+                        if flag not in base_cmd:
+                            base_cmd.append(flag)
+                    agent["cmd"] = base_cmd
                 if "baseUrl" in m:
                     agent["baseUrl"] = m["baseUrl"]
                 if "apiModel" in m:
                     agent["model"] = m["apiModel"]  # for API calls
+                # Merge timeout fields from model config (agent-level config takes precedence)
+                for timeout_key in ("idle_timeout_seconds", "startup_timeout_seconds"):
+                    if timeout_key not in agent and timeout_key in m:
+                        agent[timeout_key] = m[timeout_key]
 
             registry[name] = agent
         except Exception:
@@ -288,25 +343,97 @@ def get_agent_registry() -> dict[str, dict]:
 
 # ── Skill resolver ────────────────────────────────────────────────────────────
 
-def resolve_human_text(text: str) -> tuple[str, str | None]:
+_THINK_RE = re.compile(r'^/think(?:\s+@(\S+))?$', re.IGNORECASE)
+_CHAT_RE = re.compile(r'^/chat(?:\s+@(\S+))?$', re.IGNORECASE)
+
+
+def intercept_mode_command(
+    text: str,
+    agent_modes: dict,
+    active_agents: list,
+) -> tuple[bool, list[dict]]:
+    """Check if text is a /think or /chat TUI command.
+
+    Returns (intercepted: bool, mode_updates: list[dict]).
+    Each update is either {"agent": str, "mode": str} or {"error": str}.
+    If intercepted=True, caller must NOT forward text to agents.
+    """
+    m = _THINK_RE.match(text.strip()) or _CHAT_RE.match(text.strip())
+    if not m:
+        return False, []
+
+    target_mode = "think" if text.strip().lower().startswith("/think") else "chat"
+    target_name = m.group(1)  # None if no @name
+
+    updates: list[dict] = []
+    if target_name:
+        found = next(
+            (a["name"] for a in active_agents if a["name"].lower() == target_name.lower()),
+            None,
+        )
+        if found:
+            agent_modes[found] = target_mode
+            updates.append({"agent": found, "mode": target_mode})
+        else:
+            return True, [{"error": f'No agent named "{target_name}" found.'}]
+    else:
+        for a in active_agents:
+            agent_modes[a["name"]] = target_mode
+            updates.append({"agent": a["name"], "mode": target_mode})
+
+    return True, updates
+
+
+def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str, str | None]:
     if text.startswith("/"):
         skill_name = text[1:].strip().lower()
         skill_file = find_skill_file(PROJECT_DIR / "skills" / skill_name)
+        # Fallback: handle "source:slug" format (e.g. "gstack:review")
+        if not skill_file and ":" in skill_name:
+            source_prefix, slug_part = skill_name.split(":", 1)
+            # Try skills/{slug} (symlink from gstack setup)
+            skill_file = find_skill_file(PROJECT_DIR / "skills" / slug_part)
+            # Try skills/{source}/{slug} (direct subdirectory)
+            if not skill_file:
+                skill_file = find_skill_file(PROJECT_DIR / "skills" / source_prefix / slug_part)
         if skill_file:
-            s = parse_skill(skill_file)
-            history_entry = f"[Skill invoked: {s['name']}]\n\n{s['body']}\n\nAll agents: apply this skill now in your next response."
-            return history_entry, s["name"]
+            slug_dir = skill_file.parent
+            s = parse_skill(skill_file, slug_dir=slug_dir)
+            display_name = f"{s['source']}:{s['name']}" if s.get("source") else s["name"]
+            history_entry = f"[Skill invoked: {display_name}]\n\n{s['body']}\n\nAll agents: apply this skill now in your next response."
+            return history_entry, display_name
+
+    # @filename.ext injection
+    if workspace_id:
+        files_dir = WORKSPACES_DIR / workspace_id / "files"
+        def inject_file(m):
+            fname = m.group(1)
+            fpath = files_dir / fname
+            if fpath.is_file():
+                try:
+                    content = fpath.read_text(errors='replace')
+                    return f"[File: {fname}]\n```\n{content}\n```"
+                except Exception:
+                    pass
+            return m.group(0)
+        text = re.sub(r'@([\w\-]+\.\w+)', inject_file, text)
+
     return text, None
 
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
-def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None) -> str:
+def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None, all_agents: list[dict] | None = None, mode: str = "chat", scenario_system_prompt: str | None = None, blank_mode: bool = False) -> str:
     ws: Path = agent["workspace"]
     parts = []
+    mode_prefix = "Keep your response concise — 2-3 sentences max.\n\n" if mode == "chat" else ""
 
-    # Workspace guide injected first (before agent identity)
-    if workspace_id:
+    # Context injection: scenario > workspace > blank
+    # scenario_system_prompt="" is treated same as None (no scenario active)
+    if scenario_system_prompt:
+        parts.append(f"## Session Context\n\n{scenario_system_prompt}")
+    elif not blank_mode and workspace_id:
+        # Workspace guide injected first (before agent identity)
         ws_dir = WORKSPACES_DIR / workspace_id
         ws_cfg_path = ws_dir / "config.json"
         if ws_cfg_path.exists():
@@ -333,6 +460,7 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
                         guide_parts.append(f"### {fp.name} (too large — use @{fp.name} to load)")
             if guide_parts:
                 parts.append("## Workspace Guide\n\n" + "\n\n".join(guide_parts))
+    # blank_mode: inject nothing
 
     # AGENT.md first — main operational instructions
     for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
@@ -361,14 +489,285 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
                 parts.append(f"## Skill: {s['name']}\n\n{s['body']}")
 
     context = "\n\n---\n\n".join(parts)
-    return f"{context}\n\n===== DISCUSSION =====\n\n{history_text}\n\nYour turn. Respond as your persona dictates."
+
+    # Dynamic participants header
+    if all_agents:
+        names = [a["name"] for a in all_agents if a["name"] != agent["name"]]
+        others = ", ".join(names) if names else "none"
+        participants_header = (
+            f"Participants in this room: {agent['name']} (you), {others}, Human\n"
+            f"Your previous responses above are marked [{agent['name']}]:\n"
+        )
+    else:
+        participants_header = ""
+
+    # Continuation hint for agents truncated in the previous turn
+    continuation_hint = ""
+    if agent.get("pending_continuation"):
+        continuation_hint = (
+            "\n\n[系統提示] 你在上一輪說到一半被打斷了"
+            "（歷史中可看到 [TRUNCATED] 標記）。"
+            "這輪你可以選擇繼續完整你的想法，或先回應其他人的發言再補充。"
+        )
+        agent["pending_continuation"] = False
+
+    return (
+        f"{mode_prefix}{context}\n\n===== DISCUSSION =====\n\n"
+        f"{participants_header}\n{history_text}"
+        f"{continuation_hint}\n\n"
+        "Your turn. Respond as your persona dictates."
+    )
+
+
+# ── Subprocess error types ────────────────────────────────────────────────────
+
+class SubprocessError(Exception):
+    """Base class for all CLI subprocess failures."""
+    def __init__(self, agent: str, partial_output: str = "", stderr_output: str = "", **_):
+        super().__init__(agent)
+        self.agent = agent
+        self.partial_output = partial_output
+        self.stderr_output = stderr_output
+
+
+class SubprocessStartupError(SubprocessError):
+    """Command not found, permission denied, or no output within startup_timeout."""
+    def __init__(self, agent: str, cause: str = "", **_):
+        super().__init__(agent, partial_output="", stderr_output="")
+        self.cause = cause
+
+
+class SubprocessTimeoutError(SubprocessError):
+    """Idle timeout: no new chunk within idle_timeout_seconds."""
+    def __init__(self, agent: str, partial_output: str, stderr_output: str,
+                 timeout_seconds: float, **_):
+        super().__init__(agent, partial_output, stderr_output)
+        self.timeout_seconds = timeout_seconds
+
+
+class SubprocessCrashError(SubprocessError):
+    """Process exited non-zero or raised an unexpected exception."""
+    def __init__(self, agent: str, partial_output: str = "", stderr_output: str = "",
+                 exit_code: int | None = None, cause: str = "", **_):
+        super().__init__(agent, partial_output, stderr_output)
+        self.exit_code = exit_code
+        self.cause = cause
+
+
+class TokenUsage:
+    """Sentinel yielded at end of a JSON-mode CLI stream with per-turn token counts."""
+    __slots__ = ("input_tokens", "output_tokens", "cached_tokens")
+
+    def __init__(self, input_tokens: int = 0, output_tokens: int = 0, cached_tokens: int = 0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cached_tokens = cached_tokens
+
+
+def _get_json_output_flags(agent: dict) -> list[str]:
+    """Return extra CLI flags to enable JSON streaming output for token tracking.
+
+    Returns [] if the model does not support JSON output, or if explicitly disabled.
+    """
+    if agent.get("json_output") is False:
+        return []
+    model_id = agent.get("model_id", "")
+    if model_id == "claude":
+        return ["--output-format", "stream-json", "--verbose"]
+    if model_id == "gemini":
+        return ["--output-format", "stream-json"]
+    return []
+
+
+def _parse_jsonl_line(line: str, model_id: str) -> tuple[str | None, dict | None]:
+    """Parse one JSONL line from a stream-json CLI output.
+
+    Returns (text_chunk, usage_dict).
+    - text_chunk: incremental text from this event, or None
+    - usage_dict: {"input": int, "output": int, "cached": int}, or None
+    """
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return (line, None)  # non-JSON line: pass through as raw text
+
+    t = obj.get("type", "")
+
+    if model_id == "claude":
+        if t == "assistant":
+            msg = obj.get("message") or {}
+            content = msg.get("content") or []
+            texts = [b.get("text", "") for b in content
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            text = "".join(texts)
+            return (text or None, None)
+        if t == "result":
+            u = obj.get("usage") or {}
+            return (None, {
+                "input": int(u.get("input_tokens", 0)),
+                "output": int(u.get("output_tokens", 0)),
+                "cached": int(u.get("cache_read_input_tokens", 0)),
+            })
+
+    elif model_id == "gemini":
+        if t == "assistant":
+            msg = obj.get("message") or {}
+            text = ""
+            if isinstance(msg, str):
+                text = msg
+            elif isinstance(msg, dict):
+                direct = msg.get("text", "")
+                if direct:
+                    text = str(direct)
+                else:
+                    parts_texts = []
+                    for item in (msg.get("content") or []):
+                        if isinstance(item, dict):
+                            item_t = item.get("type", "")
+                            if item_t in ("text", "output_text", "content", ""):
+                                part_text = item.get("text", "") or item.get("content", "")
+                                if part_text:
+                                    parts_texts.append(str(part_text))
+                    text = "".join(parts_texts)
+            return (text or None, None)
+        if t == "result":
+            u = obj.get("usage") or obj.get("usageMetadata") or {}
+            src = u.get("usageMetadata") or u
+            input_tok = int(src.get("input_tokens", src.get("inputTokens", src.get("promptTokenCount", 0))))
+            output_tok = int(src.get("output_tokens", src.get("outputTokens", src.get("candidatesTokenCount", 0))))
+            cached_tok = int(src.get("cached_input_tokens", src.get("cachedInputTokens", src.get("cachedContentTokenCount", 0))))
+            return (None, {"input": input_tok, "output": output_tok, "cached": cached_tok})
+
+    return (None, None)
+
+
+TRUNCATION_MARKER = "[... 較早對話已省略 ...]\n\n"
+
+def truncate_history(history_text: str, max_chars: int) -> str:
+    """Sliding window: remove oldest [Agent]: blocks until under max_chars."""
+    if len(history_text) <= max_chars:
+        return history_text
+    segments = re.split(r'(?=\n\[[\w\s\-]+\]: )', history_text)
+    while segments and len("".join(segments)) > max_chars:
+        segments.pop(0)
+    truncated = "".join(segments)
+    return TRUNCATION_MARKER + truncated.lstrip("\n")
+
+
+def _resolve_timeout(agent: dict, key: str, default: float) -> float:
+    """Precedence: agent config > DEFAULT_MODELS > hard default."""
+    if key in agent:
+        return float(agent[key])
+    # Fall back to DEFAULT_MODELS so built-in defaults apply even when
+    # the user's config.json overrides the models dict without timeout fields.
+    model_id = agent.get("model_id", "")
+    if model_id in DEFAULT_MODELS and key in DEFAULT_MODELS[model_id]:
+        return float(DEFAULT_MODELS[model_id][key])
+    return default
+
+
+def _resolve_supports_image(agent: dict) -> bool:
+    """Precedence: agent-level > model_config > DEFAULT_MODELS > True (safe default)."""
+    if "supports_image" in agent:
+        return bool(agent["supports_image"])
+    model_cfg = agent.get("model_config") or {}
+    if "supports_image" in model_cfg:
+        return bool(model_cfg["supports_image"])
+    model_name = agent.get("model", "")
+    if model_name in DEFAULT_MODELS and "supports_image" in DEFAULT_MODELS[model_name]:
+        return bool(DEFAULT_MODELS[model_name]["supports_image"])
+    return True
+
+
+PROTECTED_FILENAMES: frozenset[str] = frozenset({
+    "guide.md",
+    "config.json",
+    ".env",
+    "requirements.txt",
+})
+
+_SAFE_FILENAME_RE = re.compile(r'^[\w\-. ]+$')
+_MAX_FILENAME_LENGTH = 255
+
+
+def validate_filename(filename: str, *, allow_protected: bool = False) -> None:
+    """Raise ValueError if filename is unsafe or protected."""
+    if not filename:
+        raise ValueError("Filename cannot be empty")
+    if len(filename) > _MAX_FILENAME_LENGTH:
+        raise ValueError(f"Filename too long: {len(filename)} chars")
+    if "/" in filename or "\\" in filename:
+        raise ValueError(f"Filename must not contain path separators: {filename!r}")
+    if ".." in filename:
+        raise ValueError(f"Filename must not contain '..': {filename!r}")
+    if not _SAFE_FILENAME_RE.match(filename):
+        raise ValueError(f"Filename contains invalid characters: {filename!r}")
+    if not allow_protected and filename in PROTECTED_FILENAMES:
+        raise ValueError(f"Filename is protected and cannot be written by agents: {filename!r}")
+
+
+def safe_workspace_path(workspace_dir: str, filename: str) -> str:
+    """Return safe full path; raise ValueError if it resolves outside workspace_dir."""
+    full_path = os.path.realpath(os.path.join(workspace_dir, filename))
+    workspace_real = os.path.realpath(workspace_dir)
+    if not full_path.startswith(workspace_real + os.sep) and full_path != workspace_real:
+        raise ValueError(f"Path traversal detected: {filename!r} resolves outside workspace")
+    return full_path
+
+
+def _error_message(e: "SubprocessError") -> str:
+    if isinstance(e, SubprocessTimeoutError):
+        return f"Agent {e.agent} timed out after {e.timeout_seconds}s of inactivity"
+    if isinstance(e, SubprocessStartupError):
+        return f"Agent {e.agent} failed to start: {e.cause}"
+    if isinstance(e, SubprocessCrashError):
+        details = f"exit {e.exit_code}" if e.exit_code is not None else e.cause
+        return f"Agent {e.agent} crashed ({details})"
+    return f"Agent {e.agent} failed"
 
 
 # ── Agent runners ─────────────────────────────────────────────────────────────
 
-async def call_cli_agent(agent: dict, prompt: str) -> str:
+def save_session_images(session_id: str, images: list[dict]) -> list[dict]:
+    """Save images to history/<session_id>/images/ and return [{name, filename}] references."""
+    if not images:
+        return []
+    img_dir = HISTORY_DIR / session_id / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    refs = []
+    for img in images:
+        suffix = '.' + (img.get('mime', 'image/jpeg').split('/')[-1] or 'jpg')
+        fname = f"{uuid.uuid4().hex}{suffix}"
+        (img_dir / fname).write_bytes(base64.b64decode(img['base64']))
+        refs.append({"name": img.get("name", fname), "filename": fname})
+    return refs
+
+
+def write_temp_images(images: list[dict]) -> tuple[list[str], list[str]]:
+    """Write base64 images to temp files. Returns (file_paths, extra_cmd_args)."""
+    tmp_paths: list[str] = []
+    extra_args: list[str] = []
+    for img in images:
+        suffix = '.' + (img.get('mime', 'image/jpeg').split('/')[-1] or 'jpg')
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            f.write(base64.b64decode(img['base64']))
+            tmp_paths.append(f.name)
+            extra_args.extend(['--add-file', f.name])
+    return tmp_paths, extra_args
+
+def cleanup_temp_files(paths: list[str]):
+    for p in paths:
+        try: os.unlink(p)
+        except Exception: pass
+
+
+async def call_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None) -> str:
+    tmp_paths: list[str] = []
+    extra_args: list[str] = []
+    if images:
+        tmp_paths, extra_args = write_temp_images(images)
     proc = await asyncio.create_subprocess_exec(
-        *agent["cmd"], prompt,
+        *agent["cmd"], *extra_args, prompt,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
         cwd=agent["workspace"],
@@ -379,6 +778,8 @@ async def call_cli_agent(agent: dict, prompt: str) -> str:
     except asyncio.CancelledError:
         proc.kill()
         raise
+    finally:
+        cleanup_temp_files(tmp_paths)
 
 
 async def call_api_agent(agent: dict, prompt: str) -> str:
@@ -397,6 +798,193 @@ async def call_agent(agent: dict, prompt: str) -> str:
     if agent.get("type") == "api":
         return await call_api_agent(agent, prompt)
     return await call_cli_agent(agent, prompt)
+
+
+async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
+    """Async generator: yield text chunks from CLI stdout, then optionally a TokenUsage.
+
+    When the model supports JSON output (claude/gemini), adds --output-format stream-json
+    flags, reads line-by-line, parses JSONL events for text and token usage, and yields
+    a TokenUsage object as the last item after all text chunks.
+
+    Raises SubprocessStartupError, SubprocessTimeoutError, or SubprocessCrashError
+    on failure.  Already-yielded chunks are preserved in the exception's
+    partial_output so the caller can append [TRUNCATED] to history.
+    """
+    idle_timeout = _resolve_timeout(agent, "idle_timeout_seconds", 60)
+    startup_timeout = _resolve_timeout(agent, "startup_timeout_seconds", 10)
+    buffer = ""
+
+    tmp_paths: list[str] = []
+    extra_args: list[str] = []
+    if images and _resolve_supports_image(agent):
+        tmp_paths, extra_args = write_temp_images(images)
+
+    if mode == "think" and agent.get("supports_thinking", False):
+        extra_args = extra_args + ["--extended-thinking"]
+
+    # JSON output mode: adds stream-json flags for token tracking
+    json_flags = _get_json_output_flags(agent)
+    if json_flags:
+        extra_args = extra_args + json_flags
+    model_id = agent.get("model_id", "")
+    _usage: dict[str, int] = {"input": 0, "output": 0, "cached": 0}
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *agent["cmd"], *extra_args, prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=agent["workspace"],
+        )
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        cleanup_temp_files(tmp_paths)
+        raise SubprocessStartupError(agent=agent["name"], cause=str(e))
+
+    stderr_task = asyncio.create_task(proc.stderr.read())
+
+    try:
+        # --- startup timeout: wait for first byte/line ---
+        try:
+            first_data = await asyncio.wait_for(
+                proc.stdout.readline() if json_flags else proc.stdout.read(256),
+                timeout=startup_timeout,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise SubprocessStartupError(
+                agent=agent["name"],
+                cause=f"no output within {startup_timeout}s",
+            )
+
+        if not first_data:
+            # EOF immediately after startup
+            await proc.wait()
+            stderr_out = await stderr_task
+            raise SubprocessCrashError(
+                agent=agent["name"],
+                partial_output="",
+                stderr_output=stderr_out.decode(errors='replace'),
+                exit_code=proc.returncode,
+                cause="empty output",
+            )
+
+        decoded = first_data.decode(errors='replace')
+        if json_flags:
+            line = decoded.strip()
+            if line:
+                text, usage = _parse_jsonl_line(line, model_id)
+                if usage:
+                    for k, v in usage.items():
+                        if v > _usage.get(k, 0):
+                            _usage[k] = v
+                if text:
+                    buffer += text
+                    yield text
+        else:
+            buffer += decoded
+            yield decoded
+
+        # --- idle timeout: per-chunk/line reads ---
+        while True:
+            try:
+                data = await asyncio.wait_for(
+                    proc.stdout.readline() if json_flags else proc.stdout.read(256),
+                    timeout=idle_timeout,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                stderr_out = await stderr_task
+                raise SubprocessTimeoutError(
+                    agent=agent["name"],
+                    partial_output=buffer,
+                    stderr_output=stderr_out.decode(errors='replace'),
+                    timeout_seconds=idle_timeout,
+                )
+            if not data:
+                break
+            decoded = data.decode(errors='replace')
+            if json_flags:
+                line = decoded.strip()
+                if line:
+                    text, usage = _parse_jsonl_line(line, model_id)
+                    if usage:
+                        for k, v in usage.items():
+                            if v > _usage.get(k, 0):
+                                _usage[k] = v
+                    if text:
+                        buffer += text
+                        yield text
+            else:
+                buffer += decoded
+                yield decoded
+
+    except SubprocessError:
+        raise
+
+    except Exception as e:
+        proc.kill()
+        await proc.wait()
+        stderr_out = await stderr_task
+        raise SubprocessCrashError(
+            agent=agent["name"],
+            partial_output=buffer,
+            stderr_output=stderr_out.decode(errors='replace'),
+            cause=str(e),
+        )
+
+    finally:
+        cleanup_temp_files(tmp_paths)
+
+    # --- normal exit: check return code ---
+    await proc.wait()
+    stderr_out = await stderr_task
+    if proc.returncode != 0:
+        raise SubprocessCrashError(
+            agent=agent["name"],
+            partial_output=buffer,
+            stderr_output=stderr_out.decode(errors='replace'),
+            exit_code=proc.returncode,
+        )
+
+    # Yield token usage if JSON mode was active and we captured any counts
+    if json_flags and (_usage["input"] or _usage["output"]):
+        yield TokenUsage(
+            input_tokens=_usage["input"],
+            output_tokens=_usage["output"],
+            cached_tokens=_usage["cached"],
+        )
+
+
+async def stream_api_agent(agent: dict, prompt: str):
+    """Async generator: yield text chunks from Ollama HTTP stream."""
+    base = agent.get("baseUrl", "http://127.0.0.1:11434")
+    model = agent.get("model", "llama3.2")
+    async with httpx.AsyncClient(timeout=120) as client:
+        async with client.stream(
+            "POST", f"{base}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": True},
+        ) as resp:
+            async for line in resp.aiter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        if chunk := data.get("response", ""):
+                            yield chunk
+                    except json.JSONDecodeError:
+                        pass
+
+
+async def stream_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
+    """Dispatch to streaming implementation."""
+    if agent.get("type") == "api":
+        async for chunk in stream_api_agent(agent, prompt):
+            yield chunk
+    else:
+        async for chunk in stream_cli_agent(agent, prompt, images=images, mode=mode):
+            yield chunk
 
 
 def append_memory(agent: dict, topic: str, response: str):
@@ -482,6 +1070,11 @@ def save_hidden(ids: set[str]):
 
 
 # ── HTTP endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 
 @app.get("/")
 async def index():
@@ -673,8 +1266,8 @@ async def get_agent(name: str):
 @app.post("/agents")
 async def add_agent(body: dict):
     name = body.get("name", "").strip()
-    if not name or not re.match(r'^[a-zA-Z0-9_-]+$', name):
-        raise HTTPException(status_code=400, detail="Name required (alphanumeric, _ - only)")
+    if not name or re.search(r'[/\\.\s]', name) or len(name) > 64:
+        raise HTTPException(status_code=400, detail="Name required (no slashes, dots, or spaces)")
     agent_dir = AGENTS_DIR / name
     if agent_dir.exists():
         raise HTTPException(status_code=409, detail="Agent already exists")
@@ -832,10 +1425,13 @@ def find_skill_file(slug_dir: Path) -> Path | None:
     return None
 
 
-def parse_skill(skill_file: Path) -> dict:
+def parse_skill(skill_file: Path, slug_dir: Path | None = None) -> dict:
     raw = skill_file.read_text().strip()
     name = skill_file.parent.name
     description = ""
+    source = ""
+    source_url = ""
+    source_version = ""
     body = raw
     if raw.startswith("---"):
         end = raw.find("---", 3)
@@ -847,10 +1443,35 @@ def parse_skill(skill_file: Path) -> dict:
                     name = line[5:].strip()
                 elif line.startswith("description:"):
                     description = line[12:].strip()
+                elif line.startswith("source:"):
+                    source = line[7:].strip()
+                elif line.startswith("source_url:"):
+                    source_url = line[11:].strip()
+                elif line.startswith("source_version:"):
+                    source_version = line[15:].strip()
     if not description:
         lines = [l for l in body.splitlines() if l.strip() and not l.startswith("#")]
         description = lines[0].strip() if lines else ""
-    return {"name": name, "description": description, "body": body}
+    # Auto-detect gstack via symlink
+    if not source and slug_dir and slug_dir.is_symlink():
+        target = os.readlink(slug_dir)
+        if "gstack" in target:
+            source = "gstack"
+            source_url = "https://github.com/garrytan/gstack"
+            # Try to read VERSION from gstack dir
+            version_file = slug_dir.resolve().parent.parent / "VERSION"
+            if not version_file.exists():
+                version_file = slug_dir.resolve().parent / "VERSION"
+            if version_file.exists():
+                source_version = version_file.read_text().strip()
+    return {
+        "name": name,
+        "description": description,
+        "body": body,
+        "source": source,
+        "source_url": source_url,
+        "source_version": source_version,
+    }
 
 
 @app.get("/skills")
@@ -862,10 +1483,20 @@ async def list_skills():
             continue
         sf = find_skill_file(slug_dir)
         if sf:
-            s = parse_skill(sf)
-            result.append({"slug": slug_dir.name, "name": s["name"], "description": s["description"], "missing": False})
+            s = parse_skill(sf, slug_dir=slug_dir)
+            display_name = f"{s['source']}:{s['name']}" if s.get("source") else s["name"]
+            result.append({
+                "slug": slug_dir.name,
+                "name": display_name,
+                "description": s["description"],
+                "missing": False,
+                "source": s["source"],
+                "source_url": s["source_url"],
+                "source_version": s["source_version"],
+            })
         else:
-            result.append({"slug": slug_dir.name, "name": slug_dir.name, "description": "", "missing": True})
+            result.append({"slug": slug_dir.name, "name": slug_dir.name, "description": "", "missing": True,
+                           "source": "", "source_url": "", "source_version": ""})
     return result
 
 
@@ -874,8 +1505,9 @@ async def get_skill(slug: str):
     sf = find_skill_file(PROJECT_DIR / "skills" / slug)
     if not sf:
         raise HTTPException(status_code=404, detail="Skill not found")
-    s = parse_skill(sf)
-    return {"slug": slug, "name": s["name"], "description": s["description"], "body": s["body"]}
+    s = parse_skill(sf, slug_dir=PROJECT_DIR / "skills" / slug)
+    return {"slug": slug, "name": s["name"], "description": s["description"], "body": s["body"],
+            "source": s["source"], "source_url": s["source_url"], "source_version": s["source_version"]}
 
 
 @app.put("/skills/{slug}")
@@ -940,6 +1572,8 @@ async def upload_skills(file: UploadFile = File(...)):
 
 WORKSPACES_DIR = PROJECT_DIR / "workspaces"
 WORKSPACES_DIR.mkdir(exist_ok=True)
+
+SCENARIOS_DIR = PROJECT_DIR / "scenarios"
 
 
 def workspace_config_path(workspace_id: str) -> Path:
@@ -1048,6 +1682,11 @@ async def upload_workspace_file(workspace_id: str, file: UploadFile = File(...))
     d = WORKSPACES_DIR / workspace_id / "files"
     if not d.exists():
         raise HTTPException(status_code=404, detail="Workspace not found")
+    try:
+        validate_filename(file.filename)
+        safe_workspace_path(str(d), file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     content = await file.read()
     (d / file.filename).write_bytes(content)
     return {"ok": True, "filename": file.filename}
@@ -1078,22 +1717,37 @@ async def move_session_to_workspace(session_id: str, body: dict):
     return {"ok": True}
 
 
+# ── Scenarios ─────────────────────────────────────────────────────────────────
+
+@app.get("/scenarios")
+async def list_scenarios():
+    """Return all scenario JSON files from the scenarios/ directory."""
+    if not SCENARIOS_DIR.exists():
+        return []
+    result = []
+    for f in sorted(SCENARIOS_DIR.glob("*.json")):
+        try:
+            result.append(json.loads(f.read_text()))
+        except Exception:
+            pass  # skip malformed files
+    return result
+
+
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 @app.get("/sessions")
-async def list_sessions():
+async def list_sessions(limit: int = 30, offset: int = 0):
     hidden = load_hidden()
+    all_dirs = sorted(
+        (d for d in HISTORY_DIR.iterdir() if d.is_dir() and d.name not in hidden and (d / "messages.json").exists()),
+        key=lambda x: x.name, reverse=True,
+    )
+    total = len(all_dirs)
+    page = all_dirs[offset: offset + limit]
     sessions = []
-    for d in sorted(HISTORY_DIR.iterdir(), key=lambda x: x.name, reverse=True):
-        if not d.is_dir():
-            continue
-        if d.name in hidden:
-            continue
-        mf = d / "messages.json"
-        if not mf.exists():
-            continue
+    for d in page:
         try:
-            msgs = json.loads(mf.read_text())
+            msgs = json.loads((d / "messages.json").read_text())
             sys_msg = next((m for m in msgs if m.get("type") == "system"), None)
             sessions.append({
                 "id": d.name,
@@ -1103,7 +1757,7 @@ async def list_sessions():
             })
         except Exception:
             pass
-    return sessions
+    return {"sessions": sessions, "total": total, "offset": offset, "limit": limit}
 
 
 @app.delete("/sessions/{session_id}")
@@ -1120,6 +1774,32 @@ async def get_session(session_id: str):
     if not f.exists():
         return []
     return json.loads(f.read_text())
+
+
+@app.get("/sessions/{session_id}/images/{filename}")
+async def get_session_image(session_id: str, filename: str):
+    p = HISTORY_DIR / session_id / "images" / filename
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(str(p))
+
+
+@app.put("/sessions/{session_id}/topic")
+async def rename_session(session_id: str, body: dict):
+    """Update the Topic text in the first system message."""
+    new_topic = (body.get("topic") or "").strip()
+    if not new_topic:
+        raise HTTPException(status_code=400, detail="topic required")
+    f = session_messages_path(session_id)
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    msgs = json.loads(f.read_text())
+    for m in msgs:
+        if m.get("type") == "system":
+            m["text"] = f"Topic: {new_topic}"
+            break
+    f.write_text(json.dumps(msgs, indent=2, ensure_ascii=False))
+    return {"ok": True}
 
 
 # ── Ollama model list ─────────────────────────────────────────────────────────
@@ -1168,8 +1848,17 @@ async def ollama_pull(payload: dict):
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 
+_active_ws: list[str] = []   # client IPs currently connected (allows duplicates for counting)
+_WS_LIMIT_PER_IP = 3
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    client_ip = ws.client.host if ws.client else "unknown"
+    if _active_ws.count(client_ip) >= _WS_LIMIT_PER_IP:
+        await ws.close(code=1008, reason="Too many connections")
+        return
+    _active_ws.append(client_ip)
     await ws.accept()
 
     data = await ws.receive_json()
@@ -1180,6 +1869,8 @@ async def websocket_endpoint(ws: WebSocket):
     silence_mode: bool = data.get("silence", False)   # probabilistic silence on/off
     resume_id: str | None = data.get("resume_from")
     workspace_id: str | None = data.get("workspace_id") or None
+    scenario_id: str | None = data.get("scenario_id") or None
+    blank_mode: bool = bool(data.get("blank_mode", False))
 
     session_id = resume_id if resume_id else (
         datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_" + uuid.uuid4().hex[:6]
@@ -1207,6 +1898,25 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.send_json({"type": "system", "text": "No agents selected."})
         return
 
+    # Phase 1.1 — per-agent mode state
+    agent_modes: dict[str, str] = {
+        a["name"]: a.get("mode", "chat") for a in active_agents
+    }
+
+    # Phase 1.2 — scenario context
+    scenario_system_prompt: str | None = None
+    if scenario_id:
+        scenario_file = PROJECT_DIR / "scenarios" / f"{scenario_id}.json"
+        if scenario_file.exists():
+            try:
+                sc = json.loads(scenario_file.read_text())
+                scenario_system_prompt = sc.get("system_prompt") or None
+            except Exception:
+                pass
+        if scenario_system_prompt is None and scenario_id:
+            # scenario_id given but file not found or parse failed → blank mode
+            blank_mode = True
+
     # Build history_text
     if resume_id:
         f = session_messages_path(resume_id)
@@ -1220,7 +1930,15 @@ async def websocket_endpoint(ws: WebSocket):
         else:
             history_text = f"Topic: {topic}\n"
     else:
-        history_text = f"Topic: {topic}\n"
+        # First message from welcome screen: treat as the opening human turn,
+        # not just a session label, so agents see [Human]: from the start.
+        history_text = f"[Human]: {topic}\n"
+        hmsg = {
+            "type": "message", "agent": "Human",
+            "color": "#60a5fa", "text": topic,
+            "timestamp": datetime.now().isoformat(),
+        }
+        log(hmsg)
 
     event_queue: asyncio.Queue = asyncio.Queue()
 
@@ -1233,14 +1951,19 @@ async def websocket_endpoint(ws: WebSocket):
         if first_msg:
             if first_msg.get("type") == "human":
                 raw_text = first_msg["text"]
+                imgs = first_msg.get("images") or []
+                img_refs = save_session_images(session_id, imgs)
                 history_entry, skill_name = resolve_human_text(raw_text)
                 history_text += f"\n[Human]: {history_entry}\n"
-                log({
+                hmsg0 = {
                     "type": "message", "agent": "Human",
                     "color": "#60a5fa", "text": raw_text,
                     "skill": skill_name,
                     "timestamp": datetime.now().isoformat(),
-                })
+                }
+                if img_refs:
+                    hmsg0["images"] = img_refs
+                log(hmsg0)
             elif first_msg.get("type") == "stop":
                 return
 
@@ -1250,6 +1973,10 @@ async def websocket_endpoint(ws: WebSocket):
         "session_id": session_id,
     })
     log({"type": "system", "text": f"Topic: {topic}", "workspace_id": workspace_id, "timestamp": datetime.now().isoformat()})
+
+    # Broadcast initial mode state so clients know defaults on connect
+    for _ag in active_agents:
+        await ws.send_json({"type": "mode_update", "agent": _ag["name"], "mode": agent_modes[_ag["name"]]})
 
     engine = ConversationEngine(active_agents, silence=silence_mode)
 
@@ -1263,7 +1990,9 @@ async def websocket_endpoint(ws: WebSocket):
                 agent = registry[name]
                 ensure_workspace(agent)
                 active_agents.append(agent)
+                agent_modes[name] = agent.get("mode", "chat")
                 engine.add_agent(agent)
+                history_text += f"\n[System]: {name} joined the conversation\n"
                 smsg = {"type": "system", "text": f"{agent.get('emoji', '')} {name} 加入聊天室"}
                 await ws.send_json(smsg)
                 log({**smsg, "timestamp": datetime.now().isoformat()})
@@ -1302,35 +2031,117 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         running = True
         batch_turns = 0
+        pending_humans: list[dict] = []  # buffer human msgs received while agent is thinking
+        current_images: list[dict] = []  # images from last human message, used for next agent turn
         while running:
             agent = engine.next_speaker()
             await ws.send_json({"type": "thinking", "agent": agent["name"], "color": agent["color"]})
 
             t_start = asyncio.get_event_loop().time()
-            agent_task = asyncio.create_task(
-                call_agent(agent, build_prompt(agent, history_text, workspace_id))
-            )
+            chunk_parts: list[str] = []
+            chunk_q: asyncio.Queue[str | SubprocessError | None] = asyncio.Queue()
+            cancelled = False
+            had_subprocess_error: SubprocessError | None = None
+            turn_images = current_images[:]
+            current_images = []  # consume once
 
-            while not agent_task.done():
-                evt = await next_event(timeout=0.3)
+            _max_hist = load_config().get("max_history_chars", 80000)
+            _trimmed_history = truncate_history(history_text, _max_hist)
+            _turn_usage: list[TokenUsage] = []
+
+            async def _produce():
+                try:
+                    _current_mode = agent_modes.get(agent["name"], "chat")
+                    _prompt = build_prompt(
+                        agent, _trimmed_history, workspace_id, active_agents,
+                        mode=_current_mode,
+                        scenario_system_prompt=scenario_system_prompt,
+                        blank_mode=blank_mode,
+                    )
+                    async for chunk in stream_agent(agent, _prompt, images=turn_images or None, mode=_current_mode):
+                        if isinstance(chunk, TokenUsage):
+                            _turn_usage.append(chunk)
+                        else:
+                            await chunk_q.put(chunk)
+                except SubprocessError as e:
+                    await chunk_q.put(e)  # sentinel: SubprocessError in queue
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    await chunk_q.put(None)
+
+            agent_task = asyncio.create_task(_produce())
+            agent_done = False
+            await ws.send_json({"type": "stream_start", "agent": agent["name"], "color": agent["color"]})
+
+            while not agent_done:
+                # Drain all ready chunks
+                while True:
+                    try:
+                        chunk = chunk_q.get_nowait()
+                        if chunk is None:
+                            agent_done = True
+                            break
+                        if isinstance(chunk, SubprocessError):
+                            had_subprocess_error = chunk
+                            agent_done = True
+                            break
+                        chunk_parts.append(chunk)
+                        await ws.send_json({"type": "chunk", "agent": agent["name"], "color": agent["color"], "text": chunk})
+                    except asyncio.QueueEmpty:
+                        break
+
+                if agent_done:
+                    break
+
+                # Wait briefly for events or more chunks
+                evt = await next_event(timeout=0.05)
                 if evt:
                     t = evt.get("type")
                     if t == "stop":
                         agent_task.cancel()
                         running = False
+                        cancelled = True
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
+                    elif t == "set_mode":
+                        _sm_agent = evt.get("agent", "")
+                        _sm_mode = evt.get("mode", "")
+                        if _sm_agent not in agent_modes:
+                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+                        elif _sm_mode not in ("chat", "think"):
+                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+                        else:
+                            agent_modes[_sm_agent] = _sm_mode
+                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
                     elif t == "human":
-                        await event_queue.put(evt)
+                        pending_humans.append(evt)
 
-            if not running:
+            if cancelled:
                 break
 
-            try:
-                response = await agent_task
-            except asyncio.CancelledError:
-                break
+            # Handle subprocess error sentinel
+            if had_subprocess_error:
+                e = had_subprocess_error
+                had_subprocess_error = None
+                partial = e.partial_output or ""
+                suffix = " [TRUNCATED]" if partial else ""
+                response = (partial + suffix).strip() or None
+
+                partial_text_for_frontend = (
+                    e.partial_output if isinstance(e, SubprocessStartupError) else None
+                )
+                await ws.send_json({
+                    "type": "agent_error",
+                    "agent": agent["name"],
+                    "error_type": type(e).__name__,
+                    "message": _error_message(e),
+                    "partial_text": partial_text_for_frontend,
+                })
+                agent["pending_continuation"] = True
+            else:
+                response = "".join(chunk_parts).strip() if chunk_parts else None
 
             duration_ms = int((asyncio.get_event_loop().time() - t_start) * 1000)
 
@@ -1340,17 +2151,59 @@ async def websocket_endpoint(ws: WebSocket):
             history_text += f"\n[{agent['name']}]: {response}\n"
             append_memory(agent, topic, response)
 
+            ts = datetime.now().isoformat()
             msg = {
                 "type": "message",
                 "agent": agent["name"],
                 "color": agent["color"],
                 "text": response,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": ts,
                 "duration_ms": duration_ms,
             }
-            await ws.send_json(msg)
+            _usage_obj = _turn_usage[0] if _turn_usage else None
+            _msg_end: dict = {"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms}
+            if _usage_obj:
+                _msg_end["usage"] = {"input": _usage_obj.input_tokens, "output": _usage_obj.output_tokens, "cached": _usage_obj.cached_tokens}
+            await ws.send_json(_msg_end)
             log(msg)
             batch_turns += 1
+
+            # Process any human messages buffered during agent execution
+            if pending_humans:
+                for ph in pending_humans:
+                    text = ph["text"]
+                    imgs = ph.get("images") or []
+                    if imgs:
+                        current_images = imgs  # use for next turn
+                    img_refs = save_session_images(session_id, imgs)
+                    # TUI command interception
+                    _intercepted, _mode_updates = intercept_mode_command(text, agent_modes, active_agents)
+                    if _intercepted:
+                        for _upd in _mode_updates:
+                            if "error" in _upd:
+                                history_text += f"\n[System]: {_upd['error']}\n"
+                                await ws.send_json({"type": "system", "text": _upd["error"]})
+                            else:
+                                await ws.send_json({"type": "mode_update", "agent": _upd["agent"], "mode": _upd["mode"]})
+                        continue  # do NOT forward command to agents
+                    history_entry, skill_name = resolve_human_text(text, workspace_id)
+                    history_text += f"\n[Human]: {history_entry}\n"
+                    hmsg = {
+                        "type": "message", "agent": "Human",
+                        "color": "#60a5fa", "text": text,
+                        "skill": skill_name,
+                        "timestamp": datetime.now().isoformat(),
+                        **({"images": img_refs} if img_refs else {}),
+                    }
+                    await ws.send_json(hmsg)
+                    log(hmsg)
+                    mention = ConversationEngine.extract_mention(text, active_agents)
+                    if mention and engine.on_mention(mention) is not None:
+                        pass
+                    else:
+                        engine.on_human()
+                pending_humans.clear()
+                batch_turns = 0
 
             pause_now = (not auto_mode) and (batch_turns >= manual_rounds * len(active_agents))
             await ws.send_json({"type": "ready", "auto": auto_mode, "pause": pause_now})
@@ -1364,24 +2217,49 @@ async def websocket_endpoint(ws: WebSocket):
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
+                    elif t == "set_mode":
+                        _sm_agent = evt.get("agent", "")
+                        _sm_mode = evt.get("mode", "")
+                        if _sm_agent not in agent_modes:
+                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+                        elif _sm_mode not in ("chat", "think"):
+                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+                        else:
+                            agent_modes[_sm_agent] = _sm_mode
+                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
                     elif t == "human":
                         text = evt["text"]
-                        history_entry, skill_name = resolve_human_text(text)
-                        history_text += f"\n[Human]: {history_entry}\n"
-                        hmsg = {
-                            "type": "message", "agent": "Human",
-                            "color": "#60a5fa", "text": text,
-                            "skill": skill_name,
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                        await ws.send_json(hmsg)
-                        log(hmsg)
-                        mention = ConversationEngine.extract_mention(text)
-                        if mention and engine.on_mention(mention) is not None:
-                            pass  # engine reordered; next next_speaker() returns @target
+                        imgs = evt.get("images") or []
+                        if imgs:
+                            current_images = imgs
+                        img_refs = save_session_images(session_id, imgs)
+                        # TUI command interception
+                        _intercepted, _mode_updates = intercept_mode_command(text, agent_modes, active_agents)
+                        if _intercepted:
+                            for _upd in _mode_updates:
+                                if "error" in _upd:
+                                    history_text += f"\n[System]: {_upd['error']}\n"
+                                    await ws.send_json({"type": "system", "text": _upd["error"]})
+                                else:
+                                    await ws.send_json({"type": "mode_update", "agent": _upd["agent"], "mode": _upd["mode"]})
                         else:
-                            engine.on_human()
-                        batch_turns = 0
+                            history_entry, skill_name = resolve_human_text(text, workspace_id)
+                            history_text += f"\n[Human]: {history_entry}\n"
+                            hmsg = {
+                                "type": "message", "agent": "Human",
+                                "color": "#60a5fa", "text": text,
+                                "skill": skill_name,
+                                "timestamp": datetime.now().isoformat(),
+                                **({"images": img_refs} if img_refs else {}),
+                            }
+                            await ws.send_json(hmsg)
+                            log(hmsg)
+                            mention = ConversationEngine.extract_mention(text, active_agents)
+                            if mention and engine.on_mention(mention) is not None:
+                                pass  # engine reordered; next next_speaker() returns @target
+                            else:
+                                engine.on_human()
+                            batch_turns = 0
             else:
                 batch_turns = 0
                 while True:
@@ -1396,28 +2274,55 @@ async def websocket_endpoint(ws: WebSocket):
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
+                    elif t == "set_mode":
+                        _sm_agent = evt.get("agent", "")
+                        _sm_mode = evt.get("mode", "")
+                        if _sm_agent not in agent_modes:
+                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+                        elif _sm_mode not in ("chat", "think"):
+                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+                        else:
+                            agent_modes[_sm_agent] = _sm_mode
+                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
                     elif t == "human":
                         text = evt["text"]
-                        history_entry, skill_name = resolve_human_text(text)
-                        history_text += f"\n[Human]: {history_entry}\n"
-                        hmsg = {
-                            "type": "message", "agent": "Human",
-                            "color": "#60a5fa", "text": text,
-                            "skill": skill_name,
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                        await ws.send_json(hmsg)
-                        log(hmsg)
-                        mention = ConversationEngine.extract_mention(text)
-                        if mention and engine.on_mention(mention) is not None:
-                            pass  # engine reordered; next next_speaker() returns @target
+                        imgs = evt.get("images") or []
+                        if imgs:
+                            current_images = imgs
+                        img_refs = save_session_images(session_id, imgs)
+                        # TUI command interception
+                        _intercepted, _mode_updates = intercept_mode_command(text, agent_modes, active_agents)
+                        if _intercepted:
+                            for _upd in _mode_updates:
+                                if "error" in _upd:
+                                    history_text += f"\n[System]: {_upd['error']}\n"
+                                    await ws.send_json({"type": "system", "text": _upd["error"]})
+                                else:
+                                    await ws.send_json({"type": "mode_update", "agent": _upd["agent"], "mode": _upd["mode"]})
                         else:
-                            engine.on_human()
-                        break
+                            history_entry, skill_name = resolve_human_text(text, workspace_id)
+                            history_text += f"\n[Human]: {history_entry}\n"
+                            hmsg = {
+                                "type": "message", "agent": "Human",
+                                "color": "#60a5fa", "text": text,
+                                "skill": skill_name,
+                                "timestamp": datetime.now().isoformat(),
+                                **({"images": img_refs} if img_refs else {}),
+                            }
+                            await ws.send_json(hmsg)
+                            log(hmsg)
+                            mention = ConversationEngine.extract_mention(text, active_agents)
+                            if mention and engine.on_mention(mention) is not None:
+                                pass  # engine reordered; next next_speaker() returns @target
+                            else:
+                                engine.on_human()
+                            break
 
     except WebSocketDisconnect:
         pass
     finally:
+        try: _active_ws.remove(client_ip)
+        except ValueError: pass
         recv_task.cancel()
         save_history(session_id, messages)
         try:
@@ -1426,16 +2331,6 @@ async def websocket_endpoint(ws: WebSocket):
             pass
         for agent in active_agents:
             asyncio.create_task(write_daily_summary(agent))
-
-
-# ── Startup ───────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup():
-    migrate_if_needed()
-    migrate_history_to_folders()
-    ensure_agent_configs()
-    ensure_default_template()
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

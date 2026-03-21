@@ -3,6 +3,7 @@ Regression + unit tests for agent-cli-converation API.
 
 Run with:  python3 -m pytest test_api.py -v
 """
+import asyncio
 import io
 import json
 import shutil
@@ -56,6 +57,7 @@ def tmp_project(tmp_path, monkeypatch):
     monkeypatch.setattr(a, "PROJECT_DIR", tmp_path)
     monkeypatch.setattr(a, "MARKETPLACE_DIR", marketplace_dir)
     monkeypatch.setattr(a, "WORKSPACES_DIR", workspaces_dir)
+    monkeypatch.setattr(a, "SCENARIOS_DIR", tmp_path / "scenarios")
 
     # Ensure _default template exists
     default_dir = agents_dir / "_default"
@@ -219,6 +221,36 @@ class TestAgents:
         assert (agent_dir / "AGENT.md").exists()
         assert (agent_dir / "MEMORY.md").exists()
         assert (agent_dir / "config.json").exists()
+
+    def test_agent_test_endpoint_unknown_agent(self, client):
+        r = client.post("/agents/ghost-xyz/test")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert "Unknown agent" in data["error"]
+
+    def test_agent_test_endpoint_ok(self, client, tmp_project):
+        """Test endpoint with a mock CLI (echo) — should return ok=True."""
+        import json as _json
+        # Add a CLI echo model to the config
+        cfg = _json.loads((tmp_project / "config.json").read_text())
+        cfg["models"]["echo-model"] = {
+            "type": "cli",
+            "cmd": ["echo", "I am ready"],
+            "emoji": "🔊",
+            "color": "#aaa",
+        }
+        (tmp_project / "config.json").write_text(_json.dumps(cfg))
+
+        name = "echo-agent"
+        self._create_agent(client, name)
+        client.put(f"/agents/{name}", json={"model": "echo-model"})
+
+        r = client.post(f"/agents/{name}/test")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["response"]
 
 
 # ── Skills ────────────────────────────────────────────────────────────────────
@@ -893,3 +925,1009 @@ class TestWorkspaces:
         found = next((s for s in sessions if s["id"] == "2026-test"), None)
         assert found is not None
         assert found["workspace_id"] == ws_id
+
+
+# ── Phase 0.1: Subprocess Recovery ───────────────────────────────────────────
+
+class TestSubprocessRecovery:
+    """Phase 0.1 — subprocess crash / timeout recovery."""
+
+    def test_exception_base_class(self):
+        import app as a
+        e = a.SubprocessError(agent="claude", partial_output="hello", stderr_output="")
+        assert e.agent == "claude"
+        assert e.partial_output == "hello"
+
+    def test_timeout_error_carries_seconds(self):
+        import app as a
+        e = a.SubprocessTimeoutError(
+            agent="claude", partial_output="hi", stderr_output="", timeout_seconds=60
+        )
+        assert e.timeout_seconds == 60
+        assert isinstance(e, a.SubprocessError)
+
+    def test_crash_error_carries_exit_code(self):
+        import app as a
+        e = a.SubprocessCrashError(
+            agent="gemini", partial_output="", stderr_output="err", exit_code=1
+        )
+        assert e.exit_code == 1
+        assert isinstance(e, a.SubprocessError)
+
+    def test_startup_error_empty_partial(self):
+        import app as a
+        e = a.SubprocessStartupError(agent="claude", cause="FileNotFoundError")
+        assert e.partial_output == ""
+        assert isinstance(e, a.SubprocessError)
+
+    def test_resolve_timeout_agent_level_wins(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project, "idle_timeout_seconds": 90}
+        assert a._resolve_timeout(agent, "idle_timeout_seconds", 60) == 90
+
+    def test_resolve_timeout_falls_back_to_default(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project}
+        assert a._resolve_timeout(agent, "idle_timeout_seconds", 60) == 60
+
+    def test_error_message_timeout(self):
+        import app as a
+        e = a.SubprocessTimeoutError("claude", "", "", 60)
+        assert "60" in a._error_message(e) and "claude" in a._error_message(e)
+
+    def test_error_message_crash(self):
+        import app as a
+        e = a.SubprocessCrashError("gemini", exit_code=1)
+        assert "gemini" in a._error_message(e)
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_raises_crash_error(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["cat"], "startup_timeout_seconds": 5, "idle_timeout_seconds": 5}
+
+        call_count = 0
+        async def mock_read(n):
+            nonlocal call_count
+            call_count += 1
+            return b"output" if call_count == 1 else b""
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.read = mock_read
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"some error")
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.returncode = 1
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(a.SubprocessCrashError) as exc_info:
+                async for _ in a.stream_cli_agent(agent, "hello"):
+                    pass
+
+        assert exc_info.value.exit_code == 1
+        assert "some error" in exc_info.value.stderr_output
+
+    @pytest.mark.asyncio
+    async def test_command_not_found_raises_startup_error(self, tmp_project):
+        import app as a
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["nonexistent-xyz"], "startup_timeout_seconds": 5, "idle_timeout_seconds": 5}
+
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("no such file")):
+            with pytest.raises(a.SubprocessStartupError) as exc_info:
+                async for _ in a.stream_cli_agent(agent, "hello"):
+                    pass
+        assert exc_info.value.agent == "claude"
+        assert exc_info.value.partial_output == ""
+
+    @pytest.mark.asyncio
+    async def test_startup_timeout_raises_startup_error(self, tmp_project):
+        import app as a
+        import asyncio as aio
+
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["cat"], "startup_timeout_seconds": 0.05, "idle_timeout_seconds": 5}
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = MagicMock()
+        async def _hanging_read(n):
+            await aio.sleep(999)
+            return b""
+        mock_proc.stdout.read = _hanging_read
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"")
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(a.SubprocessStartupError):
+                async for _ in a.stream_cli_agent(agent, "hello"):
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_idle_timeout_raises_with_partial_output(self, tmp_project):
+        import app as a
+        import asyncio as aio
+
+        agent = {"name": "claude", "workspace": tmp_project,
+                 "cmd": ["cat"], "startup_timeout_seconds": 5, "idle_timeout_seconds": 0.05}
+
+        call_count = 0
+        async def mock_read(n):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1: return b"hello "
+            if call_count == 2: return b"world"
+            await aio.sleep(999)
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.read = mock_read
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"")
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.returncode = 0
+
+        chunks = []
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(a.SubprocessTimeoutError) as exc_info:
+                async for chunk in a.stream_cli_agent(agent, "hello"):
+                    chunks.append(chunk)
+
+        assert chunks == ["hello ", "world"]
+        assert exc_info.value.partial_output == "hello world"
+
+    # ── Chunk 3: WS handler agent_error event ──────────────────────────────
+
+    def test_ws_sends_agent_error_on_timeout(self, tmp_project):
+        """agent_error WS event sent when stream_cli_agent raises SubprocessTimeoutError."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "model": "test-model", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+            raise a.SubprocessTimeoutError(
+                agent="claude", partial_output="hello", stderr_output="", timeout_seconds=60
+            )
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    events = []
+                    for _ in range(30):
+                        try:
+                            msg = ws.receive_json()
+                            events.append(msg)
+                            if msg.get("type") in ("ready",):
+                                break
+                        except Exception:
+                            break
+
+        types = [e["type"] for e in events]
+        assert "agent_error" in types, f"events: {types}"
+        err = next(e for e in events if e["type"] == "agent_error")
+        assert err["agent"] == "claude"
+        assert err["error_type"] == "SubprocessTimeoutError"
+        assert err["partial_text"] is None   # chunks already sent as "chunk" events
+
+    def test_ws_sends_partial_text_on_startup_failure(self, tmp_project):
+        """agent_error has partial_text when startup fails (no chunks sent)."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "model": "test-model", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            raise a.SubprocessStartupError(agent="claude", cause="not found")
+            yield  # make it a generator
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    events = []
+                    for _ in range(30):
+                        try:
+                            msg = ws.receive_json()
+                            events.append(msg)
+                            if msg.get("type") in ("ready",):
+                                break
+                        except Exception:
+                            break
+
+        err = next((e for e in events if e["type"] == "agent_error"), None)
+        assert err is not None, f"events: {[e['type'] for e in events]}"
+        assert err["error_type"] == "SubprocessStartupError"
+        # partial_text is "" (empty string, not None) — no output was produced
+        assert err["partial_text"] is not None
+
+    # ── Chunk 3: build_prompt continuation hint ────────────────────────────
+
+    def test_build_prompt_injects_continuation_hint(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir, "pending_continuation": True}
+        prompt = a.build_prompt(agent, "history here")
+        assert "打斷" in prompt
+
+    def test_build_prompt_clears_flag_after_injection(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir, "pending_continuation": True}
+        a.build_prompt(agent, "history")
+        assert agent.get("pending_continuation") is False
+
+    def test_build_prompt_no_hint_when_flag_absent(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(agent, "history")
+        assert "打斷" not in prompt
+
+
+class TestHistorySliding:
+    """Phase 0.2 — history sliding window truncation."""
+
+    def _h(self, turns):
+        return "".join(f"\n[{a}]: {t}\n" for a, t in turns)
+
+    def test_no_truncation_when_under_limit(self):
+        import app as a
+        h = self._h([("Claude", "hello"), ("Gemini", "world")])
+        result = a.truncate_history(h, max_chars=10000)
+        assert result == h
+        assert a.TRUNCATION_MARKER not in result
+
+    def test_truncation_removes_oldest_turns(self):
+        import app as a
+        h = self._h([("A", "x" * 100), ("B", "y" * 100), ("C", "z" * 100), ("D", "w" * 100)])
+        result = a.truncate_history(h, max_chars=220)
+        assert "[D]:" in result
+        assert "[A]:" not in result
+        assert a.TRUNCATION_MARKER in result
+
+    def test_truncation_marker_appears_once(self):
+        import app as a
+        h = self._h([("A", "x" * 200), ("B", "y" * 200)])
+        result = a.truncate_history(h, max_chars=50)
+        assert result.count(a.TRUNCATION_MARKER) == 1
+
+    def test_no_mid_sentence_cut(self):
+        import app as a
+        h = self._h([("A", "line1\nline2\nline3"), ("B", "short")])
+        result = a.truncate_history(h, max_chars=30)
+        stripped = result.replace(a.TRUNCATION_MARKER, "").strip()
+        if stripped:
+            assert stripped.startswith("[")
+
+    def test_equal_to_limit_not_truncated(self):
+        import app as a
+        h = self._h([("A", "hello")])
+        result = a.truncate_history(h, len(h))
+        assert result == h
+
+    def test_single_oversized_turn(self):
+        import app as a
+        h = self._h([("A", "x" * 500)])
+        result = a.truncate_history(h, max_chars=10)
+        assert a.TRUNCATION_MARKER in result
+
+
+class TestImageCompat:
+    """Phase 0.3 — supports_image flag per agent/model."""
+
+    def test_resolve_supports_image_agent_level_false(self, tmp_project):
+        import app as a
+        agent = {"name": "codex", "workspace": tmp_project, "supports_image": False}
+        assert a._resolve_supports_image(agent) is False
+
+    def test_resolve_supports_image_agent_true_overrides_model(self, tmp_project):
+        import app as a
+        # agent-level True wins over model-level False
+        agent = {"name": "codex", "workspace": tmp_project, "supports_image": True}
+        assert a._resolve_supports_image(agent) is True
+
+    def test_resolve_supports_image_defaults_true(self, tmp_project):
+        import app as a
+        # no flag anywhere → default True
+        agent = {"name": "unknown-model", "workspace": tmp_project}
+        assert a._resolve_supports_image(agent) is True
+
+    def test_codex_default_models_false(self):
+        import app as a
+        assert a.DEFAULT_MODELS["codex"].get("supports_image") is False
+
+    def test_claude_default_models_true(self):
+        import app as a
+        assert a.DEFAULT_MODELS["claude"].get("supports_image") is True
+
+    @pytest.mark.asyncio
+    async def test_no_image_args_when_not_supported(self, tmp_project):
+        import app as a
+        agent = {"name": "codex", "workspace": tmp_project,
+                 "cmd": ["cat"], "supports_image": False,
+                 "startup_timeout_seconds": 5, "idle_timeout_seconds": 5}
+
+        images = [{"name": "test.png", "mime": "image/png",
+                   "base64": "iVBORw0KGgo="}]  # tiny fake png
+
+        captured_args = {}
+
+        async def mock_exec(*args, **kwargs):
+            captured_args["args"] = args
+            # Return a mock that yields nothing and exits 0
+            mock_proc = MagicMock()
+            mock_proc.stdout = MagicMock()
+            call_count = [0]
+            async def _read(n):
+                call_count[0] += 1
+                return b"hello" if call_count[0] == 1 else b""
+            mock_proc.stdout.read = _read
+            mock_proc.stderr = MagicMock()
+            mock_proc.stderr.read = AsyncMock(return_value=b"")
+            mock_proc.kill = MagicMock()
+            mock_proc.wait = AsyncMock()
+            mock_proc.returncode = 0
+            return mock_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+            chunks = []
+            async for chunk in a.stream_cli_agent(agent, "hello", images=images):
+                chunks.append(chunk)
+
+        assert "--add-file" not in " ".join(str(x) for x in captured_args.get("args", []))
+
+
+# ── Phase 0.4: Protected Paths ────────────────────────────────────────────────
+
+class TestProtectedPaths:
+    """Phase 0.4 — filename validation and path protection."""
+
+    # ── validate_filename unit tests ──────────────────────────────────────────
+
+    def test_valid_filename_passes(self):
+        import app as a
+        a.validate_filename("note.txt")  # no exception
+
+    def test_valid_filename_with_space(self):
+        import app as a
+        a.validate_filename("my note.md")
+
+    def test_valid_filename_with_dash_and_numbers(self):
+        import app as a
+        a.validate_filename("report-2026.pdf")
+
+    def test_dotdot_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match=r"\.\."):
+            a.validate_filename("../secret.txt")
+
+    def test_slash_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="path separator"):
+            a.validate_filename("subdir/file.txt")
+
+    def test_backslash_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="path separator"):
+            a.validate_filename("subdir\\file.txt")
+
+    def test_double_dot_in_middle_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match=r"\.\."):
+            a.validate_filename("file..txt")
+
+    def test_protected_filename_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="protected"):
+            a.validate_filename("guide.md")
+
+    def test_protected_filename_allowed_when_flag_set(self):
+        import app as a
+        a.validate_filename("guide.md", allow_protected=True)  # no exception
+
+    def test_empty_filename_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="empty"):
+            a.validate_filename("")
+
+    def test_too_long_filename_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="too long"):
+            a.validate_filename("a" * 256)
+
+    def test_semicolon_raises(self):
+        import app as a
+        with pytest.raises(ValueError, match="invalid characters"):
+            a.validate_filename("file;rm.txt")
+
+    # ── safe_workspace_path unit tests ────────────────────────────────────────
+
+    def test_safe_path_returns_correct_path(self, tmp_path):
+        import app as a
+        result = a.safe_workspace_path(str(tmp_path), "note.txt")
+        assert result == str(tmp_path / "note.txt")
+
+    def test_safe_path_detects_symlink_traversal(self, tmp_path):
+        import app as a
+        outside = tmp_path.parent / "outside_secret.txt"
+        outside.write_text("secret")
+        link = tmp_path / "link.txt"
+        link.symlink_to(outside)
+        with pytest.raises(ValueError, match="traversal"):
+            a.safe_workspace_path(str(tmp_path), "link.txt")
+
+    # ── integration tests on upload endpoint ──────────────────────────────────
+
+    def test_upload_valid_file(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Valid"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("note.txt", b"hello world", "text/plain")},
+        )
+        assert r.status_code == 200
+
+    def test_upload_path_traversal_403(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Traversal"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("../../etc/passwd", b"bad", "text/plain")},
+        )
+        assert r.status_code == 403
+
+    def test_upload_protected_filename_403(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Protected"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("guide.md", b"hacked", "text/plain")},
+        )
+        assert r.status_code == 403
+
+    def test_upload_invalid_char_403(self, client):
+        ws = client.post("/workspaces", json={"name": "P04 Invalid"}).json()
+        ws_id = ws["id"]
+        r = client.post(
+            f"/workspaces/{ws_id}/files",
+            files={"file": ("x;y.txt", b"bad", "text/plain")},
+        )
+        assert r.status_code == 403
+
+
+class TestAgentMode:
+    """Phase 1.1 — agent chat/think mode."""
+
+    def test_build_prompt_chat_mode_adds_concise_prefix(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(agent, "history", mode="chat")
+        assert "Keep your response concise" in prompt
+
+    def test_build_prompt_think_mode_no_concise_prefix(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(agent, "history", mode="think")
+        assert "2-3 sentences" not in prompt
+
+    def test_build_prompt_default_mode_is_chat(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt_default = a.build_prompt(agent, "history")
+        prompt_chat = a.build_prompt(agent, "history", mode="chat")
+        assert "Keep your response concise" in prompt_default
+
+    @pytest.mark.asyncio
+    async def test_stream_cli_adds_extended_thinking_when_supported(self, tmp_project):
+        import app as a
+        captured = {}
+
+        async def mock_create_subprocess(*args, **kwargs):
+            captured["args"] = args
+            raise FileNotFoundError("mock")
+
+        agent = {
+            "name": "claude",
+            "cmd": ["claude", "--print"],
+            "workspace": tmp_project,
+            "supports_thinking": True,
+            "supports_image": False,
+            "idle_timeout_seconds": 5,
+            "startup_timeout_seconds": 3,
+        }
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess):
+            try:
+                async for _ in a.stream_cli_agent(agent, "prompt", mode="think"):
+                    pass
+            except Exception:
+                pass
+        assert "--extended-thinking" in captured.get("args", []), f"args: {captured.get('args')}"
+
+    @pytest.mark.asyncio
+    async def test_stream_cli_no_extended_thinking_when_not_supported(self, tmp_project):
+        import app as a
+        captured = {}
+
+        async def mock_create_subprocess(*args, **kwargs):
+            captured["args"] = args
+            raise FileNotFoundError("mock")
+
+        agent = {
+            "name": "claude",
+            "cmd": ["claude", "--print"],
+            "workspace": tmp_project,
+            "supports_thinking": False,
+            "supports_image": False,
+            "idle_timeout_seconds": 5,
+            "startup_timeout_seconds": 3,
+        }
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess):
+            try:
+                async for _ in a.stream_cli_agent(agent, "prompt", mode="think"):
+                    pass
+            except Exception:
+                pass
+        assert "--extended-thinking" not in captured.get("args", []), f"args: {captured.get('args')}"
+
+    @pytest.mark.asyncio
+    async def test_stream_cli_no_extended_thinking_in_chat_mode(self, tmp_project):
+        import app as a
+        captured = {}
+
+        async def mock_create_subprocess(*args, **kwargs):
+            captured["args"] = args
+            raise FileNotFoundError("mock")
+
+        agent = {
+            "name": "claude",
+            "cmd": ["claude", "--print"],
+            "workspace": tmp_project,
+            "supports_thinking": True,
+            "supports_image": False,
+            "idle_timeout_seconds": 5,
+            "startup_timeout_seconds": 3,
+        }
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess):
+            try:
+                async for _ in a.stream_cli_agent(agent, "prompt", mode="chat"):
+                    pass
+            except Exception:
+                pass
+        assert "--extended-thinking" not in captured.get("args", []), f"args: {captured.get('args')}"
+
+    def test_set_mode_broadcast_to_all_clients(self, tmp_project):
+        """set_mode WS message triggers mode_update broadcast."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    for _ in range(30):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "set_mode", "agent": "claude", "mode": "think"})
+                    for _ in range(10):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "mode_update":
+                            assert msg["agent"] == "claude"
+                            assert msg["mode"] == "think"
+                            break
+                    else:
+                        pytest.fail("No mode_update received")
+
+    def test_set_mode_unknown_agent_returns_error(self, tmp_project):
+        """set_mode with unknown agent sends error to sender only."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "🟣", "color": "#a78bfa", "enabled": True,
+        }))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    for _ in range(30):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "set_mode", "agent": "nonexistent", "mode": "think"})
+                    for _ in range(10):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "error":
+                            assert "nonexistent" in msg.get("message", "").lower() or "unknown" in msg.get("message", "").lower()
+                            break
+                    else:
+                        pytest.fail("No error received for unknown agent")
+
+    def test_tui_think_command_sets_all_agents(self, tmp_project):
+        """/think command sets all agents to think mode."""
+        import app as a
+
+        for name in ["claude", "gemini"]:
+            d = tmp_project / "agents" / name
+            d.mkdir(parents=True)
+            (d / "config.json").write_text(json.dumps({"emoji": "🟣", "color": "#aaa", "enabled": True}))
+            (d / "AGENT.md").write_text(f"You are {name}.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude", "gemini"], "auto": False})
+                    for _ in range(50):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "human", "text": "/think"})
+                    updates = []
+                    for _ in range(15):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "mode_update":
+                            updates.append(msg)
+                        if len(updates) == 2:
+                            break
+                    assert len(updates) == 2
+                    modes = {u["agent"]: u["mode"] for u in updates}
+                    assert all(m == "think" for m in modes.values())
+
+    def test_tui_think_at_agent_sets_only_that_agent(self, tmp_project):
+        """/think @claude sets only claude."""
+        import app as a
+
+        for name in ["claude", "gemini"]:
+            d = tmp_project / "agents" / name
+            d.mkdir(parents=True)
+            (d / "config.json").write_text(json.dumps({"emoji": "🟣", "color": "#aaa", "enabled": True}))
+            (d / "AGENT.md").write_text(f"You are {name}.")
+
+        async def mock_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude", "gemini"], "auto": False})
+                    for _ in range(50):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "human", "text": "/think @claude"})
+                    updates = []
+                    # Collect mode_updates, stop after receiving 'ready' or hitting the limit
+                    for _ in range(20):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "mode_update":
+                            updates.append(msg)
+                        elif msg.get("type") == "ready":
+                            break
+                    assert len(updates) == 1
+                    assert updates[0]["agent"] == "claude"
+                    assert updates[0]["mode"] == "think"
+
+    def test_tui_command_not_forwarded_to_agents(self, tmp_project):
+        """/think command is NOT sent to agents as a human message."""
+        import app as a
+
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({"emoji": "🟣", "color": "#a78bfa", "enabled": True}))
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+
+        received_prompts = []
+
+        async def mock_stream(agent, prompt, **kwargs):
+            received_prompts.append(prompt)
+            yield "hello"
+
+        with patch.object(a, "stream_agent", mock_stream):
+            with TestClient(a.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "start", "topic": "test",
+                                  "agents": ["claude"], "auto": False})
+                    for _ in range(30):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+                    ws.send_json({"type": "human", "text": "/think"})
+                    for _ in range(10):
+                        msg = ws.receive_json()
+                        if msg.get("type") == "ready":
+                            break
+        for p in received_prompts:
+            assert "/think" not in p
+
+
+class TestInterceptModeCommand:
+    """Unit tests for intercept_mode_command() helper."""
+
+    def _agents(self):
+        return [{"name": "Claude"}, {"name": "Gemini"}]
+
+    def test_non_command_not_intercepted(self):
+        import app as a
+        modes = {"Claude": "chat", "Gemini": "chat"}
+        intercepted, _ = a.intercept_mode_command("hello world", modes, self._agents())
+        assert not intercepted
+
+    def test_think_sets_all_agents(self):
+        import app as a
+        modes = {"Claude": "chat", "Gemini": "chat"}
+        intercepted, updates = a.intercept_mode_command("/think", modes, self._agents())
+        assert intercepted
+        assert all(u["mode"] == "think" for u in updates)
+        assert len(updates) == 2
+        assert modes["Claude"] == "think"
+        assert modes["Gemini"] == "think"
+
+    def test_chat_at_agent_sets_only_that_agent(self):
+        import app as a
+        modes = {"Claude": "think", "Gemini": "think"}
+        intercepted, updates = a.intercept_mode_command("/chat @Claude", modes, self._agents())
+        assert intercepted
+        assert len(updates) == 1
+        assert updates[0]["agent"] == "Claude"
+        assert updates[0]["mode"] == "chat"
+        assert modes["Gemini"] == "think"  # unchanged
+
+    def test_unknown_agent_returns_error(self):
+        import app as a
+        modes = {"Claude": "chat"}
+        intercepted, updates = a.intercept_mode_command("/think @Nobody", modes, self._agents())
+        assert intercepted
+        assert len(updates) == 1
+        assert "error" in updates[0]
+        assert "Nobody" in updates[0]["error"]
+        assert modes["Claude"] == "chat"  # unchanged
+
+
+class TestScenarios:
+    """Phase 1.2 — scenario templates."""
+
+    def test_get_scenarios_empty_when_no_dir(self, client):
+        """GET /scenarios returns [] when scenarios/ dir does not exist."""
+        resp = client.get("/scenarios")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_get_scenarios_returns_all_valid_files(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir()
+        (scenarios_dir / "test1.json").write_text(json.dumps({
+            "id": "test1", "name": "Test 1", "description": "Desc",
+            "system_prompt": "You are helpful."
+        }))
+        (scenarios_dir / "test2.json").write_text(json.dumps({
+            "id": "test2", "name": "Test 2", "description": "Desc 2",
+            "system_prompt": "Be concise."
+        }))
+        with TestClient(a.app) as client:
+            resp = client.get("/scenarios")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        ids = {s["id"] for s in data}
+        assert ids == {"test1", "test2"}
+
+    def test_get_scenarios_skips_malformed_json(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir()
+        (scenarios_dir / "valid.json").write_text(json.dumps({
+            "id": "valid", "name": "Valid", "description": "ok", "system_prompt": "ok"
+        }))
+        (scenarios_dir / "broken.json").write_text("NOT VALID JSON {{{")
+        with TestClient(a.app) as client:
+            resp = client.get("/scenarios")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == "valid"
+
+    def test_scenario_system_prompt_injected_in_build_prompt(self, tmp_project):
+        """When scenario_system_prompt is set, it appears in the prompt."""
+        import app as a
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(
+            agent, "history",
+            scenario_system_prompt="Review this code carefully.",
+        )
+        assert "Review this code carefully." in prompt
+
+    def test_blank_mode_injects_no_context(self, tmp_project):
+        """blank_mode=True skips both workspace guide and scenario."""
+        import app as a
+        ws_dir = tmp_project / "workspaces" / "ws1"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "config.json").write_text(json.dumps({
+            "id": "ws1", "name": "WS", "system_prompt": "Secret guide"
+        }))
+        agent_dir = tmp_project / "agents" / "claude"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are Claude.")
+        agent = {"name": "claude", "workspace": agent_dir}
+        prompt = a.build_prompt(
+            agent, "history",
+            workspace_id="ws1",
+            blank_mode=True,
+        )
+        assert "Secret guide" not in prompt
+        assert "Workspace Guide" not in prompt
+
+
+class TestParseSkillSource:
+    def test_reads_source_from_frontmatter(self, tmp_path):
+        from app import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: review\nsource: gstack\nsource_url: https://github.com/garrytan/gstack\nsource_version: 0.9.0\ndescription: Code review\n---\n\nBody here")
+        s = parse_skill(f)
+        assert s["source"] == "gstack"
+        assert s["source_url"] == "https://github.com/garrytan/gstack"
+        assert s["source_version"] == "0.9.0"
+
+    def test_source_defaults_empty_when_absent(self, tmp_path):
+        from app import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: brainstorm\ndescription: Think\n---\n\nBody")
+        s = parse_skill(f)
+        assert s["source"] == ""
+        assert s["source_url"] == ""
+        assert s["source_version"] == ""
+
+    def test_autodetects_gstack_symlink(self, tmp_path):
+        from app import parse_skill
+        # Set up: skills/gstack/review/SKILL.md
+        gstack_dir = tmp_path / "gstack" / "review"
+        gstack_dir.mkdir(parents=True)
+        skill_file = gstack_dir / "SKILL.md"
+        skill_file.write_text("---\nname: review\ndescription: Review\n---\n\nBody")
+        # Create VERSION file
+        (tmp_path / "gstack" / "VERSION").write_text("0.9.0")
+        # Create symlink: review -> gstack/review
+        link_dir = tmp_path / "review"
+        link_dir.symlink_to(gstack_dir)
+        s = parse_skill(link_dir / "SKILL.md", slug_dir=link_dir)
+        assert s["source"] == "gstack"
+        assert s["source_url"] == "https://github.com/garrytan/gstack"
+        assert s["source_version"] == "0.9.0"
+
+
+# ── Task 2: list_skills / get_skill expose source metadata ────────────────────
+
+class TestListSkillsSource:
+    def _make_skill(self, root, slug, source="", name=None):
+        d = root / "skills" / slug
+        d.mkdir(parents=True, exist_ok=True)
+        n = name or slug
+        fm = f"name: {n}\n"
+        if source:
+            fm += f"source: {source}\n"
+        (d / "SKILL.md").write_text(f"---\n{fm}---\n\nBody")
+
+    def test_list_includes_source_fields(self, client, tmp_project):
+        self._make_skill(tmp_project, "my-review", source="gstack", name="review")
+        r = client.get("/skills")
+        assert r.status_code == 200
+        item = next(x for x in r.json() if x["slug"] == "my-review")
+        assert item["source"] == "gstack"
+        assert "source_url" in item
+        assert "source_version" in item
+
+    def test_list_display_name_with_source(self, client, tmp_project):
+        self._make_skill(tmp_project, "my-review", source="gstack", name="review")
+        r = client.get("/skills")
+        item = next(x for x in r.json() if x["slug"] == "my-review")
+        assert item["name"] == "gstack:review"
+
+    def test_list_display_name_without_source(self, client, tmp_project):
+        self._make_skill(tmp_project, "brainstorm", name="brainstorm")
+        r = client.get("/skills")
+        item = next(x for x in r.json() if x["slug"] == "brainstorm")
+        assert item["name"] == "brainstorm"
+
+    def test_get_skill_includes_source(self, client, tmp_project):
+        self._make_skill(tmp_project, "my-skill", source="gstack", name="myskill")
+        r = client.get("/skills/my-skill")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["source"] == "gstack"
+        assert "source_url" in data
+        assert "source_version" in data
+
+
+# ── Task 3: resolve_human_text handles source:slug format ─────────────────────
+
+class TestResolveSkillWithSource:
+    def _make_gstack_skill(self, root, slug):
+        gstack = root / "skills" / "gstack" / slug
+        gstack.mkdir(parents=True, exist_ok=True)
+        (gstack / "SKILL.md").write_text(f"---\nname: {slug}\ndescription: Gstack {slug}\n---\n\nSkill body for {slug}")
+        link = root / "skills" / slug
+        if not link.exists():
+            link.symlink_to(gstack)
+
+    def test_resolve_with_source_prefix(self, tmp_project):
+        import app as a
+        self._make_gstack_skill(tmp_project, "review")
+        text, skill_name = a.resolve_human_text("/gstack:review")
+        assert skill_name is not None
+        assert "review" in skill_name.lower()
+        assert "Skill body for review" in text
+
+    def test_resolve_without_source_prefix_still_works(self, tmp_project):
+        import app as a
+        self._make_gstack_skill(tmp_project, "review")
+        text, skill_name = a.resolve_human_text("/review")
+        assert skill_name is not None
+
+
+class TestHealth:
+    """Phase 1 — GET /health endpoint for offline badge detection."""
+
+    def test_health_returns_200(self, client):
+        r = client.get("/health")
+        assert r.status_code == 200
+
+    def test_health_returns_status_ok(self, client):
+        r = client.get("/health")
+        assert r.json() == {"status": "ok"}

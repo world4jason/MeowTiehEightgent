@@ -4,14 +4,7 @@
   "description": "Gemini agent",
   "model": "gemini",
   "skills": [
-    "brainstorming",
-    "discussion",
-    "executing-plans",
-    "pua-debugging",
-    "systematic-debugging",
-    "using-superpowers",
-    "verification-before-completion",
-    "writing-plans"
+    "brainstorming"
   ],
   "enabled": true
 }

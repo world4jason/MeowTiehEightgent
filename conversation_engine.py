@@ -139,11 +139,18 @@ class ConversationEngine:
         self._speakers_this_cycle = set()
 
     @staticmethod
-    def extract_mention(text: str) -> str | None:
+    def extract_mention(text: str, agents: list[dict] | None = None) -> str | None:
         """
         Extract the first @AgentName from a human message.
+        If agents list is provided, matches against known names (longest first)
+        to avoid eating Chinese particles (e.g. @小黑的意見 → 小黑, not 小黑的意見).
         Returns the name string or None.
         """
+        if agents:
+            for agent in sorted(agents, key=lambda a: len(a["name"]), reverse=True):
+                if re.search(rf"@{re.escape(agent['name'])}", text, re.IGNORECASE):
+                    return agent["name"]
+            return None
         m = re.search(r"@(\w+)", text)
         return m.group(1) if m else None
 
