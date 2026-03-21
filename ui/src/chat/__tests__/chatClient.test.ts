@@ -13,7 +13,7 @@ describe("chatClient", () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     await chatClient.get("/agents");
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining("/agents"),
+      "http://localhost:8000/agents",
       expect.any(Object)
     );
   });
@@ -35,5 +35,7 @@ describe("chatClient", () => {
     const [, init] = mockFetch.mock.calls[0];
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body)).toEqual({ name: "Test" });
+    const headers = init.headers as Headers;
+    expect(headers.get("Content-Type")).toBe("application/json");
   });
 });

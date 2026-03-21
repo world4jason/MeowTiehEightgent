@@ -24,7 +24,7 @@ export function makeApiClient(base: string) {
         body,
       );
     }
-    return res.json();
+    return res.status === 204 ? (undefined as T) : res.json();
   }
 
   return {
