@@ -23,7 +23,7 @@ Cowork mode  ≈  Sprint Execution
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│              React UI（Paperclip fork）               │
+│              React UI（Mth fork）               │
 │         頂部 [ Chat ]  [ Cowork ] 模式切換            │
 └────────────────┬──────────────────┬─────────────────┘
                  │ WS/:8000         │ HTTP/:3100
@@ -61,7 +61,7 @@ Cowork mode  ≈  Sprint Execution
 
 | 層 | 技術 | 職責 |
 |---|---|---|
-| React UI | Paperclip fork + Chat module | 模式切換、Chat UI、Cowork UI |
+| React UI | Mth fork + Chat module | 模式切換、Chat UI、Cowork UI |
 | Chat Server | Python / FastAPI / UV | WebSocket、agent subprocess、session history |
 | Cowork Server | Node.js / Hono / Drizzle | Issues、heartbeat、cost tracking、org chart |
 | Shared FS | 本地檔案系統 | agents/、skills/、workspaces/ |
@@ -78,9 +78,9 @@ repo/
 │   ├── conversation_engine.py
 │   └── pyproject.toml
 │
-├── ui/                      ← Paperclip React UI + Chat module
+├── ui/                      ← Mth React UI + Chat module
 │   └── src/
-│       ├── pages/           ← Cowork pages（Paperclip 原有）
+│       ├── pages/           ← Cowork pages（Mth 原有）
 │       ├── chat/            ← Chat module（新增）
 │       │   ├── ChatPage.tsx
 │       │   ├── SessionSidebar.tsx
@@ -88,7 +88,7 @@ repo/
 │       │   └── AgentMembers.tsx
 │       └── App.tsx          ← 加入模式切換器
 │
-├── server/                  ← Paperclip Hono backend（Cowork）
+├── server/                  ← Mth Hono backend（Cowork）
 ├── packages/
 │   ├── db/                  ← Drizzle schema（Cowork DB）
 │   ├── shared/              ← 共用 TypeScript 型別
@@ -118,7 +118,7 @@ marketplace/agents/founding-engineer/
 └── TOOLS.md               ← 可用工具說明
 ```
 
-**HEARTBEAT.md 的用途：** 在 Cowork 模式下，Paperclip 的 heartbeat service 每次喚醒 agent 時，會將 HEARTBEAT.md 的內容作為 system prompt 注入 CLI 呼叫（相當於 AGENT.md 在 Chat 模式的角色）。內容描述 agent 在執行任務時的行為準則、輸出格式要求（如 `STATUS: done | needs_revision | blocked`）、以及如何回報進度。Chat 模式不讀 HEARTBEAT.md；Cowork 模式不讀 AGENT.md。
+**HEARTBEAT.md 的用途：** 在 Cowork 模式下，Mth 的 heartbeat service 每次喚醒 agent 時，會將 HEARTBEAT.md 的內容作為 system prompt 注入 CLI 呼叫（相當於 AGENT.md 在 Chat 模式的角色）。內容描述 agent 在執行任務時的行為準則、輸出格式要求（如 `STATUS: done | needs_revision | blocked`）、以及如何回報進度。Chat 模式不讀 HEARTBEAT.md；Cowork 模式不讀 AGENT.md。
 
 ### 既有 config.json 的遷移
 
@@ -220,7 +220,7 @@ github.com/<username>/agent-marketplace/
   - 更新前自動備份到 `agents/<name>/history/<timestamp>/`
   - 以 remote 版本覆蓋 local（local 客製視為暫時性）
   - UI 顯示 diff 讓使用者確認後才執行
-- Cowork 的 skills 目前不支援 auto-track（Paperclip 無 skill 概念）
+- Cowork 的 skills 目前不支援 auto-track（Mth 無 skill 概念）
 
 ### Registry 本地記錄
 
@@ -315,7 +315,7 @@ Cowork 的 agent 跑了一段時間、效果好，Board 點「Publish as templat
 ```
 
 - Chat mode：載入 Chat UI（WebSocket 連 Python :8000）
-- Cowork mode：載入 Paperclip UI（HTTP/WS 連 Node.js :3100）
+- Cowork mode：載入 Mth UI（HTTP/WS 連 Node.js :3100）
 - API 端點在 React 環境變數設定（`VITE_CHAT_URL=http://localhost:8000`、`VITE_COWORK_URL=http://localhost:3100`）
 - 若某一 server 無回應，模式按鈕顯示 offline badge，不影響另一模式
 - 模式偏好存在 localStorage
@@ -336,7 +336,7 @@ cd ui && pnpm dev                                # React UI
 
 ### Phase 1：並存（先出貨）
 
-- Fork Paperclip
+- Fork Mth
 - Chat UI 用 React 重寫（呼叫既有 Python server）
 - 加入頂部模式切換器
 - 共用 `agents/`、`skills/` filesystem

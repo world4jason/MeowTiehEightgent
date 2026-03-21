@@ -69,7 +69,7 @@
 ### 其他小功能
 
 - **Model variant 選擇**：CLI 模型設定頁新增 Model Name 欄位（設定 `--model` flag，e.g. `claude-opus-4-6`）
-- **Welcome screen 文件附件**：topic input 旁的 paperclip 按鈕，可在開新對話前附加文件
+- **Welcome screen 文件附件**：topic input 旁的 mth 按鈕，可在開新對話前附加文件
 - **AGENT.md 記憶路徑警告**：加強警告 agents 不要寫入 `~/.claude/` 等 CLI 系統目錄
 
 ## Commits
