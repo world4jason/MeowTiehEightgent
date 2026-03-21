@@ -12,7 +12,7 @@ export declare const createFinanceEventSchema: z.ZodEffects<z.ZodObject<{
     direction: z.ZodDefault<z.ZodOptional<z.ZodEnum<["debit", "credit"]>>>;
     biller: z.ZodString;
     provider: z.ZodNullable<z.ZodOptional<z.ZodString>>;
-    executionAdapterType: z.ZodNullable<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway", "hermes_local"]>>>;
+    executionAdapterType: z.ZodNullable<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway"]>>>;
     pricingTier: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     region: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     model: z.ZodNullable<z.ZodOptional<z.ZodString>>;
@@ -43,7 +43,7 @@ export declare const createFinanceEventSchema: z.ZodEffects<z.ZodObject<{
     heartbeatRunId?: string | null | undefined;
     model?: string | null | undefined;
     costEventId?: string | null | undefined;
-    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | null | undefined;
+    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | null | undefined;
     pricingTier?: string | null | undefined;
     quantity?: number | null | undefined;
     unit?: "unknown" | "input_token" | "output_token" | "cached_input_token" | "request" | "credit_usd" | "credit_unit" | "model_unit_minute" | "model_unit_hour" | "gb_month" | "train_token" | null | undefined;
@@ -66,7 +66,7 @@ export declare const createFinanceEventSchema: z.ZodEffects<z.ZodObject<{
     model?: string | null | undefined;
     costEventId?: string | null | undefined;
     direction?: "debit" | "credit" | undefined;
-    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | null | undefined;
+    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | null | undefined;
     pricingTier?: string | null | undefined;
     quantity?: number | null | undefined;
     unit?: "unknown" | "input_token" | "output_token" | "cached_input_token" | "request" | "credit_usd" | "credit_unit" | "model_unit_minute" | "model_unit_hour" | "gb_month" | "train_token" | null | undefined;
@@ -93,7 +93,7 @@ export declare const createFinanceEventSchema: z.ZodEffects<z.ZodObject<{
     heartbeatRunId?: string | null | undefined;
     model?: string | null | undefined;
     costEventId?: string | null | undefined;
-    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | null | undefined;
+    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | null | undefined;
     pricingTier?: string | null | undefined;
     quantity?: number | null | undefined;
     unit?: "unknown" | "input_token" | "output_token" | "cached_input_token" | "request" | "credit_usd" | "credit_unit" | "model_unit_minute" | "model_unit_hour" | "gb_month" | "train_token" | null | undefined;
@@ -116,7 +116,7 @@ export declare const createFinanceEventSchema: z.ZodEffects<z.ZodObject<{
     model?: string | null | undefined;
     costEventId?: string | null | undefined;
     direction?: "debit" | "credit" | undefined;
-    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | null | undefined;
+    executionAdapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | null | undefined;
     pricingTier?: string | null | undefined;
     quantity?: number | null | undefined;
     unit?: "unknown" | "input_token" | "output_token" | "cached_input_token" | "request" | "credit_usd" | "credit_unit" | "model_unit_minute" | "model_unit_hour" | "gb_month" | "train_token" | null | undefined;

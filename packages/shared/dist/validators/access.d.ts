@@ -24,7 +24,7 @@ export type CreateOpenClawInvitePrompt = z.infer<typeof createOpenClawInviteProm
 export declare const acceptInviteSchema: z.ZodObject<{
     requestType: z.ZodEnum<["human", "agent"]>;
     agentName: z.ZodOptional<z.ZodString>;
-    adapterType: z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway", "hermes_local"]>>;
+    adapterType: z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway"]>>;
     capabilities: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     agentDefaultsPayload: z.ZodNullable<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     responsesWebhookUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
@@ -34,7 +34,7 @@ export declare const acceptInviteSchema: z.ZodObject<{
     webhookAuthHeader: z.ZodNullable<z.ZodOptional<z.ZodString>>;
 }, "strip", z.ZodTypeAny, {
     requestType: "agent" | "human";
-    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | undefined;
+    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | undefined;
     capabilities?: string | null | undefined;
     agentName?: string | undefined;
     agentDefaultsPayload?: Record<string, unknown> | null | undefined;
@@ -45,7 +45,7 @@ export declare const acceptInviteSchema: z.ZodObject<{
     webhookAuthHeader?: string | null | undefined;
 }, {
     requestType: "agent" | "human";
-    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | undefined;
+    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | undefined;
     capabilities?: string | null | undefined;
     agentName?: string | undefined;
     agentDefaultsPayload?: Record<string, unknown> | null | undefined;

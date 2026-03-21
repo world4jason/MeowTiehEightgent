@@ -20,7 +20,6 @@ export const AGENT_ADAPTER_TYPES = [
     "pi_local",
     "cursor",
     "openclaw_gateway",
-    "hermes_local",
 ];
 export const AGENT_ROLES = [
     "ceo",

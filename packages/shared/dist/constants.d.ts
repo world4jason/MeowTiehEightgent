@@ -8,7 +8,7 @@ export declare const AUTH_BASE_URL_MODES: readonly ["auto", "explicit"];
 export type AuthBaseUrlMode = (typeof AUTH_BASE_URL_MODES)[number];
 export declare const AGENT_STATUSES: readonly ["active", "paused", "idle", "running", "error", "pending_approval", "terminated"];
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
-export declare const AGENT_ADAPTER_TYPES: readonly ["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway", "hermes_local"];
+export declare const AGENT_ADAPTER_TYPES: readonly ["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway"];
 export type AgentAdapterType = (typeof AGENT_ADAPTER_TYPES)[number];
 export declare const AGENT_ROLES: readonly ["ceo", "cto", "cmo", "cfo", "engineer", "designer", "pm", "qa", "devops", "researcher", "general"];
 export type AgentRole = (typeof AGENT_ROLES)[number];

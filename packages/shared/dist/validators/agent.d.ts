@@ -46,7 +46,7 @@ export declare const createAgentSchema: z.ZodObject<{
     reportsTo: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     capabilities: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     desiredSkills: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    adapterType: z.ZodDefault<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway", "hermes_local"]>>>;
+    adapterType: z.ZodDefault<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway"]>>>;
     adapterConfig: z.ZodDefault<z.ZodOptional<z.ZodEffects<z.ZodRecord<z.ZodString, z.ZodUnknown>, Record<string, unknown>, Record<string, unknown>>>>;
     runtimeConfig: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     budgetMonthlyCents: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
@@ -61,7 +61,7 @@ export declare const createAgentSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     name: string;
     budgetMonthlyCents: number;
-    adapterType: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local";
+    adapterType: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway";
     role: "ceo" | "cto" | "cmo" | "cfo" | "engineer" | "designer" | "pm" | "qa" | "devops" | "researcher" | "general";
     adapterConfig: Record<string, unknown>;
     runtimeConfig: Record<string, unknown>;
@@ -78,7 +78,7 @@ export declare const createAgentSchema: z.ZodObject<{
     name: string;
     budgetMonthlyCents?: number | undefined;
     metadata?: Record<string, unknown> | null | undefined;
-    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | undefined;
+    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | undefined;
     desiredSkills?: string[] | undefined;
     role?: "ceo" | "cto" | "cmo" | "cfo" | "engineer" | "designer" | "pm" | "qa" | "devops" | "researcher" | "general" | undefined;
     title?: string | null | undefined;
@@ -100,7 +100,7 @@ export declare const createAgentHireSchema: z.ZodObject<{
     reportsTo: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     capabilities: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     desiredSkills: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    adapterType: z.ZodDefault<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway", "hermes_local"]>>>;
+    adapterType: z.ZodDefault<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway"]>>>;
     adapterConfig: z.ZodDefault<z.ZodOptional<z.ZodEffects<z.ZodRecord<z.ZodString, z.ZodUnknown>, Record<string, unknown>, Record<string, unknown>>>>;
     runtimeConfig: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     budgetMonthlyCents: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
@@ -118,7 +118,7 @@ export declare const createAgentHireSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     name: string;
     budgetMonthlyCents: number;
-    adapterType: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local";
+    adapterType: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway";
     role: "ceo" | "cto" | "cmo" | "cfo" | "engineer" | "designer" | "pm" | "qa" | "devops" | "researcher" | "general";
     adapterConfig: Record<string, unknown>;
     runtimeConfig: Record<string, unknown>;
@@ -137,7 +137,7 @@ export declare const createAgentHireSchema: z.ZodObject<{
     name: string;
     budgetMonthlyCents?: number | undefined;
     metadata?: Record<string, unknown> | null | undefined;
-    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | undefined;
+    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | undefined;
     desiredSkills?: string[] | undefined;
     role?: "ceo" | "cto" | "cmo" | "cfo" | "engineer" | "designer" | "pm" | "qa" | "devops" | "researcher" | "general" | undefined;
     title?: string | null | undefined;
@@ -157,7 +157,7 @@ export declare const updateAgentSchema: z.ZodObject<{
     name: z.ZodOptional<z.ZodString>;
     budgetMonthlyCents: z.ZodOptional<z.ZodDefault<z.ZodOptional<z.ZodNumber>>>;
     metadata: z.ZodOptional<z.ZodNullable<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>>;
-    adapterType: z.ZodOptional<z.ZodDefault<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway", "hermes_local"]>>>>;
+    adapterType: z.ZodOptional<z.ZodDefault<z.ZodOptional<z.ZodEnum<["process", "http", "claude_local", "codex_local", "opencode_local", "pi_local", "cursor", "openclaw_gateway"]>>>>;
     desiredSkills: z.ZodOptional<z.ZodOptional<z.ZodArray<z.ZodString, "many">>>;
     role: z.ZodOptional<z.ZodDefault<z.ZodOptional<z.ZodEnum<["ceo", "cto", "cmo", "cfo", "engineer", "designer", "pm", "qa", "devops", "researcher", "general"]>>>>;
     title: z.ZodOptional<z.ZodNullable<z.ZodOptional<z.ZodString>>>;
@@ -176,7 +176,7 @@ export declare const updateAgentSchema: z.ZodObject<{
     budgetMonthlyCents?: number | undefined;
     spentMonthlyCents?: number | undefined;
     metadata?: Record<string, unknown> | null | undefined;
-    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | undefined;
+    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | undefined;
     desiredSkills?: string[] | undefined;
     role?: "ceo" | "cto" | "cmo" | "cfo" | "engineer" | "designer" | "pm" | "qa" | "devops" | "researcher" | "general" | undefined;
     title?: string | null | undefined;
@@ -192,7 +192,7 @@ export declare const updateAgentSchema: z.ZodObject<{
     budgetMonthlyCents?: number | undefined;
     spentMonthlyCents?: number | undefined;
     metadata?: Record<string, unknown> | null | undefined;
-    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | "hermes_local" | undefined;
+    adapterType?: "process" | "http" | "claude_local" | "codex_local" | "opencode_local" | "pi_local" | "cursor" | "openclaw_gateway" | undefined;
     desiredSkills?: string[] | undefined;
     role?: "ceo" | "cto" | "cmo" | "cfo" | "engineer" | "designer" | "pm" | "qa" | "devops" | "researcher" | "general" | undefined;
     title?: string | null | undefined;
