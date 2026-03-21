@@ -152,9 +152,9 @@ marketplace/agents/founding-engineer/
 ### Skill Template 結構
 
 ```
-marketplace/skills/systematic-debugging/
+marketplace/skills/superpowers/systematic-debugging/
 ├── template.json
-└── SKILL.md
+└── SKILL.md         ← frontmatter: source: superpowers
 ```
 
 ```json
@@ -169,6 +169,56 @@ marketplace/skills/systematic-debugging/
   "supportsCowork": true
 }
 ```
+
+### UI 頁面結構（Phase 2）
+
+```
+Agent              ← 本地實例（可讀/寫）
+Agent Marketplace  ← Template 集合（唯讀瀏覽 + 建立新 template）
+Skill
+Skill Marketplace
+```
+
+**Agent/Skill 頁面的兩種來源：**
+1. Fork from marketplace → 複製為本地實例（帶 lineage）
+2. 自己從 0 開始寫 → 建立本地實例
+
+**Marketplace 的三種 Template 來源：**
+1. 從本地 agent/skill「Publish as template」→ 寫入 `marketplace/` → 使用者手動 git push
+2. Marketplace UI 直接建立新 template
+3. 從 git URL 安裝（`git pull` → `marketplace/<source>/`）
+
+---
+
+### Skill Namespace 系統（目前實作）
+
+Source 來源只從 SKILL.md frontmatter 讀取，不做 symlink 自動偵測：
+
+```markdown
+---
+name: systematic-debugging
+source: superpowers
+source_url: https://github.com/jason/agent-marketplace
+source_version: 2.1.0
+description: Forces exhaustive debugging methodology
+---
+```
+
+- `display_name = source:name`（例如 `superpowers:systematic-debugging`、`gstack:review`）
+- 無 source 的 skill → 本地私有，直接用 slug 呼叫
+- 呼叫格式：`/gstack:review`、`/superpowers:brainstorming`、`/my-local-skill`
+- 過濾：輸入 `/gstack:` 顯示所有 gstack skills
+
+**Marketplace pull → 本地 instance 流程：**
+1. 從 `marketplace/skills/<source>/<slug>/` 複製到 `skills/<slug>/`
+2. SKILL.md frontmatter 保留 `source:`、`source_url:`、`source_version:`（或由 template.json 寫入）
+3. 更新 `marketplace/registry.json` 記錄 installedCommit
+4. 不用 symlink：想客製化直接改 `skills/<slug>/SKILL.md`，source 欄位仍保留 lineage
+
+**既有 gstack skills 遷移：**
+- 目前 `skills/<slug>` 是指向 `skills/gstack/<slug>` 的 symlink，無 frontmatter source
+- 遷移時：複製為實體目錄 + 在 SKILL.md 加 `source: gstack` → 完成後刪 symlink
+- 遷移可逐步 skill by skill 進行
 
 ---
 
@@ -317,9 +367,19 @@ Cowork 的 agent 跑了一段時間、效果好，Board 點「Publish as templat
 - Chat mode：載入 Chat UI（WebSocket 連 Python :8000）
 - Cowork mode：載入 Mth UI（HTTP/WS 連 Node.js :3100）
 - API 端點在 React 環境變數設定（`VITE_CHAT_URL=http://localhost:8000`、`VITE_COWORK_URL=http://localhost:3100`）
-- 若某一 server 無回應，模式按鈕顯示 offline badge，不影響另一模式
+- 若某一 server 無回應，模式按鈕顯示 offline badge，不影響另一模式（`GET /health` 每 30 秒輪詢）
 - 模式偏好存在 localStorage
 - 鍵盤快捷鍵：⌘1 / ⌘2
+- 模式切換時 150ms fade transition
+
+### WebSocket 行為（模式切換時）
+
+**模式切換 = UI 視圖切換，WS 不斷線。**
+
+- Chat WS 連線在 background 持續存在，即使切換到 Cowork mode
+- 若 Chat 有 agent 正在 streaming，切換後繼續在 background 執行
+- 完成後 Chat tab badge 顯示「有新訊息」（類似 Slack 未讀點）
+- 切回 Chat mode 即可看到完整回覆
 
 ### 本地開發啟動
 
@@ -336,11 +396,15 @@ cd ui && pnpm dev                                # React UI
 
 ### Phase 1：並存（先出貨）
 
+**Phase 1 的核心目標：把現有 Vanilla JS Chat UI 遷移到 React。**
+
 - Fork Mth
-- Chat UI 用 React 重寫（呼叫既有 Python server）
-- 加入頂部模式切換器
+- Chat UI 用 React 重寫（呼叫既有 Python server，不改後端）
+- 加入頂部模式切換器（⌘1 / ⌘2）
 - 共用 `agents/`、`skills/` filesystem
-- Marketplace GitHub repo 建立
+- Marketplace GitHub repo 建立（空骨架，pull UI 是 Phase 2）
+- 加入 Vitest 元件測試 + Playwright e2e（mode toggle、WS 連線、offline badge）
+- 兩個 server 各加 `GET /health` 端點
 
 ### Phase 2：深度整合
 
@@ -358,7 +422,45 @@ cd ui && pnpm dev                                # React UI
 
 ---
 
-## 九、不做的事
+## 九、待決設計（Phase 2 前再定）
+
+### Skill Marketplace 路徑模型（Phase 2 設計，屆時取代上方的 frontmatter 邏輯）
+
+Marketplace skills 和本地 skills 分開放，source 由路徑決定，不依賴 frontmatter：
+
+```
+marketplace/skills/gstack/review/      ← 從 git pull，唯讀
+marketplace/skills/superpowers/brainstorming/
+
+skills/review/                         ← fork 下來或自己寫，可自由改
+skills/my-skill/
+```
+
+**呼叫：**
+- `/gstack:review` → `marketplace/skills/gstack/review/`
+- `/review` → `skills/review/`
+
+**Fork：** `cp marketplace/skills/gstack/review/ → skills/review/`，去掉 namespace，變成本地 skill。
+
+**Source 判斷：** 在 `marketplace/skills/<source>/` 裡的，source = 目錄名。在 `skills/` 裡的 → local（frontmatter `source:` 僅作 lineage 記錄）。
+
+**需要改動：**
+- `list_skills`：掃 `marketplace/skills/*/` + `skills/*/`
+- `resolve_human_text`：`source:slug` → `marketplace/skills/<source>/<slug>/`
+- `parse_skill`：marketplace skills 不需要 frontmatter source，由呼叫方傳入
+
+### Paperclip 比較 Robust 的實作細節（未來參考）
+
+| 面向 | Paperclip 做法 | 我們目前狀態 |
+|---|---|---|
+| **Subprocess 無限遞迴防護** | `requestDepth` 計數 + `max_attempts` 硬停 | 無，未來 Cowork 模式需要 |
+| **CLI output parsing** | `--output-format stream-json` → JSONL，text/usage/session_id 分離 | Raw stdout，CLI 格式變動就壞 |
+| **Session 持久化** | `session_id` 存 DB，下次 `--resume` 接續，省重建 context 的 token | 每次從頭，token 消耗大 |
+| **並發 issue assignment** | DB atomic checkout，同一 issue 同時只有一個 agent | Single-threaded，目前不需要，並發時要加 |
+
+---
+
+## 十、不做的事
 
 - 複雜共用 DB（Marketplace 用 git + registry.json 就夠）
 - 認證系統（local_trusted 模式，先不做）

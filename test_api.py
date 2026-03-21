@@ -1834,23 +1834,6 @@ class TestParseSkillSource:
         assert s["source_url"] == ""
         assert s["source_version"] == ""
 
-    def test_autodetects_gstack_symlink(self, tmp_path):
-        from app import parse_skill
-        # Set up: skills/gstack/review/SKILL.md
-        gstack_dir = tmp_path / "gstack" / "review"
-        gstack_dir.mkdir(parents=True)
-        skill_file = gstack_dir / "SKILL.md"
-        skill_file.write_text("---\nname: review\ndescription: Review\n---\n\nBody")
-        # Create VERSION file
-        (tmp_path / "gstack" / "VERSION").write_text("0.9.0")
-        # Create symlink: review -> gstack/review
-        link_dir = tmp_path / "review"
-        link_dir.symlink_to(gstack_dir)
-        s = parse_skill(link_dir / "SKILL.md", slug_dir=link_dir)
-        assert s["source"] == "gstack"
-        assert s["source_url"] == "https://github.com/garrytan/gstack"
-        assert s["source_version"] == "0.9.0"
-
 
 # ── Task 2: list_skills / get_skill expose source metadata ────────────────────
 

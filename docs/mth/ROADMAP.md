@@ -47,10 +47,10 @@
 
 > 文件：`docs/plans/2026-03-18-phase0.1-subprocess-recovery.md` 等
 
-- [ ] Phase 0.1：Subprocess 斷線復原（Partial Recovery）
+- [x] Phase 0.1：Subprocess 斷線復原（Partial Recovery）
 - [ ] Phase 0.2：History 自動壓縮（Sliding Window → Summarization）
-- [ ] Phase 0.3：圖片 --add-file 相容性（`supports_image` flag）
-- [ ] Phase 0.4：Protected Paths（Workspace 寫入保護）
+- [x] Phase 0.3：圖片 --add-file 相容性（`supports_image` flag）
+- [x] Phase 0.4：Protected Paths（Workspace 寫入保護）
 
 ---
 
@@ -58,8 +58,9 @@
 
 > 文件：`docs/plans/2026-03-19-phase1-agent-control.md`
 
-- [ ] Agent chat / think 模式切換（per-agent + 全場）
-- [ ] Scenario 模板（辯論、brainstorm、創作…）
+- [x] Agent chat / think 模式切換 UI（per-agent + 全場 /think /chat TUI 指令）
+- [x] Scenario 模板（辯論、brainstorm、創作…）
+- [ ] **Bug fix**：think mode CLI flag 有誤（`--extended-thinking` → `--effort max`）；agent config 缺 `supports_thinking: true`
 
 ---
 
@@ -271,3 +272,10 @@ Phase 1-2 完成後，立刻做
 - [ ] `app.py` 超過 1000 行，考慮拆 `orchestrator.py` / `agent_runner.py`
 - [ ] `test_api.py` 在 Phase 2 後全面 review，確保 fixture 覆蓋新功能
 - [ ] 加了 `--output-format stream-json` 後，streaming 顯示邏輯需對應調整
+
+## Bug：Think Mode 實作有誤
+
+- [ ] `--extended-thinking` flag 不存在，Claude CLI 正確用法是 `--effort max`（think mode）/ 不加（chat mode）
+- [ ] 目前沒有任何 agent config 設 `supports_thinking: true`，導致 think mode 對所有 agent 無效
+- [ ] 修法：`app.py` 改 flag；Claude-based agents 的 config 加 `supports_thinking: true`
+- [ ] Gemini 沒有 CLI-level thinking flag，think mode 靠換模型（`gemini-2.5-pro` 或 `gemini-2.0-flash-thinking-exp`）
