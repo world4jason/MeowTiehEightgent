@@ -15,7 +15,7 @@ import {
   useSkillsList, useScenarios,
 } from "./hooks/useChatApi";
 import { ChatMessage, AgentInfo } from "./types";
-import { applyTokenMessage, applyDoneMessage } from "./utils";
+import { applyTokenMessage, applyDoneMessage, toHistoryChatMessage } from "./utils";
 
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
 const WS_BASE = CHAT_URL.replace(/^http/, "ws");
@@ -71,7 +71,9 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     if (!activeSessionId) { setMessages([]); return; }
     fetch(`${CHAT_URL}/sessions/${activeSessionId}`)
       .then((r) => r.json())
-      .then((data) => setMessages(Array.isArray(data) ? data : []))
+      .then((data) =>
+        setMessages(Array.isArray(data) ? (data as Record<string, unknown>[]).map(toHistoryChatMessage) : [])
+      )
       .catch(() => setMessages([]));
   }, [activeSessionId, setMessages]);
 
