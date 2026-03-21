@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X, Plus, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AgentInfo } from "./types";
+import { TokenUsageMap, formatTokenCount } from "./utils";
 
 interface Props {
   open: boolean;
@@ -11,9 +12,10 @@ interface Props {
   onAddAgent: (agentName: string) => void;
   onRemoveAgent: (agentName: string) => void;
   onClose: () => void;
+  tokenUsage?: TokenUsageMap;
 }
 
-export function MembersPanel({ open, agents, availableAgents, onModeChange, onAddAgent, onRemoveAgent, onClose }: Props) {
+export function MembersPanel({ open, agents, availableAgents, onModeChange, onAddAgent, onRemoveAgent, onClose, tokenUsage }: Props) {
   const [addOpen, setAddOpen] = useState(false);
   const activeNames = new Set(agents.map((a) => a.name));
   const addable = availableAgents.filter((a) => !activeNames.has(a.name));
@@ -43,6 +45,14 @@ export function MembersPanel({ open, agents, availableAgents, onModeChange, onAd
           <div key={a.name} className="flex items-center gap-2 px-3.5 py-2">
             <span className="text-base">{a.emoji}</span>
             <span className="flex-1 truncate text-sm font-medium">{a.name}</span>
+            {tokenUsage?.[a.name] && (
+              <span
+                title={`${tokenUsage[a.name].input + tokenUsage[a.name].output} tokens`}
+                className="shrink-0 text-[10px] text-muted-foreground tabular-nums"
+              >
+                {formatTokenCount(tokenUsage[a.name].input + tokenUsage[a.name].output)}
+              </span>
+            )}
             {/* chat/think toggle */}
             <div className="flex gap-0.5">
               <button

@@ -54,3 +54,28 @@ it("shows 'No agents available' when all agents are already active", () => {
   fireEvent.click(screen.getByText(/add agent/i));
   expect(screen.getByText("No agents available")).toBeInTheDocument();
 });
+
+it("shows formatted token count next to agent name when tokenUsage provided", () => {
+  const tokenUsage = { Claude: { input: 500, output: 300 } };
+  render(<MembersPanel open agents={agents} availableAgents={available}
+    onModeChange={vi.fn()} onAddAgent={vi.fn()} onRemoveAgent={vi.fn()} onClose={vi.fn()}
+    tokenUsage={tokenUsage} />);
+  // 500 + 300 = 800 tokens, < 1000, so shown as "800"
+  expect(screen.getByText("800")).toBeInTheDocument();
+});
+
+it("shows k-notation for token count >= 1000", () => {
+  const tokenUsage = { Claude: { input: 800, output: 600 } };
+  render(<MembersPanel open agents={agents} availableAgents={available}
+    onModeChange={vi.fn()} onAddAgent={vi.fn()} onRemoveAgent={vi.fn()} onClose={vi.fn()}
+    tokenUsage={tokenUsage} />);
+  // 800 + 600 = 1400, shown as "1.4k"
+  expect(screen.getByText("1.4k")).toBeInTheDocument();
+});
+
+it("does not show token badge when tokenUsage is not provided", () => {
+  render(<MembersPanel open agents={agents} availableAgents={available}
+    onModeChange={vi.fn()} onAddAgent={vi.fn()} onRemoveAgent={vi.fn()} onClose={vi.fn()} />);
+  // No token badge should be present
+  expect(screen.queryByTitle(/tokens/i)).not.toBeInTheDocument();
+});

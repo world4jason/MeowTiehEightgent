@@ -15,7 +15,7 @@ import {
   useSkillsList, useScenarios,
 } from "./hooks/useChatApi";
 import { ChatMessage, AgentInfo } from "./types";
-import { applyTokenMessage, applyDoneMessage, toHistoryChatMessage } from "./utils";
+import { applyTokenMessage, applyDoneMessage, toHistoryChatMessage, applyTokenUpdate, TokenUsageMap } from "./utils";
 
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
 const WS_BASE = CHAT_URL.replace(/^http/, "ws");
@@ -25,6 +25,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const [membersOpen, setMembersOpen] = useState(false);
   const [runsOpen, setRunsOpen] = useState(false);
   const [agentRuns, setAgentRuns] = useState<{ agentName: string; tokens?: number }[]>([]);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageMap>({});
 
   // Data queries
   const { data: allAgents = [] } = useAgentsList();
@@ -60,6 +61,9 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
         if (idx >= 0) return prev.map((r, i) => i === idx ? { ...r, tokens } : r);
         return [...prev, { agentName: name, tokens }];
       });
+    } else if (msg.type === "token_update") {
+      const { agent: name, cumulative } = msg as { agent: string; cumulative: { input: number; output: number } };
+      setTokenUsage((prev) => applyTokenUpdate(prev, name, cumulative));
     }
   }, [isVisible, setHasUnreadChat, setMessages, setAgents]);
 
@@ -129,7 +133,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
         workspaces={workspaces}
         sessions={sessions}
         activeSessionId={activeSessionId}
-        onSelectSession={(id) => { setActiveSessionId(id); setMessages([]); setAgentRuns([]); }}
+        onSelectSession={(id) => { setActiveSessionId(id); setMessages([]); setAgentRuns([]); setTokenUsage({}); }}
         onNewSession={() => handleNewSession()}
         onNewSessionInWorkspace={handleNewSession}
         onRenameSession={(id, name) => renameSession.mutate({ id, name })}
@@ -188,6 +192,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
             onAddAgent={handleAddAgent}
             onRemoveAgent={handleRemoveAgent}
             onClose={() => setMembersOpen(false)}
+            tokenUsage={tokenUsage}
           />
         </div>
       </div>

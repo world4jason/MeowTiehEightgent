@@ -28,3 +28,14 @@ export function applyDoneMessage(prev: ChatMessage[]): ChatMessage[] {
   if (last?.streaming) return [...prev.slice(0, -1), { ...last, streaming: false }];
   return prev;
 }
+
+export type TokenUsageMap = Record<string, { input: number; output: number }>;
+
+export function applyTokenUpdate(prev: TokenUsageMap, agent: string, cumulative: { input: number; output: number }): TokenUsageMap {
+  return { ...prev, [agent]: cumulative };
+}
+
+export function formatTokenCount(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1)}k`;
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ChatMessage } from "../types";
-import { applyTokenMessage, applyDoneMessage } from "../utils";
+import { applyTokenMessage, applyDoneMessage, applyTokenUpdate } from "../utils";
 
 describe("ChatPage message logic", () => {
   it("starts a new streaming message when no prior agent message exists", () => {
@@ -41,5 +41,30 @@ describe("ChatPage message logic", () => {
     }];
     const result = applyDoneMessage(prev);
     expect(result).toEqual(prev);
+  });
+});
+
+describe("applyTokenUpdate", () => {
+  it("sets cumulative tokens for a new agent", () => {
+    const result = applyTokenUpdate({}, "Claude", { input: 100, output: 50 });
+    expect(result).toEqual({ Claude: { input: 100, output: 50 } });
+  });
+
+  it("replaces cumulative tokens for an existing agent", () => {
+    const prev = { Claude: { input: 100, output: 50 } };
+    const result = applyTokenUpdate(prev, "Claude", { input: 200, output: 80 });
+    expect(result).toEqual({ Claude: { input: 200, output: 80 } });
+  });
+
+  it("does not mutate the previous state", () => {
+    const prev = { Claude: { input: 100, output: 50 } };
+    applyTokenUpdate(prev, "Claude", { input: 200, output: 80 });
+    expect(prev).toEqual({ Claude: { input: 100, output: 50 } });
+  });
+
+  it("handles multiple agents independently", () => {
+    const prev = { Claude: { input: 100, output: 50 } };
+    const result = applyTokenUpdate(prev, "Gemini", { input: 200, output: 80 });
+    expect(result).toEqual({ Claude: { input: 100, output: 50 }, Gemini: { input: 200, output: 80 } });
   });
 });
