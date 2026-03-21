@@ -25,8 +25,7 @@ export function MembersPanel({ open, agents, availableAgents, onModeChange, onAd
       )}
       style={{ width: open ? 220 : 0 }}
       aria-hidden={!open}
-      // @ts-expect-error inert is not yet in React's types
-      inert={!open ? "" : undefined}
+      inert={!open || undefined}
     >
       <div className="flex shrink-0 items-center justify-between px-3.5 py-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</span>
