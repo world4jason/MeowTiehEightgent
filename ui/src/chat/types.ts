@@ -30,4 +30,4 @@ export interface AgentInfo {
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
-export type ChatMode = "chat" | "cowork";
+export type ChatMode = "chat" | "cowork" | "settings";

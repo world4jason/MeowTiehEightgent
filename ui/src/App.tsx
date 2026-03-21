@@ -297,11 +297,13 @@ function NoCompaniesStartPage() {
 function AppShell({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<ChatMode>(() => {
     const stored = localStorage.getItem("preferred-mode");
-    return stored === "chat" || stored === "cowork" ? stored : "chat";
+    return stored === "chat" || stored === "cowork" || stored === "settings"
+      ? stored : "chat";
   });
   const { hasUnreadChat, setHasUnreadChat } = useChatContext();
   const { online: chatOnline } = useHealthCheck(`${CHAT_URL}/health`);
   const { online: coworkOnline } = useHealthCheck(`${COWORK_URL}/health`);
+  const { online: settingsOnline } = useHealthCheck(`${CHAT_URL}/health`);
 
   useEffect(() => {
     localStorage.setItem("preferred-mode", mode);
@@ -313,6 +315,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "1") { e.preventDefault(); setMode("chat"); }
       if ((e.metaKey || e.ctrlKey) && e.key === "2") { e.preventDefault(); setMode("cowork"); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "3") { e.preventDefault(); setMode("settings"); }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -326,6 +329,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           onModeChange={setMode}
           chatOnline={chatOnline}
           coworkOnline={coworkOnline}
+          settingsOnline={settingsOnline}
           hasUnreadChat={hasUnreadChat}
         />
       </header>
@@ -337,6 +341,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
         {/* Cowork unmounts on mode switch (Phase 1 acceptable — no WS state to preserve yet).
             If cowork ever needs persistent state, apply the same hidden-div strategy as ChatPage. */}
         {mode === "cowork" && <div className="flex h-full">{children}</div>}
+        {mode === "settings" && (
+          <div className="flex h-full flex-1 items-center justify-center text-muted-foreground text-sm">
+            Settings — coming soon
+          </div>
+        )}
       </main>
     </div>
   );
