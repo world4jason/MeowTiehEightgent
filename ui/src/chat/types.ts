@@ -31,3 +31,35 @@ export interface AgentInfo {
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export type ChatMode = "chat" | "cowork" | "settings";
+
+export interface WorkspaceInfo {
+  id: string;
+  name: string;
+  sessionCount?: number;
+}
+
+export interface WorkspaceDetail extends WorkspaceInfo {
+  instructions: string;
+  files: string[];          // filenames
+  defaultAgents: string[];  // agent names
+}
+
+export interface SkillInfo {
+  slug: string;
+  name: string;
+  description: string;
+  source?: string;
+}
+
+export interface ScenarioInfo {
+  id: string;
+  name: string;
+  description: string;
+  agents: string[];
+  systemPrompt?: string;
+}
+
+export interface SessionPage {
+  sessions: ChatSession[];
+  nextCursor?: string;
+}
