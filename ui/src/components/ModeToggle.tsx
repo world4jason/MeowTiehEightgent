@@ -1,4 +1,5 @@
 import { ChatMode } from "../chat/types";
+import type { ReactNode } from "react";
 
 interface ModeToggleProps {
   mode: ChatMode;
@@ -12,7 +13,7 @@ interface ModeToggleProps {
 export function ModeToggle({
   mode, onModeChange, chatOnline, coworkOnline, settingsOnline, hasUnreadChat,
 }: ModeToggleProps) {
-  const btn = (m: ChatMode, label: string, offline: boolean, extra?: React.ReactNode) => (
+  const btn = (m: ChatMode, label: string, offline: boolean, extra?: ReactNode) => (
     <button
       aria-pressed={mode === m}
       onClick={() => onModeChange(m)}

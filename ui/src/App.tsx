@@ -301,9 +301,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
       ? stored : "chat";
   });
   const { hasUnreadChat, setHasUnreadChat } = useChatContext();
-  const { online: chatOnline } = useHealthCheck(`${CHAT_URL}/health`);
+  const { online: chatOnline }   = useHealthCheck(`${CHAT_URL}/health`);
   const { online: coworkOnline } = useHealthCheck(`${COWORK_URL}/health`);
-  const { online: settingsOnline } = useHealthCheck(`${CHAT_URL}/health`);
+  const settingsOnline = chatOnline;
 
   useEffect(() => {
     localStorage.setItem("preferred-mode", mode);
