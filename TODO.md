@@ -21,23 +21,32 @@
 - [x] Client-side message queue（Cursor-style，agent 思考中可繼續輸入、編輯、排序）
 - [x] Model variant 選擇（--model flag per agent）
 - [x] @filename 注入 workspace 文件全文
+- [x] Subprocess 斷線復原（partial_output 暫存、SubprocessCrashError / TimeoutError 結構化錯誤、自動 skip 並繼續）
+- [x] `supports_image` flag（codex 預設 false，`_resolve_supports_image()` 優先級鏈，guard --add-file injection）
+- [x] Protected Paths（PROTECTED_FILENAMES、validate_filename() 保護 config/AGENT.md 等核心檔案）
+- [x] Scenario 模板（GET /scenarios、welcome screen 三選項、scenario_system_prompt 注入）
+- [x] per-agent chat/think mode toggle UI（Members panel、WS set_mode / mode_update、/think /chat TUI 指令）
+- [x] 3-way context mode toggle + scenario picker
+- [x] Skill source namespace（parse_skill frontmatter source:、list_skills / get_skill expose display_name、resolve_human_text 支援 source:slug）
 
 ---
 
 ## 待辦
 
+### Bug
+
+- [ ] **Think mode flag 有誤**：`--extended-thinking` 不存在，正確是 `--effort max`（Claude CLI）；且目前無任何 agent config 有 `supports_thinking: true`，toggle 對所有 agent 無效。Gemini 無 CLI thinking flag，靠換 model（`gemini-2.5-pro`）。
+
 ### 中優先
 
-- [ ] **Scenario（短期情境模板）**
-  開新對話選 scenario（辯論、brainstorming、創作…），自動填 system prompt + 建議 agents + 預設協作模式。
-  welcome screen 三選項：workspace / scenario / 空白。
+- [ ] **History 自動壓縮（Auto-Condensing）**
+  - Phase 1（Sliding Window）：保留最近 N 輪，超過閾值丟棄舊訊息
+  - Phase 2（Summarization）：超過閾值用輕量 model 壓縮舊段落為摘要
 
-- [ ] **Agent 發言傾向（chat / think）**
-  個體行為維度，per-agent 或全場切換。
-  - 預設 chat 傾向：prompt 注入「回答限 2-3 句」，可搭配輕量 model。
-  - think / analysis 模式：CLI 傳 `--extended-thinking` 或切換 model，不限字數。
-  - 對話中 `/think` 切換全場，或個別 agent config 設定預設傾向。
-  - agent config 加 `supports_thinking: bool`（claude 支援，gemini 待確認）。
+- [ ] **Agent 發言傾向（chat / think）**（UI 已完成，backend fix 待做）
+  - 修 `--extended-thinking` → `--effort max`
+  - Claude-based agent config 加 `supports_thinking: true`
+  - Gemini think mode = 換 model
 
 - [ ] **群組協作模式（Cowork Pattern）**
   集體結構維度，與發言傾向正交可任意組合。調研報告：`docs/analysis/cowork-patterns-research.md`
@@ -152,3 +161,9 @@
 
 - [ ] **Telegram 整合**
   Bot token 管理 + message relay 到 WebSocket session。
+
+---
+
+## 文件管理
+
+- **廢棄計畫**存放於 `docs/superpowers/plans/_deprecated/`，每個檔案在 `_deprecated/README.md` 有說明。禁止調用。
