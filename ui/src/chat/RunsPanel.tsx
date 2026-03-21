@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AgentInfo } from "./types";
 
@@ -12,9 +13,10 @@ interface Props {
   membersOpen: boolean;
   agents: AgentInfo[];
   runs: AgentRun[];
+  onClose?: () => void;
 }
 
-export function RunsPanel({ open, membersOpen, agents, runs }: Props) {
+export function RunsPanel({ open, membersOpen, agents, runs, onClose }: Props) {
   const agentMap = Object.fromEntries(agents.map((a) => [a.name, a]));
 
   return (
@@ -26,9 +28,21 @@ export function RunsPanel({ open, membersOpen, agents, runs }: Props) {
         width: open ? 260 : 0,
         right: membersOpen ? 220 : 0,
       }}
+      aria-hidden={!open}
+      // @ts-expect-error inert is not yet in React's types
+      inert={!open ? "" : undefined}
     >
-      <div className="shrink-0 px-3.5 py-3">
+      <div className="shrink-0 flex items-center justify-between px-3.5 py-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Runs</span>
+        {onClose && (
+          <button
+            aria-label="Close runs panel"
+            onClick={onClose}
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-3">
         {runs.map((r) => {

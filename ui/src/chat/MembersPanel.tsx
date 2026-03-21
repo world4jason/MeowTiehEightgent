@@ -24,6 +24,9 @@ export function MembersPanel({ open, agents, availableAgents, onModeChange, onAd
         "flex shrink-0 flex-col overflow-hidden border-l border-border bg-panel transition-[width] duration-200",
       )}
       style={{ width: open ? 220 : 0 }}
+      aria-hidden={!open}
+      // @ts-expect-error inert is not yet in React's types
+      inert={!open ? "" : undefined}
     >
       <div className="flex shrink-0 items-center justify-between px-3.5 py-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</span>
@@ -45,6 +48,7 @@ export function MembersPanel({ open, agents, availableAgents, onModeChange, onAd
             <div className="flex gap-0.5">
               <button
                 aria-label="Chat mode"
+                aria-pressed={!a.mode || a.mode === "chat"}
                 onClick={() => onModeChange(a.name, "chat")}
                 className={cn(
                   "rounded px-1.5 py-0.5 text-xs transition-colors",
@@ -54,7 +58,9 @@ export function MembersPanel({ open, agents, availableAgents, onModeChange, onAd
                 C
               </button>
               <button
-                aria-label="Think mode"
+                aria-label={a.supportsThinking === false ? "Think mode (not supported)" : "Think mode"}
+                aria-pressed={a.mode === "think"}
+                disabled={a.supportsThinking === false}
                 onClick={() => onModeChange(a.name, "think")}
                 className={cn(
                   "rounded px-1.5 py-0.5 text-xs transition-colors",
@@ -79,16 +85,22 @@ export function MembersPanel({ open, agents, availableAgents, onModeChange, onAd
           Add agent
           <ChevronDown className={cn("ml-auto h-3.5 w-3.5 transition-transform", addOpen && "rotate-180")} />
         </button>
-        {addOpen && addable.map((a) => (
-          <button
-            key={a.name}
-            onClick={() => { onAddAgent(a.name); setAddOpen(false); }}
-            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-          >
-            <span>{a.emoji}</span>
-            {a.name}
-          </button>
-        ))}
+        {addOpen && (
+          addable.length === 0 ? (
+            <p className="px-3.5 py-2 text-xs text-muted-foreground">No agents available</p>
+          ) : (
+            addable.map((a) => (
+              <button
+                key={a.name}
+                onClick={() => { onAddAgent(a.name); setAddOpen(false); }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+              >
+                <span>{a.emoji}</span>
+                {a.name}
+              </button>
+            ))
+          )
+        )}
       </div>
     </div>
   );

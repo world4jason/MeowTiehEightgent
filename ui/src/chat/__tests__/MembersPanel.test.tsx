@@ -36,3 +36,21 @@ it("renders hidden when open=false", () => {
   );
   expect(container.firstChild).toHaveStyle({ width: "0px" });
 });
+
+it("does NOT call onModeChange when think clicked for agent with supportsThinking=false", () => {
+  const onModeChange = vi.fn();
+  const thinkDisabledAgents = [
+    { name: "Claude", emoji: "🤖", color: "#7c3aed", model: "claude", enabled: true, mode: "chat" as const, supportsThinking: false },
+  ];
+  render(<MembersPanel open agents={thinkDisabledAgents} availableAgents={available}
+    onModeChange={onModeChange} onAddAgent={vi.fn()} onRemoveAgent={vi.fn()} onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /think mode/i }));
+  expect(onModeChange).not.toHaveBeenCalled();
+});
+
+it("shows 'No agents available' when all agents are already active", () => {
+  render(<MembersPanel open agents={agents} availableAgents={agents}
+    onModeChange={vi.fn()} onAddAgent={vi.fn()} onRemoveAgent={vi.fn()} onClose={vi.fn()} />);
+  fireEvent.click(screen.getByText(/add agent/i));
+  expect(screen.getByText("No agents available")).toBeInTheDocument();
+});
