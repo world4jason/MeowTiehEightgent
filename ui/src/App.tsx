@@ -321,7 +321,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
   });
   const { hasUnreadChat, setHasUnreadChat } = useChatContext();
   const { online: chatOnline }   = useHealthCheck(`${CHAT_URL}/health`);
-  const { online: coworkOnline } = useHealthCheck(`${COWORK_URL}/health`);
+  // Use Vite proxy (/api → localhost:3100) to avoid CORS issues in dev
+  const { online: coworkOnline } = useHealthCheck("/api/health");
   const settingsOnline = chatOnline;
 
   useEffect(() => {
