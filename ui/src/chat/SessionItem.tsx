@@ -1,8 +1,43 @@
 import { useState, useRef, useEffect } from "react";
-import { Trash2, FolderInput } from "lucide-react";
+import { Trash2, FolderInput, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatSession, WorkspaceInfo } from "./types";
 import { SessionMoveDropdown } from "./SessionMoveDropdown";
+
+const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
+
+async function downloadSession(e: React.MouseEvent, sessionId: string, sessionName: string) {
+  e.stopPropagation();
+  const fmt = window.prompt("Download format: json or md", "md");
+  if (!fmt) return;
+  const msgs = await fetch(`${CHAT_URL}/sessions/${sessionId}`).then((r) => r.json()).catch(() => []);
+  const slug = sessionName.slice(0, 20).replace(/[^a-z0-9]/gi, "-") || sessionId.slice(0, 8);
+  if (fmt === "json") {
+    const blob = new Blob([JSON.stringify(msgs, null, 2)], { type: "application/json" });
+    triggerDownload(blob, `session-${slug}.json`);
+  } else {
+    const lines: string[] = [];
+    for (const m of msgs as Record<string, unknown>[]) {
+      if (m.type === "system") { lines.push(`# ${m.text ?? ""}`, ""); }
+      else if (m.type === "message" || m.role === "agent") {
+        const ts = m.timestamp ? `  \`${String(m.timestamp).slice(0, 16).replace("T", " ")}\`` : "";
+        lines.push(`**${m.agent ?? "Agent"}**${ts}`, "", String(m.text ?? m.content ?? ""), "", "---", "");
+      } else if (m.type === "user" || m.role === "user") {
+        lines.push(`**You**`, "", String(m.text ?? m.content ?? ""), "", "---", "");
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+    triggerDownload(blob, `session-${slug}.md`);
+  }
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 interface Props {
   session: ChatSession;
@@ -71,6 +106,13 @@ export function SessionItem({ session, active, workspaces, indent, onSelect, onR
       {/* Hover-reveal actions */}
       {!renaming && (
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            aria-label="Download session"
+            onClick={(e) => downloadSession(e, session.id, session.name)}
+            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </button>
           <button
             aria-label="Delete session"
             onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
