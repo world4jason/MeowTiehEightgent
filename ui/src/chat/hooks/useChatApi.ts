@@ -162,9 +162,30 @@ export function useSkillsList() {
 }
 
 // ─── Scenarios ────────────────────────────────────────────────
+interface RawScenario {
+  id: string;
+  name: string;
+  description: string;
+  agents?: string[];
+  suggested_agents?: string[];
+  system_prompt?: string;
+  systemPrompt?: string;
+}
+
+function toScenario(raw: RawScenario): ScenarioInfo {
+  return {
+    id: raw.id,
+    name: raw.name,
+    description: raw.description,
+    agents: raw.agents ?? raw.suggested_agents ?? [],
+    systemPrompt: raw.systemPrompt ?? raw.system_prompt,
+  };
+}
+
 export function useScenarios() {
   return useQuery({
     queryKey: chatKeys.scenarios,
-    queryFn: () => chatClient.get<ScenarioInfo[]>("/scenarios"),
+    queryFn: () =>
+      chatClient.get<RawScenario[]>("/scenarios").then((list) => list.map(toScenario)),
   });
 }
