@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ChatMessage } from "../types";
-import { applyTokenMessage, applyDoneMessage, applyTokenUpdate, applyThinking, applyStreamStart } from "../utils";
+import { applyTokenMessage, applyDoneMessage, applyTokenUpdate, applyThinking, applyStreamStart, applyReadyMessage } from "../utils";
 
 describe("ChatPage message logic", () => {
   it("starts a new streaming message when no prior agent message exists", () => {
@@ -69,6 +69,20 @@ describe("applyThinking", () => {
     expect(result).toHaveLength(1);
     expect(result[0].streaming).toBe(true);
     expect(result[0].thinking).toBeUndefined();
+  });
+});
+
+describe("applyReadyMessage", () => {
+  it("returns paused=true when ready message has pause=true", () => {
+    expect(applyReadyMessage({ type: "ready", auto: true, pause: true })).toEqual({ paused: true });
+  });
+
+  it("returns paused=false when ready message has pause=false", () => {
+    expect(applyReadyMessage({ type: "ready", auto: true, pause: false })).toEqual({ paused: false });
+  });
+
+  it("returns paused=false when pause is absent", () => {
+    expect(applyReadyMessage({ type: "ready", auto: true })).toEqual({ paused: false });
   });
 });
 

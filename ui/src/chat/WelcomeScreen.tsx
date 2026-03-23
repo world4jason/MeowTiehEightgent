@@ -7,9 +7,13 @@ interface Props {
   scenarios: ScenarioInfo[];
   onStartSession: (scenario: Pick<ScenarioInfo, "agents" | "systemPrompt">) => void;
   onSelectAgents: (agents: string[]) => void;
+  autoMode?: boolean;
+  onAutoModeChange?: (auto: boolean) => void;
+  rounds?: number;
+  onRoundsChange?: (rounds: number) => void;
 }
 
-export function WelcomeScreen({ agents, scenarios, onStartSession, onSelectAgents }: Props) {
+export function WelcomeScreen({ agents, scenarios, onStartSession, onSelectAgents, autoMode, onAutoModeChange, rounds, onRoundsChange }: Props) {
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(
     new Set(agents.filter((a) => a.enabled).map((a) => a.name))
   );
@@ -29,6 +33,48 @@ export function WelcomeScreen({ agents, scenarios, onStartSession, onSelectAgent
         <h2 className="text-xl font-semibold">Start a conversation</h2>
         <p className="mt-1 text-sm text-muted-foreground">Pick agents and start chatting, or choose a scenario.</p>
       </div>
+
+      {/* Auto/Manual mode selection */}
+      {autoMode !== undefined && (
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg border border-border p-1">
+            <button
+              aria-label="Auto"
+              onClick={() => onAutoModeChange?.(true)}
+              className={cn(
+                "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+                autoMode ? "bg-emerald-600 text-white" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Auto
+            </button>
+            <button
+              aria-label="Manual"
+              onClick={() => onAutoModeChange?.(false)}
+              className={cn(
+                "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+                !autoMode ? "bg-amber-600 text-white" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Manual
+            </button>
+          </div>
+          {!autoMode && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>每</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={rounds ?? 2}
+                onChange={(e) => onRoundsChange?.(Math.max(1, Math.min(20, Number(e.target.value))))}
+                className="w-16 rounded border border-border bg-muted px-2 py-1 text-center text-foreground"
+              />
+              <span>輪暫停</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Agent chips */}
       <div className="flex flex-wrap justify-center gap-2">

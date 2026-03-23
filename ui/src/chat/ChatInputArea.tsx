@@ -21,9 +21,14 @@ interface Props {
   supportsImage?: boolean;
   isStreaming?: boolean;
   onStop?: () => void;
+  paused?: boolean;
+  onNext?: () => void;
+  autoMode?: boolean;
+  onToggleMode?: () => void;
+  rounds?: number;
 }
 
-export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage = false, isStreaming = false, onStop }: Props) {
+export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage = false, isStreaming = false, onStop, paused = false, onNext, autoMode, onToggleMode, rounds }: Props) {
   const [text, setText] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const skill = useSkillPicker(skills);
@@ -65,6 +70,25 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
 
   return (
     <div className="shrink-0 border-t border-border p-3">
+      {/* Mode indicator */}
+      {autoMode !== undefined && (
+        <div className="flex items-center gap-2 px-1 py-1.5 text-xs text-muted-foreground">
+          <button
+            aria-label={autoMode ? "Auto" : "Manual"}
+            onClick={onToggleMode}
+            className={cn(
+              "rounded px-2 py-0.5 font-medium transition-colors",
+              autoMode ? "bg-emerald-600/20 text-emerald-400" : "bg-amber-600/20 text-amber-400"
+            )}
+          >
+            {autoMode ? "Auto" : "Manual"}
+          </button>
+          {!autoMode && rounds !== undefined && (
+            <span className="text-muted-foreground">每 {rounds} 輪暫停</span>
+          )}
+        </div>
+      )}
+
       {/* Image previews */}
       {images.length > 0 && (
         <div className="mb-2 flex gap-2">
@@ -128,7 +152,15 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
           style={{ fieldSizing: "content" } as React.CSSProperties}
         />
 
-        {isStreaming ? (
+        {paused ? (
+          <button
+            aria-label="Next"
+            onClick={onNext}
+            className="flex items-center gap-1.5 shrink-0 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
+          >
+            Next →
+          </button>
+        ) : isStreaming ? (
           <button
             aria-label="Stop"
             onClick={onStop}

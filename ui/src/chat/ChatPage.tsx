@@ -15,7 +15,7 @@ import {
   useSkillsList, useScenarios,
 } from "./hooks/useChatApi";
 import { ChatMessage, AgentInfo } from "./types";
-import { applyTokenMessage, applyDoneMessage, applyStreamStart, applyChunkMessage, applyMessageEnd, applyThinking, toHistoryChatMessage, applyTokenUpdate, TokenUsageMap } from "./utils";
+import { applyTokenMessage, applyDoneMessage, applyStreamStart, applyChunkMessage, applyMessageEnd, applyThinking, toHistoryChatMessage, applyTokenUpdate, applyReadyMessage, TokenUsageMap } from "./utils";
 
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
 const WS_BASE = CHAT_URL.replace(/^http/, "ws");
@@ -27,6 +27,15 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const [agentRuns, setAgentRuns] = useState<{ agentName: string; tokens?: number }[]>([]);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageMap>({});
   const [wsConnected, setWsConnected] = useState(false);
+  const [autoMode, setAutoMode] = useState(true);
+  const [rounds, setRounds] = useState(2);
+  const [paused, setPaused] = useState(false);
+
+  // Refs to avoid stale closures in useCallback
+  const autoModeRef = useRef(autoMode);
+  autoModeRef.current = autoMode;
+  const roundsRef = useRef(rounds);
+  roundsRef.current = rounds;
 
   // Data queries
   const { data: allAgents = [] } = useAgentsList();
@@ -97,6 +106,9 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     } else if (msg.type === "token_update") {
       const { agent: name, cumulative } = msg as { agent: string; cumulative: { input: number; output: number } };
       setTokenUsage((prev) => applyTokenUpdate(prev, name, cumulative));
+    } else if (msg.type === "ready") {
+      const { paused: nextPaused } = applyReadyMessage(msg);
+      setPaused(nextPaused);
     }
   }, [isVisible, setHasUnreadChat, setMessages, setAgents]);
 
@@ -115,8 +127,8 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
       topic: "",
       agents: allAgentsRef.current.map((a) => a.name),
       resume_from: activeSessionId,
-      auto: true,
-      rounds: 1,
+      auto: autoModeRef.current,
+      rounds: roundsRef.current,
     }));
     setWsConnected(true);
   }, [activeSessionId, wsRef]);
@@ -149,6 +161,11 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
 
   function handleStop() {
     wsRef.current?.send(JSON.stringify({ type: "stop" }));
+  }
+
+  function handleNext() {
+    wsRef.current?.send(JSON.stringify({ type: "next" }));
+    setPaused(false);
   }
 
   function handleModeChange(agentName: string, mode: "chat" | "think") {
@@ -220,6 +237,10 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
                 scenarios={scenarios}
                 onStartSession={handleScenarioStart}
                 onSelectAgents={() => {}}
+                autoMode={autoMode}
+                onAutoModeChange={setAutoMode}
+                rounds={rounds}
+                onRoundsChange={setRounds}
               />
             ) : (
               <MessageList messages={messages} />
@@ -234,6 +255,11 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
                 supportsImage={allAgents.some((a) => a.name === agents[0]?.name && a.supportsImage)}
                 isStreaming={isStreaming}
                 onStop={handleStop}
+                paused={paused}
+                onNext={handleNext}
+                autoMode={autoMode}
+                onToggleMode={() => setAutoMode((v) => !v)}
+                rounds={rounds}
               />
             )}
           </main>

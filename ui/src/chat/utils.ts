@@ -67,6 +67,14 @@ export function applyTokenUpdate(prev: TokenUsageMap, agent: string, cumulative:
   return { ...prev, [agent]: cumulative };
 }
 
+/**
+ * Extract pause state from a backend "ready" message.
+ * Backend sends: { type: "ready", auto: bool, pause: bool }
+ */
+export function applyReadyMessage(msg: Record<string, unknown>): { paused: boolean } {
+  return { paused: Boolean(msg.pause) };
+}
+
 export function formatTokenCount(n: number): string {
   if (n < 1000) return String(n);
   return `${(n / 1000).toFixed(1)}k`;
