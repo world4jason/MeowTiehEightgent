@@ -31,6 +31,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const [rounds, setRounds] = useState(2);
   const [paused, setPaused] = useState(false);
   const [topic, setTopic] = useState("");
+  const [messageQueue, setMessageQueue] = useState<string[]>([]);
 
   // Refs to avoid stale closures in useCallback
   const autoModeRef = useRef(autoMode);
@@ -166,6 +167,11 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     }));
   }
 
+  // P2-13: Queue a message for later delivery (when agent is streaming)
+  function handleQueueMessage(text: string) {
+    setMessageQueue((prev) => [...prev, text]);
+  }
+
   function handleStop() {
     wsRef.current?.send(JSON.stringify({ type: "stop" }));
   }
@@ -210,6 +216,18 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const showWelcome = !activeSessionId;
   const isConnected = wsConnected;
   const isStreaming = messages.some((m) => m.streaming || m.thinking);
+
+  // P2-13: When streaming stops, drain the queue one message at a time
+  const prevIsStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    if (prevIsStreamingRef.current && !isStreaming && messageQueue.length > 0) {
+      const [next, ...rest] = messageQueue;
+      setMessageQueue(rest);
+      handleSend({ text: next });
+    }
+    prevIsStreamingRef.current = isStreaming;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStreaming]);
 
   return (
     <div className="flex h-full flex-1 overflow-hidden">
@@ -270,6 +288,8 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
                 autoMode={autoMode}
                 onToggleMode={() => setAutoMode((v) => !v)}
                 rounds={rounds}
+                onQueueMessage={handleQueueMessage}
+                queueLength={messageQueue.length}
               />
             )}
           </main>
