@@ -134,7 +134,6 @@ def resolve_thinking_model(agent: dict) -> dict | None:
     for tk in ("idle_timeout_seconds", "startup_timeout_seconds"):
         if tk in m:
             resolved[tk] = m[tk]
-    resolved["_thinking_model_key"] = thinking_key  # for notification
     return resolved
 ```
 
@@ -241,10 +240,33 @@ git commit -m "feat: add resolve_thinking_model + model_tiers dispatch in stream
 ## Task 2: model_tiers — WS Notification + Agent Config
 
 **Files:**
-- Modify: `app.py:2261-2270` (set_mode handler)
+- Modify: `app.py:2261-2270, 2380-2389, 2437-2446` (all 3 set_mode handler sites)
 - Modify: `agents/gemini/config.json`
 - Modify: `config.json` (add gemini-2.5-pro model)
 - Test: `test_api.py`
+
+**Note:** The codebase has 3 duplicate `set_mode` handler blocks (auto-streaming, auto-waiting, manual mode). Extract to a shared helper `_handle_set_mode()` first, then add notification once.
+
+- [ ] **Step 0: Extract `_handle_set_mode()` helper**
+
+Find all 3 identical `set_mode` blocks (~lines 2261-2270, 2380-2389, 2437-2446) and extract:
+
+```python
+async def _handle_set_mode(ws, evt, agent_modes: dict, active_agents: list):
+    """Shared handler for set_mode WS messages. Used by all 3 event loop phases."""
+    _sm_agent = evt.get("agent", "")
+    _sm_mode = evt.get("mode", "")
+    if _sm_agent not in agent_modes:
+        await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+    elif _sm_mode not in ("chat", "think"):
+        await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+    else:
+        agent_modes[_sm_agent] = _sm_mode
+        await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
+        # Notification added in Step 5
+```
+
+Replace all 3 inline blocks with: `await _handle_set_mode(ws, evt, agent_modes, active_agents)`
 
 - [ ] **Step 1: Write failing test for WS system notification**
 
@@ -314,21 +336,23 @@ def build_mode_switch_notification(agent: dict, mode: str) -> dict | None:
 Run: `cd /Users/jasonyeh/code_ground/agent-cli-converation && python3 -m pytest test_api.py::TestModelTiersNotification -v`
 Expected: PASS
 
-- [ ] **Step 5: Wire notification into WS `set_mode` handler**
+- [ ] **Step 5: Wire notification into `_handle_set_mode()` helper**
 
-In `app.py` (~line 2268-2270), modify the `set_mode` handler:
+In the `_handle_set_mode()` helper (extracted in Step 0), add notification after `mode_update`:
 
 ```python
-                    else:
-                        agent_modes[_sm_agent] = _sm_mode
-                        await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
-                        # Send system notification if model_tiers switch
-                        _sm_agent_obj = next((a for a in active_agents if a["name"] == _sm_agent), None)
-                        if _sm_agent_obj:
-                            _notif = build_mode_switch_notification(_sm_agent_obj, _sm_mode)
-                            if _notif:
-                                await ws.send_json(_notif)
+    else:
+        agent_modes[_sm_agent] = _sm_mode
+        await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
+        # Send system notification if model_tiers switch
+        _sm_agent_obj = next((a for a in active_agents if a["name"] == _sm_agent), None)
+        if _sm_agent_obj:
+            _notif = build_mode_switch_notification(_sm_agent_obj, _sm_mode)
+            if _notif:
+                await ws.send_json(_notif)
 ```
+
+This covers all 3 handler sites + TUI `/think @agent` commands (which go through `intercept_mode_command` → same `agent_modes` dict → next turn picks up the mode). Note: TUI commands don't send WS system notification (they don't go through `_handle_set_mode`). This is acceptable — TUI is a power-user path.
 
 - [ ] **Step 6: Update `agents/gemini/config.json`**
 
@@ -560,6 +584,16 @@ Expected: PASS
 - [ ] **Step 5: Write failing tests for `compress_history()`**
 
 ```python
+def _write_haiku_config(tmp_project):
+    """Helper: write config.json with a 'haiku' model entry for summarization tests."""
+    config = {
+        "models": {
+            "haiku": {"type": "cli", "cmd": ["claude", "--print"], "extra_flags": ["--model", "claude-haiku"]},
+        }
+    }
+    (tmp_project / "config.json").write_text(json.dumps(config))
+
+
 class TestCompressHistory:
     """History summarization Phase 2."""
 
@@ -576,6 +610,7 @@ class TestCompressHistory:
     async def test_overflow_triggers_summarization(self, tmp_project):
         """Overflow exceeds threshold → calls model, writes summary.json."""
         import app as a
+        _write_haiku_config(tmp_project)
         messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(40)]
         mock_response = "This is a summary of the conversation."
 
@@ -600,6 +635,7 @@ class TestCompressHistory:
     async def test_cached_summary_reused_below_threshold(self, tmp_project):
         """Cached summary exists, new overflow < threshold → reuse."""
         import app as a
+        _write_haiku_config(tmp_project)
         sid = "test-cache-session"
         sdir = tmp_project / "history" / sid
         sdir.mkdir(parents=True)
@@ -626,11 +662,27 @@ class TestCompressHistory:
         assert summary == "Old summary."
         assert call_count == 0  # no model call
         assert len(windowed) == 30
+        # I2: Verify total_message_count was updated even though cache was reused
+        data = json.loads((sdir / "summary.json").read_text())
+        assert data["total_message_count"] == 42  # updated from 40
+
+    @pytest.mark.asyncio
+    async def test_empty_summary_model_skips_summarization(self, tmp_project):
+        """Empty summary_model → skip summarization, return empty."""
+        import app as a
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(40)]
+        summary, windowed = await a.compress_history(
+            "sid", messages, window_size=30,
+            summary_model="", trigger_threshold=5,
+        )
+        assert summary == ""
+        assert len(windowed) == 30
 
     @pytest.mark.asyncio
     async def test_cached_summary_refreshed_above_threshold(self, tmp_project):
         """Cached summary exists, new overflow >= threshold → refresh."""
         import app as a
+        _write_haiku_config(tmp_project)
         sid = "test-refresh-session"
         sdir = tmp_project / "history" / sid
         sdir.mkdir(parents=True)
@@ -660,6 +712,7 @@ class TestCompressHistory:
     async def test_summarization_failure_returns_empty(self, tmp_project):
         """Model call fails → returns empty summary (fallback to truncation)."""
         import app as a
+        _write_haiku_config(tmp_project)
         messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(40)]
 
         async def mock_call_agent_fail(agent, prompt):
@@ -714,6 +767,10 @@ async def compress_history(
 
     overflow = messages[:-window_size]
     windowed = messages[-window_size:]
+
+    # Guard: empty/falsy summary_model → skip summarization (no warning)
+    if not summary_model:
+        return ("", windowed)
 
     # Read cached summary
     summary_path = HISTORY_DIR / session_id / "summary.json"
@@ -818,13 +875,29 @@ git commit -m "feat: add compress_history with summary.json cache + per-session 
 
 Empty string = disabled (user must choose a model).
 
-- [ ] **Step 2: Refactor history_text building to use `compress_history`**
+- [ ] **Step 2: Extract `_format_history_text()` helper (DRY)**
+
+Add a helper to avoid duplicating history formatting in resume and per-turn:
+
+```python
+def _format_history_text(topic: str, summary_prefix: str, windowed_messages: list) -> str:
+    """Format summary + windowed messages into history_text string."""
+    lines = [f"Topic: {topic}"]
+    if summary_prefix:
+        lines.append(f"\n[對話摘要]: {summary_prefix}")
+    for m in windowed_messages:
+        if m.get("type") == "message":
+            lines.append(f"\n[{m['agent']}]: {m['text']}")
+    return "\n".join(lines) + "\n"
+```
+
+- [ ] **Step 3: Refactor history_text building to use `compress_history`**
 
 Replace the history_text building block (~line 2066-2084) with:
 
 ```python
     # Build history_text (with optional summarization)
-    _cfg = await get_config()
+    _cfg = load_config()
     _max_rounds = _cfg.get("max_history_rounds", 30)
     _summ_model = _cfg.get("summarization_model", "")
     _summ_threshold = _cfg.get("summary_trigger_threshold", 10)
@@ -843,13 +916,7 @@ Replace the history_text building block (~line 2066-2084) with:
             _summary_prefix = ""
             _windowed = apply_sliding_window(messages, max_rounds=_max_rounds)
 
-        lines = [f"Topic: {topic}"]
-        if _summary_prefix:
-            lines.append(f"\n[對話摘要]: {_summary_prefix}")
-        for m in _windowed:
-            if m.get("type") == "message":
-                lines.append(f"\n[{m['agent']}]: {m['text']}")
-        history_text = "\n".join(lines) + "\n"
+        history_text = _format_history_text(topic, _summary_prefix, _windowed)
     else:
         history_text = f"[Human]: {topic}\n"
         hmsg = {
@@ -860,7 +927,7 @@ Replace the history_text building block (~line 2066-2084) with:
         log(hmsg)
 ```
 
-- [ ] **Step 3: Also apply compress_history at each turn's prompt build**
+- [ ] **Step 4: Apply compress_history at each turn's prompt build**
 
 At ~line 2198-2199, replace the simple truncation with compress_history integration:
 
@@ -870,13 +937,7 @@ At ~line 2198-2199, replace the simple truncation with compress_history integrat
                 _summary_prefix, _windowed = await compress_history(
                     session_id, messages, _max_rounds, _summ_model, _summ_threshold,
                 )
-                _lines = [f"Topic: {topic}"]
-                if _summary_prefix:
-                    _lines.append(f"\n[對話摘要]: {_summary_prefix}")
-                for _m in _windowed:
-                    if _m.get("type") == "message":
-                        _lines.append(f"\n[{_m['agent']}]: {_m['text']}")
-                _rebuilt_history = "\n".join(_lines) + "\n"
+                _rebuilt_history = _format_history_text(topic, _summary_prefix, _windowed)
             else:
                 _rebuilt_history = history_text
 
@@ -884,7 +945,7 @@ At ~line 2198-2199, replace the simple truncation with compress_history integrat
             _trimmed_history = truncate_history(_rebuilt_history, _max_hist)
 ```
 
-And update `_produce()` to use `_trimmed_history` (already does at line 2206).
+Note: uses `load_config()` (sync utility) instead of `await get_config()` (HTTP handler). Both work but `load_config()` is semantically correct.
 
 - [ ] **Step 4: Run full test suite**
 
@@ -999,9 +1060,9 @@ git commit -m "test: add integration tests for model_tiers + compress_history"
 | Task | What | Tests |
 |------|------|-------|
 | 1 | `resolve_thinking_model` + `stream_agent` dispatch | 4 unit tests |
-| 2 | WS notification + config files | 3 unit tests |
+| 2 | Extract `_handle_set_mode` + WS notification + config files | 3 unit tests |
 | 3 | Settings UI thinking model dropdown | Manual |
-| 4 | `compress_history` core function | 5 unit tests |
+| 4 | `compress_history` + `load_session_config` + `_format_history_text` | 7 unit tests |
 | 5 | Wire into WS loop + config | Existing suite |
 | 6 | TODO.md cleanup | N/A |
 | 7 | Integration tests | 2 integration tests |
