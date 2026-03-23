@@ -1250,6 +1250,57 @@ async def get_marketplace_agent(agent_id: str):
     }
 
 
+@app.post("/marketplace/agents")
+async def create_marketplace_agent(body: dict = {}):
+    agent_id = (body.get("id") or "").strip()
+    if not agent_id or re.search(r'[/\\.\s]', agent_id) or len(agent_id) > 64:
+        raise HTTPException(status_code=400, detail="Invalid agent id")
+    MARKETPLACE_DIR.mkdir(parents=True, exist_ok=True)
+    dst = MARKETPLACE_DIR / agent_id
+    if dst.exists():
+        raise HTTPException(status_code=409, detail=f"Marketplace agent '{agent_id}' already exists")
+    dst.mkdir(parents=True)
+    cfg = {
+        "emoji": body.get("emoji", "🤖"),
+        "color": body.get("color", "#888"),
+        "description": body.get("description", ""),
+    }
+    (dst / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+    (dst / "AGENT.md").write_text(body.get("agent_md", ""))
+    (dst / "IDENTITY.md").write_text(body.get("identity_md", ""))
+    (dst / "SOUL.md").write_text(body.get("soul_md", ""))
+    return {"ok": True, "id": agent_id}
+
+
+@app.put("/marketplace/agents/{agent_id}")
+async def update_marketplace_agent(agent_id: str, body: dict = {}):
+    src = MARKETPLACE_DIR / agent_id
+    if not src.is_dir():
+        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
+    cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
+    for key in ("emoji", "color", "description"):
+        if key in body:
+            cfg[key] = body[key]
+    (src / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+    if "agent_md" in body:
+        (src / "AGENT.md").write_text(body["agent_md"])
+    if "identity_md" in body:
+        (src / "IDENTITY.md").write_text(body["identity_md"])
+    if "soul_md" in body:
+        (src / "SOUL.md").write_text(body["soul_md"])
+    return {"ok": True}
+
+
+@app.delete("/marketplace/agents/{agent_id}")
+async def delete_marketplace_agent(agent_id: str):
+    src = MARKETPLACE_DIR / agent_id
+    if not src.is_dir():
+        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
+    import shutil
+    shutil.rmtree(src)
+    return {"ok": True}
+
+
 @app.post("/marketplace/agents/{agent_id}/install")
 async def install_marketplace_agent(agent_id: str, body: dict = {}):
     src = MARKETPLACE_DIR / agent_id
@@ -1775,7 +1826,7 @@ async def list_sessions(limit: int = 30, offset: int = 0):
     hidden = load_hidden()
     all_dirs = sorted(
         (d for d in HISTORY_DIR.iterdir() if d.is_dir() and d.name not in hidden and (d / "messages.json").exists()),
-        key=lambda x: x.name, reverse=True,
+        key=lambda x: x.stat().st_mtime, reverse=True,
     )
     total = len(all_dirs)
     page = all_dirs[offset: offset + limit]
@@ -1966,7 +2017,7 @@ async def websocket_endpoint(ws: WebSocket):
         f = session_messages_path(resume_id)
         if f.exists():
             past = json.loads(f.read_text())
-            _cfg = _get_config()
+            _cfg = await get_config()
             _max_rounds = _cfg.get("max_history_rounds", 30)
             past = apply_sliding_window(past, max_rounds=_max_rounds)
             lines = [f"Topic: {topic}"]
@@ -1992,7 +2043,7 @@ async def websocket_endpoint(ws: WebSocket):
     # When resuming, consume the first human message before starting agents
     if resume_id:
         try:
-            first_msg = await asyncio.wait_for(ws.receive_json(), timeout=3.0)
+            first_msg = await asyncio.wait_for(ws.receive_json(), timeout=60.0)
         except (asyncio.TimeoutError, Exception):
             first_msg = None
         if first_msg:

@@ -234,6 +234,44 @@ export function useInstallMarketplaceAgent() {
   });
 }
 
+export function useCreateMarketplaceAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      id: string; emoji?: string; color?: string; description?: string;
+      agent_md?: string; identity_md?: string; soul_md?: string;
+    }) => chatClient.post<{ ok: boolean; id: string }>("/marketplace/agents", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: settingsKeys.marketplace });
+    },
+  });
+}
+
+export function useUpdateMarketplaceAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: {
+      id: string; emoji?: string; color?: string; description?: string;
+      agent_md?: string; identity_md?: string; soul_md?: string;
+    }) => chatClient.put<{ ok: boolean }>(`/marketplace/agents/${id}`, body),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: settingsKeys.marketplace });
+      qc.invalidateQueries({ queryKey: settingsKeys.marketplaceDetail(vars.id) });
+    },
+  });
+}
+
+export function useDeleteMarketplaceAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      chatClient.delete<{ ok: boolean }>(`/marketplace/agents/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: settingsKeys.marketplace });
+    },
+  });
+}
+
 // ─── Skills ───────────────────────────────────────────────────
 export function useSkillDetail(slug: string) {
   return useQuery({
