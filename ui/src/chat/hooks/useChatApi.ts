@@ -170,6 +170,8 @@ interface RawScenario {
   suggested_agents?: string[];
   system_prompt?: string;
   systemPrompt?: string;
+  topic_hint?: string;
+  topicHint?: string;
 }
 
 function toScenario(raw: RawScenario): ScenarioInfo {
@@ -179,6 +181,7 @@ function toScenario(raw: RawScenario): ScenarioInfo {
     description: raw.description,
     agents: raw.agents ?? raw.suggested_agents ?? [],
     systemPrompt: raw.systemPrompt ?? raw.system_prompt,
+    topicHint: raw.topicHint ?? raw.topic_hint,
   };
 }
 

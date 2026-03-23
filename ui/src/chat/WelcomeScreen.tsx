@@ -168,12 +168,23 @@ export function WelcomeScreen({ agents, scenarios, workspaces, onStartSession, o
                   <button
                     key={s.id}
                     onClick={() => {
-                      setSelectedScenario(s);
-                      onStartSession({ agents: s.agents, systemPrompt: s.systemPrompt });
+                      const next = selectedScenario?.id === s.id ? null : s;
+                      setSelectedScenario(next);
+                      if (next) {
+                        // Merge scenario's suggested agents into selection
+                        setSelectedAgents((prev) => {
+                          const merged = new Set(prev);
+                          for (const name of next.agents) merged.add(name);
+                          onSelectAgents([...merged]);
+                          return merged;
+                        });
+                      }
                     }}
                     className={cn(
-                      "rounded-xl border border-border p-4 text-left transition-colors hover:bg-muted",
-                      selectedScenario?.id === s.id && "border-primary bg-muted"
+                      "rounded-xl border p-4 text-left transition-colors hover:bg-muted",
+                      selectedScenario?.id === s.id
+                        ? "border-primary bg-muted"
+                        : "border-border"
                     )}
                   >
                     <p className="font-semibold text-sm">{s.name}</p>
@@ -233,7 +244,7 @@ export function WelcomeScreen({ agents, scenarios, workspaces, onStartSession, o
         <textarea
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder="輸入討論主題..."
+          placeholder={selectedScenario?.topicHint || "輸入討論主題..."}
           rows={2}
           className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
         />

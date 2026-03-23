@@ -62,6 +62,7 @@ export interface ScenarioInfo {
   description: string;
   agents: string[];
   systemPrompt?: string;
+  topicHint?: string;
 }
 
 export interface SessionPage {
