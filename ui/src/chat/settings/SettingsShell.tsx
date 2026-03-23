@@ -7,14 +7,16 @@ import { SkillsTab } from "./SkillsTab";
 import { WorkspacesTab } from "./WorkspacesTab";
 import { SoulTab } from "./SoulTab";
 import { AboutTab } from "./AboutTab";
+import { ScenariosTab } from "./ScenariosTab";
 
-type SettingsTab = "models" | "agents" | "market" | "skills" | "workspaces" | "soul" | "about";
+type SettingsTab = "models" | "agents" | "market" | "skills" | "scenarios" | "workspaces" | "soul" | "about";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "models", label: "模型" },
   { id: "agents", label: "代理人" },
   { id: "market", label: "代理人市場" },
   { id: "skills", label: "技能" },
+  { id: "scenarios", label: "情境模板" },
   { id: "workspaces", label: "工作區" },
   { id: "soul", label: "靈魂" },
   { id: "about", label: "關於" },
@@ -59,6 +61,7 @@ export function SettingsShell({ coworkOnline }: Props) {
         )}
         {activeTab === "market" && <AgentMarketTab onInstalled={handleInstalled} />}
         {activeTab === "skills" && <SkillsTab />}
+        {activeTab === "scenarios" && <ScenariosTab />}
         {activeTab === "workspaces" && <WorkspacesTab />}
         {activeTab === "soul" && <SoulTab />}
         {activeTab === "about" && <AboutTab />}

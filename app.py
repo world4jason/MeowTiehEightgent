@@ -1819,6 +1819,57 @@ async def list_scenarios():
     return result
 
 
+@app.get("/scenarios/{scenario_id}")
+async def get_scenario(scenario_id: str):
+    f = SCENARIOS_DIR / f"{scenario_id}.json"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    return json.loads(f.read_text())
+
+
+@app.post("/scenarios")
+async def create_scenario(body: dict = {}):
+    sid = (body.get("id") or "").strip()
+    if not sid or re.search(r'[/\\.\s]', sid) or len(sid) > 64:
+        raise HTTPException(status_code=400, detail="Invalid scenario id")
+    SCENARIOS_DIR.mkdir(parents=True, exist_ok=True)
+    f = SCENARIOS_DIR / f"{sid}.json"
+    if f.exists():
+        raise HTTPException(status_code=409, detail=f"Scenario '{sid}' already exists")
+    data = {
+        "id": sid,
+        "name": body.get("name", sid),
+        "description": body.get("description", ""),
+        "system_prompt": body.get("system_prompt", ""),
+        "suggested_agents": body.get("suggested_agents", []),
+        "topic_hint": body.get("topic_hint", ""),
+    }
+    f.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return {"ok": True, "id": sid}
+
+
+@app.put("/scenarios/{scenario_id}")
+async def update_scenario(scenario_id: str, body: dict = {}):
+    f = SCENARIOS_DIR / f"{scenario_id}.json"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    data = json.loads(f.read_text())
+    for key in ("name", "description", "system_prompt", "suggested_agents", "topic_hint"):
+        if key in body:
+            data[key] = body[key]
+    f.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return {"ok": True}
+
+
+@app.delete("/scenarios/{scenario_id}")
+async def delete_scenario(scenario_id: str):
+    f = SCENARIOS_DIR / f"{scenario_id}.json"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    f.unlink()
+    return {"ok": True}
+
+
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 @app.get("/sessions")

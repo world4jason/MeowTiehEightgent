@@ -28,6 +28,7 @@ export const settingsKeys = {
   defaultSoul: ["settings", "_default", "soul"] as const,
   userMd: ["settings", "user", "md"] as const,
   config: ["settings", "config"] as const,
+  scenarioDetail: (id: string) => ["settings", "scenario", id] as const,
 };
 
 // ─── Models ───────────────────────────────────────────────────
@@ -500,5 +501,57 @@ export function useUpdateConfig() {
     mutationFn: (body: Record<string, unknown>) =>
       chatClient.post<{ ok: boolean }>("/config", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: settingsKeys.config }),
+  });
+}
+
+// ─── Scenarios ───────────────────────────────────────────────
+
+export interface ScenarioDetail {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  suggested_agents: string[];
+  topic_hint: string;
+}
+
+export function useScenarioDetail(id: string) {
+  return useQuery({
+    queryKey: settingsKeys.scenarioDetail(id),
+    queryFn: () => chatClient.get<ScenarioDetail>(`/scenarios/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      id: string; name: string; description?: string;
+      system_prompt?: string; suggested_agents?: string[]; topic_hint?: string;
+    }) => chatClient.post<{ ok: boolean; id: string }>("/scenarios", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: chatKeys.scenarios }),
+  });
+}
+
+export function useUpdateScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: {
+      id: string; name?: string; description?: string;
+      system_prompt?: string; suggested_agents?: string[]; topic_hint?: string;
+    }) => chatClient.put<{ ok: boolean }>(`/scenarios/${id}`, body),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: chatKeys.scenarios });
+      qc.invalidateQueries({ queryKey: settingsKeys.scenarioDetail(vars.id) });
+    },
+  });
+}
+
+export function useDeleteScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => chatClient.delete<{ ok: boolean }>(`/scenarios/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: chatKeys.scenarios }),
   });
 }
