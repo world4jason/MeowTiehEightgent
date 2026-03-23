@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ThemeProvider } from "../../context/ThemeContext";
 import { MessageList } from "../MessageList";
+import { ImageLightbox } from "../ImageLightbox";
 import type { ChatMessage } from "../types";
 
 function renderWithTheme(ui: React.ReactElement) {
@@ -85,5 +86,59 @@ describe("MessageList", () => {
     ];
     renderWithTheme(<MessageList messages={msgs} />);
     expect(screen.getByText("思考中")).toBeInTheDocument();
+  });
+
+  // ─── P1-10: Message Timestamps ────────────────────────────
+  it("displays timestamp for agent messages", () => {
+    const ts = new Date(2026, 2, 23, 14, 32).getTime();
+    const msgs: ChatMessage[] = [
+      { id: "1", role: "agent", agentName: "Claude", content: "hello", timestamp: ts },
+    ];
+    renderWithTheme(<MessageList messages={msgs} />);
+    expect(screen.getByText("14:32")).toBeInTheDocument();
+  });
+
+  it("does not show timestamp when timestamp is 0", () => {
+    const msgs: ChatMessage[] = [
+      { id: "1", role: "agent", agentName: "Claude", content: "hello", timestamp: 0 },
+    ];
+    renderWithTheme(<MessageList messages={msgs} />);
+    // Should not show "00:00" as a timestamp label when ts is falsy
+    expect(screen.queryByText("00:00")).not.toBeInTheDocument();
+  });
+});
+
+// ─── P1-9: ImageLightbox ──────────────────────────────────
+describe("ImageLightbox", () => {
+  it("renders the image with the given src", () => {
+    const onClose = () => {};
+    render(<ImageLightbox src="https://example.com/image.png" alt="test image" onClose={onClose} />);
+    const img = screen.getByRole("img");
+    expect(img).toHaveAttribute("src", "https://example.com/image.png");
+    expect(img).toHaveAttribute("alt", "test image");
+  });
+
+  it("calls onClose when Escape key is pressed", () => {
+    const onClose = vi.fn();
+    render(<ImageLightbox src="https://example.com/image.png" onClose={onClose} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose when overlay (outside image) is clicked", () => {
+    const onClose = vi.fn();
+    const { container } = render(<ImageLightbox src="https://example.com/image.png" onClose={onClose} />);
+    // Click the overlay div (the fixed container)
+    const overlay = container.firstChild as HTMLElement;
+    fireEvent.click(overlay);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT call onClose when clicking the image itself", () => {
+    const onClose = vi.fn();
+    render(<ImageLightbox src="https://example.com/image.png" alt="lightbox image" onClose={onClose} />);
+    const img = screen.getByRole("img");
+    fireEvent.click(img);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

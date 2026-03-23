@@ -19,9 +19,16 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ChatProvider } from "../../context/ChatContext";
+import { ThemeProvider } from "../../context/ThemeContext";
 import { ChatPage } from "../ChatPage";
 
 // ─── Real backend response shapes ────────────────────────────────────────────
+
+// Session with a system message (topic) as the first message
+const BACKEND_SESSION_WITH_TOPIC = [
+  { type: "system", text: "Discuss TypeScript best practices", timestamp: "2026-03-21T12:00:00Z" },
+  { type: "message", agent: "Claude", text: "Let's talk about TypeScript.", timestamp: "2026-03-21T12:00:01Z" },
+];
 
 const BACKEND_SESSIONS_RESPONSE = {
   sessions: [
@@ -67,9 +74,11 @@ function makeQueryClient() {
 
 function Wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <QueryClientProvider client={makeQueryClient()}>
-      <ChatProvider>{children}</ChatProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={makeQueryClient()}>
+        <ChatProvider>{children}</ChatProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 
@@ -298,6 +307,35 @@ describe("Integration: ChatHeader appears when session selected", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /members/i })).toBeInTheDocument();
+    });
+  });
+});
+
+// ─── Integration Test 7: Topic shown in header after session load ─────────────
+
+describe("Integration: topic display in header (P1-11)", () => {
+  it("shows topic from system message in the chat header", async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.match(/\/sessions\/sess-abc$/)) {
+        return Promise.resolve({ ok: true, json: async () => BACKEND_SESSION_WITH_TOPIC });
+      }
+      if (url.includes("/sessions") && !url.match(/\/sessions\/[^/]+$/)) {
+        return Promise.resolve({ ok: true, json: async () => BACKEND_SESSIONS_RESPONSE });
+      }
+      if (url.includes("/agents"))    return Promise.resolve({ ok: true, json: async () => BACKEND_AGENTS });
+      if (url.includes("/workspaces"))return Promise.resolve({ ok: true, json: async () => BACKEND_WORKSPACES });
+      if (url.includes("/skills"))    return Promise.resolve({ ok: true, json: async () => BACKEND_SKILLS });
+      if (url.includes("/scenarios")) return Promise.resolve({ ok: true, json: async () => BACKEND_SCENARIOS });
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<ChatPage />, { wrapper: Wrapper });
+    await waitFor(() => screen.getByText("Hello from session A"));
+    await userEvent.click(screen.getByText("Hello from session A"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Discuss TypeScript best practices")).toBeInTheDocument();
     });
   });
 });

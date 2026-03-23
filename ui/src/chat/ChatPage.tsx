@@ -30,6 +30,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const [autoMode, setAutoMode] = useState(true);
   const [rounds, setRounds] = useState(2);
   const [paused, setPaused] = useState(false);
+  const [topic, setTopic] = useState("");
 
   // Refs to avoid stale closures in useCallback
   const autoModeRef = useRef(autoMode);
@@ -137,13 +138,19 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
 
   // Load messages when session changes
   useEffect(() => {
-    if (!activeSessionId) { setMessages([]); return; }
+    if (!activeSessionId) { setMessages([]); setTopic(""); return; }
     fetch(`${CHAT_URL}/sessions/${activeSessionId}`)
       .then((r) => r.json())
-      .then((data) =>
-        setMessages(Array.isArray(data) ? (data as Record<string, unknown>[]).map(toHistoryChatMessage) : [])
-      )
-      .catch(() => setMessages([]));
+      .then((data) => {
+        if (!Array.isArray(data)) { setMessages([]); setTopic(""); return; }
+        const raw = data as Record<string, unknown>[];
+        // Extract topic from first system message
+        const systemMsg = raw.find((m) => m.type === "system");
+        setTopic(systemMsg ? String(systemMsg.text ?? "") : "");
+        // Filter out system messages for the chat display
+        setMessages(raw.filter((m) => m.type !== "system").map(toHistoryChatMessage));
+      })
+      .catch(() => { setMessages([]); setTopic(""); });
   }, [activeSessionId, setMessages]);
 
   function handleSend(payload: SendPayload) {
@@ -210,7 +217,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
         workspaces={workspaces}
         sessions={sessions}
         activeSessionId={activeSessionId}
-        onSelectSession={(id) => { setActiveSessionId(id); setMessages([]); setAgentRuns([]); setTokenUsage({}); }}
+        onSelectSession={(id) => { setActiveSessionId(id); setMessages([]); setAgentRuns([]); setTokenUsage({}); setTopic(""); }}
         onNewSession={() => handleNewSession()}
         onNewSessionInWorkspace={handleNewSession}
         onRenameSession={(id, name) => renameSession.mutate({ id, name })}
@@ -227,6 +234,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
             runsOpen={runsOpen}
             onToggleMembers={() => setMembersOpen((o) => !o)}
             onToggleRuns={() => setRunsOpen((o) => !o)}
+            topic={topic}
           />
         )}
 

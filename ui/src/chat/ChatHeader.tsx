@@ -8,9 +8,10 @@ interface Props {
   runsOpen: boolean;
   onToggleMembers: () => void;
   onToggleRuns: () => void;
+  topic?: string;
 }
 
-export function ChatHeader({ agents, membersOpen, runsOpen, onToggleMembers, onToggleRuns }: Props) {
+export function ChatHeader({ agents, membersOpen, runsOpen, onToggleMembers, onToggleRuns, topic }: Props) {
   return (
     <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
       {/* Agent pills */}
@@ -28,6 +29,11 @@ export function ChatHeader({ agents, membersOpen, runsOpen, onToggleMembers, onT
           </span>
         ))}
       </div>
+
+      {/* Topic */}
+      {topic && (
+        <span className="text-sm text-muted-foreground truncate max-w-xs">{topic}</span>
+      )}
 
       {/* Panel toggles */}
       <div className="flex items-center gap-1 shrink-0">
