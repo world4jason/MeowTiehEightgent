@@ -69,3 +69,65 @@ export interface SessionPage {
   offset: number;
   limit: number;
 }
+
+// ─── Settings types ──────────────────────────────────────────
+export interface ModelInfo {
+  id: string;
+  type: "cli" | "api" | "ollama";
+  label?: string;
+  emoji?: string;
+  color?: string;
+  cmd?: string[];
+  baseUrl?: string;
+  apiModel?: string;
+  supports_image?: boolean;
+  supports_thinking?: boolean;
+  idle_timeout_seconds?: number;
+  startup_timeout_seconds?: number;
+}
+
+export interface AgentDetail {
+  name: string;
+  emoji: string;
+  color: string;
+  description: string;
+  model: string;
+  skills: string[];
+  enabled: boolean;
+  supports_thinking?: boolean;
+}
+
+export interface MarketplaceAgent {
+  id: string;
+  emoji: string;
+  color: string;
+  description: string;
+  installed: boolean;
+}
+
+export interface MarketplaceAgentDetail extends MarketplaceAgent {
+  agent_md: string;
+  identity_md: string;
+  soul_md: string;
+}
+
+export interface SkillDetail {
+  slug: string;
+  name: string;
+  description: string;
+  body: string;
+  source?: string;
+  source_url?: string;
+  source_version?: string;
+}
+
+export interface MdContent {
+  content: string;
+}
+
+export interface OllamaPullProgress {
+  status: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
+}
