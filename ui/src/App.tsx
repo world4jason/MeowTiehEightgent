@@ -49,14 +49,13 @@ import { loadLastInboxTab } from "./lib/inbox";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 import { ChatProvider, useChatContext } from "./context/ChatContext";
 import { ChatPage } from "./chat";
-import { ChatSettings } from "./chat/ChatSettings";
-import { useAgentsList } from "./chat/hooks/useChatApi";
+import { SettingsShell } from "./chat/settings/SettingsShell";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useState, useEffect } from "react";
 import type { ChatMode } from "./chat/types";
 
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
-const COWORK_URL = import.meta.env.VITE_COWORK_URL ?? "http://localhost:3100";
+
 
 function BootstrapPendingPage({ hasActiveInvite = false }: { hasActiveInvite?: boolean }) {
   return (
@@ -307,11 +306,6 @@ function NoCompaniesStartPage() {
   );
 }
 
-function ChatSettingsPage({ coworkOnline }: { coworkOnline: boolean }) {
-  const { data: rawAgents = [] } = useAgentsList();
-  const chatAgents = rawAgents.map((a) => ({ ...a, source: "chat" as const }));
-  return <ChatSettings chatAgents={chatAgents} coworkAgents={[]} coworkOnline={coworkOnline} />;
-}
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<ChatMode>(() => {
@@ -343,7 +337,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-center border-b border-border px-4 py-2">
+      <header className="relative z-[60] flex items-center justify-center border-b border-border px-4 py-2">
         <ModeToggle
           mode={mode}
           onModeChange={setMode}
@@ -362,8 +356,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
             If cowork ever needs persistent state, apply the same hidden-div strategy as ChatPage. */}
         {mode === "cowork" && <div className="flex h-full">{children}</div>}
         {mode === "settings" && (
-          <div className="flex h-full flex-1 overflow-y-auto">
-            <ChatSettingsPage coworkOnline={coworkOnline} />
+          <div className="flex h-full flex-1">
+            <SettingsShell coworkOnline={coworkOnline} />
           </div>
         )}
       </main>
