@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { MarkdownBody } from "@/components/MarkdownBody";
 import { ChatMessage } from "./types";
 
 interface MessageListProps {
@@ -31,7 +32,11 @@ export function MessageList({ messages }: MessageListProps) {
                 {msg.agentName}
               </p>
             )}
-            <p className="whitespace-pre-wrap">{msg.content}</p>
+            {msg.role === "agent" ? (
+              <MarkdownBody>{msg.content}</MarkdownBody>
+            ) : (
+              <p className="whitespace-pre-wrap">{msg.content}</p>
+            )}
             {msg.streaming && <span className="ml-1 animate-pulse">▌</span>}
           </div>
         </div>
