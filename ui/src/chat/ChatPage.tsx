@@ -189,13 +189,14 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     setMessages([]);
   }
 
-  async function handleScenarioStart(scenario: { agents: string[]; systemPrompt?: string }) {
-    const s = await createSession.mutateAsync(undefined);
+  async function handleScenarioStart(config: { agents: string[]; systemPrompt?: string; topic?: string; workspaceId?: string }) {
+    const s = await createSession.mutateAsync(config.workspaceId);
     setActiveSessionId(s.id);
     setMessages([]);
     // Brief delay to let WS connect, then send system setup
     setTimeout(() => {
-      wsRef.current?.send(JSON.stringify({ type: "scenario_start", ...scenario }));
+      const { workspaceId: _wid, ...scenarioPayload } = config;
+      wsRef.current?.send(JSON.stringify({ type: "scenario_start", ...scenarioPayload }));
     }, 300);
   }
 
@@ -235,6 +236,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
               <WelcomeScreen
                 agents={allAgents}
                 scenarios={scenarios}
+                workspaces={workspaces}
                 onStartSession={handleScenarioStart}
                 onSelectAgents={() => {}}
                 autoMode={autoMode}

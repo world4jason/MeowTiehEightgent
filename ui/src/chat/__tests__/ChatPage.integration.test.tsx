@@ -210,7 +210,7 @@ describe("Integration: WelcomeScreen uses real agent shapes", () => {
 
     // WelcomeScreen should show when no active session
     await waitFor(() => {
-      expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
+      expect(screen.getByText(/MeowTiehEightgent/i)).toBeInTheDocument();
     });
 
     // Agent toggle buttons appear (aria-label includes agent name)
