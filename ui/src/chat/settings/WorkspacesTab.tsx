@@ -131,6 +131,7 @@ function WorkspaceDetailPanel({ workspaceId, onDeleted }: WorkspaceDetailPanelPr
 
   const [instructions, setInstructions] = useState("");
   const [checkedAgents, setCheckedAgents] = useState<string[]>([]);
+  const [showSaved, setShowSaved] = useState(false);
 
   // Sync local state when detail loads
   useEffect(() => {
@@ -141,11 +142,19 @@ function WorkspaceDetailPanel({ workspaceId, onDeleted }: WorkspaceDetailPanelPr
   }, [detail]);
 
   const handleSave = () => {
-    updateWorkspace.mutate({
-      id: workspaceId,
-      system_prompt: instructions,
-      default_agents: checkedAgents,
-    });
+    updateWorkspace.mutate(
+      {
+        id: workspaceId,
+        system_prompt: instructions,
+        default_agents: checkedAgents,
+      },
+      {
+        onSuccess: () => {
+          setShowSaved(true);
+          setTimeout(() => setShowSaved(false), 3000);
+        },
+      }
+    );
   };
 
   const handleDelete = () => {
@@ -300,7 +309,7 @@ function WorkspaceDetailPanel({ workspaceId, onDeleted }: WorkspaceDetailPanelPr
           >
             {updateWorkspace.isPending ? "儲存中..." : "儲存"}
           </button>
-          {updateWorkspace.isSuccess && (
+          {showSaved && (
             <span className="ml-3 text-xs text-green-600 dark:text-green-400">已儲存</span>
           )}
         </div>

@@ -13,7 +13,7 @@ type SettingsTab = "models" | "agents" | "market" | "skills" | "workspaces" | "s
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "models", label: "模型" },
   { id: "agents", label: "代理人" },
-  { id: "market", label: "市場" },
+  { id: "market", label: "代理人市場" },
   { id: "skills", label: "技能" },
   { id: "workspaces", label: "工作區" },
   { id: "soul", label: "靈魂" },

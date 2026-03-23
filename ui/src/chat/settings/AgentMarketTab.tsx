@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2, Plus, Pencil } from "lucide-react";
 import {
   useMarketplaceAgents,
@@ -11,6 +11,7 @@ import {
   useDeleteMarketplaceAgent,
 } from "./useSettingsApi";
 import type { MarketplaceAgent } from "../types";
+import { isValidName } from "./utils";
 
 interface Props {
   onInstalled: (agentName: string) => void;
@@ -82,6 +83,16 @@ function DetailView({ agent, onBack, onInstalled, onEdit }: DetailViewProps) {
 
   const [name, setName] = useState(agent.id);
   const [model, setModel] = useState<string>("");
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  const handleNameChange = (v: string) => {
+    setName(v);
+    if (v && !isValidName(v)) {
+      setNameError("名稱不可包含 / \\ . 空格，最長 64 字元");
+    } else {
+      setNameError(null);
+    }
+  };
 
   const models = modelsData ?? [];
   const effectiveModel = model || (models[0]?.id ?? "");
@@ -174,10 +185,13 @@ function DetailView({ agent, onBack, onInstalled, onEdit }: DetailViewProps) {
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => handleNameChange(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="輸入 agent 名稱..."
             />
+            {nameError && (
+              <p className="text-xs text-destructive">{nameError}</p>
+            )}
           </div>
 
           {/* Model select */}
@@ -205,7 +219,7 @@ function DetailView({ agent, onBack, onInstalled, onEdit }: DetailViewProps) {
           <button
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
             onClick={handleInstall}
-            disabled={installMutation.isPending || !name.trim()}
+            disabled={installMutation.isPending || !name.trim() || !isValidName(name.trim())}
           >
             {installMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             安裝
@@ -221,7 +235,6 @@ function DetailView({ agent, onBack, onInstalled, onEdit }: DetailViewProps) {
 }
 
 // ─── Create agent form ────────────────────────────────────────
-const isValidName = (n: string) => n.length > 0 && n.length <= 64 && !/[/\\.\s]/.test(n);
 
 interface CreateFormProps {
   onBack: () => void;
@@ -528,18 +541,20 @@ function EditTemplateForm({ agentId, onBack, onSaved, onDeleted }: EditTemplateF
   const [agentMd, setAgentMd] = useState("");
   const [identityMd, setIdentityMd] = useState("");
   const [soulMd, setSoulMd] = useState("");
-  const [initialized, setInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
   // Pre-fill form once detail loads
-  if (detail && !initialized) {
-    setEmoji(detail.emoji ?? "🤖");
-    setColor(detail.color ?? "#888888");
-    setDescription(detail.description ?? "");
-    setAgentMd(detail.agent_md ?? "");
-    setIdentityMd(detail.identity_md ?? "");
-    setSoulMd(detail.soul_md ?? "");
-    setInitialized(true);
-  }
+  useEffect(() => {
+    if (detail && !initializedRef.current) {
+      setEmoji(detail.emoji ?? "🤖");
+      setColor(detail.color ?? "#888888");
+      setDescription(detail.description ?? "");
+      setAgentMd(detail.agent_md ?? "");
+      setIdentityMd(detail.identity_md ?? "");
+      setSoulMd(detail.soul_md ?? "");
+      initializedRef.current = true;
+    }
+  }, [detail]);
 
   function handleSave() {
     updateTemplate.mutate(

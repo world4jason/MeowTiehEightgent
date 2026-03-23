@@ -14,14 +14,12 @@ import {
   useAgentSoul,
   useUpdateAgentSoul,
   useTestAgent,
+  useCoworkAgents,
+  type CoworkAgent,
 } from "./useSettingsApi";
 import { useAgentsList, useSkillsList } from "../hooks/useChatApi";
 import type { AgentInfo, ModelInfo, SkillInfo } from "../types";
-
-// ─── Helpers ──────────────────────────────────────────────────
-
-const isValidName = (n: string) =>
-  n.length > 0 && n.length <= 64 && !/[/\\.\s]/.test(n);
+import { isValidName } from "./utils";
 
 // ─── Left-column agent item ──────────────────────────────────
 
@@ -54,6 +52,82 @@ function AgentItem({ agent, selected, onClick }: AgentItemProps) {
       {agent.enabled && (
         <span className="h-2 w-2 rounded-full bg-green-500 flex-shrink-0" />
       )}
+    </div>
+  );
+}
+
+// ─── Cowork agent item (left column) ─────────────────────────
+
+interface CoworkAgentItemProps {
+  agent: CoworkAgent;
+  selected: boolean;
+  onClick: () => void;
+}
+
+function CoworkAgentItem({ agent, selected, onClick }: CoworkAgentItemProps) {
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 cursor-pointer transition-colors ${
+        selected ? "bg-accent" : "hover:bg-accent/50"
+      }`}
+      onClick={onClick}
+    >
+      <span className="text-lg leading-none">{agent.emoji || "🤖"}</span>
+      <div className="flex-1 min-w-0">
+        <div className="truncate text-sm font-bold">{agent.name}</div>
+        <div className="truncate text-xs text-muted-foreground">{agent.model ?? agent.status}</div>
+      </div>
+      <span className="flex-shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+        Cowork
+      </span>
+    </div>
+  );
+}
+
+// ─── Cowork agent read-only panel (right column) ──────────────
+
+interface CoworkAgentPanelProps {
+  agent: CoworkAgent;
+}
+
+function CoworkAgentPanel({ agent }: CoworkAgentPanelProps) {
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div className="flex items-center gap-3">
+        <span className="text-3xl">{agent.emoji || "🤖"}</span>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-semibold">{agent.name}</h2>
+          <p className="text-xs text-muted-foreground">Cowork Agent（唯讀）</p>
+        </div>
+        <span
+          className={`h-2 w-2 rounded-full flex-shrink-0 ${
+            agent.status === "online" ? "bg-green-500" : "bg-muted-foreground"
+          }`}
+        />
+      </div>
+
+      <div className="rounded-xl border border-border p-4 space-y-2 text-sm">
+        <div className="flex gap-3">
+          <span className="w-16 text-xs font-semibold uppercase tracking-wide text-muted-foreground">狀態</span>
+          <span>{agent.status}</span>
+        </div>
+        {agent.model && (
+          <div className="flex gap-3">
+            <span className="w-16 text-xs font-semibold uppercase tracking-wide text-muted-foreground">模型</span>
+            <span>{agent.model}</span>
+          </div>
+        )}
+        {agent.urlKey && (
+          <div className="flex gap-3">
+            <span className="w-16 text-xs font-semibold uppercase tracking-wide text-muted-foreground">URL Key</span>
+            <span className="font-mono text-xs">{agent.urlKey}</span>
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        此代理人由 Cowork 後端管理，無法在此編輯。
+      </p>
     </div>
   );
 }
@@ -93,6 +167,10 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
   const origIdentity = useRef("");
   const origSoul = useRef("");
 
+  // ── Save error state ──
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Test result state ──
   const [testResult, setTestResult] = useState<{
     ok: boolean;
@@ -129,10 +207,11 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
     origSoul.current = v;
   }, [agentName, soulData]);
 
-  // Clear test result timer on unmount
+  // Clear timers on unmount
   useEffect(() => {
     return () => {
       if (testTimerRef.current) clearTimeout(testTimerRef.current);
+      if (saveErrorTimerRef.current) clearTimeout(saveErrorTimerRef.current);
     };
   }, []);
 
@@ -144,32 +223,42 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
   }, [detail, agentName, updateAgent]);
 
   const handleSave = useCallback(async () => {
-    // Save agent config
-    await updateAgent.mutateAsync({
-      name: agentName,
-      description,
-      color,
-      model,
-      skills: selectedSkills,
-    });
+    // Clear any previous error
+    if (saveErrorTimerRef.current) clearTimeout(saveErrorTimerRef.current);
+    setSaveError(null);
 
-    // Save MD files only if changed
-    const promises: Promise<unknown>[] = [];
-    if (agentMd !== origAgentMd.current) {
-      promises.push(updateAgentMd.mutateAsync({ name: agentName, content: agentMd }));
-    }
-    if (identity !== origIdentity.current) {
-      promises.push(updateIdentity.mutateAsync({ name: agentName, content: identity }));
-    }
-    if (soul !== origSoul.current) {
-      promises.push(updateSoul.mutateAsync({ name: agentName, content: soul }));
-    }
-    await Promise.all(promises);
+    try {
+      // Save agent config
+      await updateAgent.mutateAsync({
+        name: agentName,
+        description,
+        color,
+        model,
+        skills: selectedSkills,
+      });
 
-    // Update refs so subsequent saves know the new baseline
-    origAgentMd.current = agentMd;
-    origIdentity.current = identity;
-    origSoul.current = soul;
+      // Save MD files only if changed
+      const promises: Promise<unknown>[] = [];
+      if (agentMd !== origAgentMd.current) {
+        promises.push(updateAgentMd.mutateAsync({ name: agentName, content: agentMd }));
+      }
+      if (identity !== origIdentity.current) {
+        promises.push(updateIdentity.mutateAsync({ name: agentName, content: identity }));
+      }
+      if (soul !== origSoul.current) {
+        promises.push(updateSoul.mutateAsync({ name: agentName, content: soul }));
+      }
+      await Promise.all(promises);
+
+      // Update refs so subsequent saves know the new baseline
+      origAgentMd.current = agentMd;
+      origIdentity.current = identity;
+      origSoul.current = soul;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "儲存失敗，請重試";
+      setSaveError(msg);
+      saveErrorTimerRef.current = setTimeout(() => setSaveError(null), 5000);
+    }
   }, [
     agentName, description, color, model, selectedSkills,
     agentMd, identity, soul,
@@ -390,6 +479,13 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
         </Button>
       </div>
 
+      {/* Save error */}
+      {saveError && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {saveError}
+        </div>
+      )}
+
       {/* Test result */}
       {testResult && (
         <div
@@ -561,8 +657,10 @@ export function AgentsTab({ initialAgent, onClearInitial }: Props) {
   const { data: agents = [], isLoading } = useAgentsList();
   const { data: models = [] } = useModels();
   const { data: skills = [] } = useSkillsList();
+  const { data: coworkAgents = [] } = useCoworkAgents();
 
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [selectedCoworkId, setSelectedCoworkId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   // Handle initialAgent prop (e.g. from marketplace install)
@@ -584,11 +682,19 @@ export function AgentsTab({ initialAgent, onClearInitial }: Props) {
   const handleSelect = (name: string) => {
     setIsCreating(false);
     setSelectedAgent(name);
+    setSelectedCoworkId(null);
+  };
+
+  const handleSelectCowork = (id: string) => {
+    setIsCreating(false);
+    setSelectedAgent(null);
+    setSelectedCoworkId(id);
   };
 
   const handleNew = () => {
     setIsCreating(true);
     setSelectedAgent(null);
+    setSelectedCoworkId(null);
   };
 
   const handleCreated = (name: string) => {
@@ -620,6 +726,23 @@ export function AgentsTab({ initialAgent, onClearInitial }: Props) {
           ))
         )}
 
+        {/* Cowork agents */}
+        {coworkAgents.length > 0 && (
+          <>
+            <div className="mt-4 mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Cowork
+            </div>
+            {coworkAgents.map((a) => (
+              <CoworkAgentItem
+                key={a.id}
+                agent={a}
+                selected={selectedCoworkId === a.id}
+                onClick={() => handleSelectCowork(a.id)}
+              />
+            ))}
+          </>
+        )}
+
         {/* Add button */}
         <button
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
@@ -645,6 +768,13 @@ export function AgentsTab({ initialAgent, onClearInitial }: Props) {
             models={models}
             skills={skills}
           />
+        ) : selectedCoworkId ? (
+          (() => {
+            const coworkAgent = coworkAgents.find((a) => a.id === selectedCoworkId);
+            return coworkAgent ? (
+              <CoworkAgentPanel agent={coworkAgent} />
+            ) : null;
+          })()
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             選擇左側代理人或新增一個

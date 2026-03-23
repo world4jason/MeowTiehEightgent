@@ -375,7 +375,7 @@ export function useDeleteWorkspaceFile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, filename }: { id: string; filename: string }) =>
-      chatClient.delete<{ ok: boolean }>(`/workspaces/${id}/files/${filename}`),
+      chatClient.delete<{ ok: boolean }>(`/workspaces/${id}/files/${encodeURIComponent(filename)}`),
     onSuccess: (_data, variables) =>
       qc.invalidateQueries({ queryKey: chatKeys.workspace(variables.id) }),
   });
@@ -446,6 +446,43 @@ export function useUpdateUserMd() {
     mutationFn: (body: { content: string }) =>
       chatClient.put<{ ok: boolean }>("/user/md", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: settingsKeys.userMd }),
+  });
+}
+
+// ─── Cowork Agents (read-only) ────────────────────────────────
+
+export interface CoworkAgent {
+  id: string;
+  name: string;
+  status: string;
+  model?: string;
+  emoji?: string;
+  urlKey?: string;
+}
+
+export function useCoworkAgents() {
+  return useQuery({
+    queryKey: ["settings", "cowork-agents"] as const,
+    queryFn: async (): Promise<CoworkAgent[]> => {
+      try {
+        const healthRes = await fetch("/api/health");
+        if (!healthRes.ok) return [];
+        const companies = await fetch("/api/companies")
+          .then((r) => r.json())
+          .catch(() => []);
+        if (!Array.isArray(companies) || companies.length === 0) return [];
+        const companyId = companies[0].id;
+        const agents = await fetch(`/api/companies/${companyId}/agents`)
+          .then((r) => r.json())
+          .catch(() => []);
+        return Array.isArray(agents) ? agents : [];
+      } catch {
+        return [];
+      }
+    },
+    retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
