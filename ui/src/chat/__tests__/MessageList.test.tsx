@@ -78,4 +78,12 @@ describe("MessageList", () => {
     // User messages should show as-is, not rendered as markdown
     expect(screen.getByText("**not bold** for users")).toBeInTheDocument();
   });
+
+  it("renders thinking animation for thinking messages", () => {
+    const msgs: ChatMessage[] = [
+      { id: "1", role: "agent", agentName: "Claude", agentColor: "#a78bfa", content: "", timestamp: 0, thinking: true },
+    ];
+    renderWithTheme(<MessageList messages={msgs} />);
+    expect(screen.getByText("思考中")).toBeInTheDocument();
+  });
 });

@@ -32,7 +32,16 @@ export function MessageList({ messages }: MessageListProps) {
                 {msg.agentName}
               </p>
             )}
-            {msg.role === "agent" ? (
+            {msg.thinking ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">思考中</span>
+                <span className="flex gap-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "300ms" }} />
+                </span>
+              </div>
+            ) : msg.role === "agent" ? (
               <MarkdownBody>{msg.content}</MarkdownBody>
             ) : (
               <p className="whitespace-pre-wrap">{msg.content}</p>

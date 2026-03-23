@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from "react";
-import { Send, Mth, X } from "lucide-react";
+import { Send, Hexagon, X, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AgentInfo, SkillInfo } from "./types";
 import { SkillPicker } from "./SkillPicker";
@@ -19,9 +19,11 @@ interface Props {
   onSend: (payload: SendPayload) => void;
   disabled: boolean;
   supportsImage?: boolean;
+  isStreaming?: boolean;
+  onStop?: () => void;
 }
 
-export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage = false }: Props) {
+export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage = false, isStreaming = false, onStop }: Props) {
   const [text, setText] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const skill = useSkillPicker(skills);
@@ -98,7 +100,7 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
               onClick={() => fileRef.current?.click()}
               className="shrink-0 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
-              <Mth className="h-4 w-4" />
+              <Hexagon className="h-4 w-4" />
             </button>
             <input
               ref={fileRef}
@@ -126,14 +128,24 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
           style={{ fieldSizing: "content" } as React.CSSProperties}
         />
 
-        <button
-          aria-label="Send message"
-          onClick={send}
-          disabled={disabled || (!text.trim() && images.length === 0)}
-          className="shrink-0 rounded-xl bg-primary p-2.5 text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Send className="h-4 w-4" />
-        </button>
+        {isStreaming ? (
+          <button
+            aria-label="Stop"
+            onClick={onStop}
+            className="shrink-0 rounded-xl bg-destructive p-2.5 text-destructive-foreground transition-colors hover:bg-destructive/90"
+          >
+            <Square className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            aria-label="Send message"
+            onClick={send}
+            disabled={disabled || (!text.trim() && images.length === 0)}
+            className="shrink-0 rounded-xl bg-primary p-2.5 text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </div>
   );

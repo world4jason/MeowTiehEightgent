@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ChatMessage } from "../types";
-import { applyTokenMessage, applyDoneMessage, applyTokenUpdate } from "../utils";
+import { applyTokenMessage, applyDoneMessage, applyTokenUpdate, applyThinking, applyStreamStart } from "../utils";
 
 describe("ChatPage message logic", () => {
   it("starts a new streaming message when no prior agent message exists", () => {
@@ -41,6 +41,34 @@ describe("ChatPage message logic", () => {
     }];
     const result = applyDoneMessage(prev);
     expect(result).toEqual(prev);
+  });
+});
+
+describe("applyThinking", () => {
+  it("applyThinking adds a thinking message", () => {
+    const result = applyThinking([], "Claude", "#a78bfa");
+    expect(result).toHaveLength(1);
+    expect(result[0].thinking).toBe(true);
+    expect(result[0].agentName).toBe("Claude");
+  });
+
+  it("applyThinking replaces existing thinking message", () => {
+    const prev: ChatMessage[] = [
+      { id: "1", role: "agent", agentName: "Claude", content: "", timestamp: 0, thinking: true },
+    ];
+    const result = applyThinking(prev, "Gemini");
+    expect(result).toHaveLength(1);
+    expect(result[0].agentName).toBe("Gemini");
+  });
+
+  it("applyStreamStart removes thinking message for same agent", () => {
+    const prev: ChatMessage[] = [
+      { id: "1", role: "agent", agentName: "Claude", content: "", timestamp: 0, thinking: true },
+    ];
+    const result = applyStreamStart(prev, "Claude", "#a78bfa");
+    expect(result).toHaveLength(1);
+    expect(result[0].streaming).toBe(true);
+    expect(result[0].thinking).toBeUndefined();
   });
 });
 

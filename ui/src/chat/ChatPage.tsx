@@ -1,5 +1,5 @@
 // ui/src/chat/ChatPage.tsx — full rewrite
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useChatContext } from "../context/ChatContext";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { SessionSidebar } from "./SessionSidebar";
@@ -15,7 +15,7 @@ import {
   useSkillsList, useScenarios,
 } from "./hooks/useChatApi";
 import { ChatMessage, AgentInfo } from "./types";
-import { applyTokenMessage, applyDoneMessage, toHistoryChatMessage, applyTokenUpdate, TokenUsageMap } from "./utils";
+import { applyTokenMessage, applyDoneMessage, applyStreamStart, applyChunkMessage, applyMessageEnd, applyThinking, toHistoryChatMessage, applyTokenUpdate, TokenUsageMap } from "./utils";
 
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
 const WS_BASE = CHAT_URL.replace(/^http/, "ws");
@@ -26,6 +26,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const [runsOpen, setRunsOpen] = useState(false);
   const [agentRuns, setAgentRuns] = useState<{ agentName: string; tokens?: number }[]>([]);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageMap>({});
+  const [wsConnected, setWsConnected] = useState(false);
 
   // Data queries
   const { data: allAgents = [] } = useAgentsList();
@@ -43,15 +44,47 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const deleteSession = useDeleteSession();
   const moveSession = useMoveSession();
 
+  // Keep a ref to allAgents so onOpen always sends the latest list
+  const allAgentsRef = useRef<typeof allAgents>([]);
+  allAgentsRef.current = allAgents;
+
   // WS message handler
   const handleMessage = useCallback((data: unknown) => {
     if (typeof data !== "object" || !data) return;
     const msg = data as Record<string, unknown>;
-    if (msg.type === "token" || msg.type === "chunk") {
-      setMessages((prev) => applyTokenMessage(prev, String(msg.agent ?? ""), String(msg.content ?? "")));
+    if (msg.type === "thinking") {
+      const agentName = String(msg.agent ?? "");
+      const agentColor = msg.color ? String(msg.color) : undefined;
+      setMessages((prev) => applyThinking(prev, agentName, agentColor));
+    } else if (msg.type === "stream_start") {
+      const agentName = String(msg.agent ?? "");
+      const agentColor = msg.color ? String(msg.color) : undefined;
+      setMessages((prev) => applyStreamStart(prev, agentName, agentColor));
+      if (!isVisible) setHasUnreadChat(true);
+    } else if (msg.type === "chunk") {
+      const agentName = String(msg.agent ?? "");
+      const text = String(msg.text ?? msg.content ?? "");
+      setMessages((prev) => applyChunkMessage(prev, agentName, text));
+    } else if (msg.type === "message_end") {
+      const agentName = String(msg.agent ?? "");
+      setMessages((prev) => applyMessageEnd(prev, agentName));
+    } else if (msg.type === "token" ) {
+      // Legacy token messages
+      setMessages((prev) => applyTokenMessage(prev, String(msg.agent ?? ""), String(msg.content ?? msg.text ?? "")));
       if (!isVisible) setHasUnreadChat(true);
     } else if (msg.type === "done") {
       setMessages(applyDoneMessage);
+    } else if (msg.type === "message" && String(msg.agent ?? "") !== "Human") {
+      // Final full message (fallback if no stream_start/chunk flow)
+      const agentName = String(msg.agent ?? "");
+      const text = String(msg.text ?? msg.content ?? "");
+      setMessages((prev) => {
+        // If already have a streaming message for this agent, finalize it
+        const idx = [...prev].reverse().findIndex(m => m.streaming && m.agentName === agentName);
+        if (idx >= 0) return applyMessageEnd(prev, agentName);
+        // Otherwise add as completed message
+        return [...prev, { id: crypto.randomUUID(), role: "agent", agentName, agentColor: msg.color ? String(msg.color) : undefined, content: text, timestamp: Date.now(), streaming: false }];
+      });
     } else if (msg.type === "agents") {
       setAgents(msg.agents as AgentInfo[]);
     } else if (msg.type === "token_usage") {
@@ -67,8 +100,28 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     }
   }, [isVisible, setHasUnreadChat, setMessages, setAgents]);
 
-  const wsUrl = activeSessionId ? `${WS_BASE}/ws/${activeSessionId}` : null;
-  useWebSocket(wsUrl, wsRef, handleMessage);
+  // Use query param for reconnect detection; backend matches /ws and ignores ?s=
+  const wsUrl = activeSessionId ? `${WS_BASE}/ws?s=${activeSessionId}` : null;
+
+  // Reset connection state when session changes
+  useEffect(() => {
+    setWsConnected(false);
+  }, [activeSessionId]);
+
+  // On WS open: send the start/resume message with all available agents
+  const handleOpen = useCallback(() => {
+    if (!activeSessionId || !wsRef.current) return;
+    wsRef.current.send(JSON.stringify({
+      topic: "",
+      agents: allAgentsRef.current.map((a) => a.name),
+      resume_from: activeSessionId,
+      auto: true,
+      rounds: 1,
+    }));
+    setWsConnected(true);
+  }, [activeSessionId, wsRef]);
+
+  useWebSocket(wsUrl, wsRef, handleMessage, handleOpen);
 
   // Load messages when session changes
   useEffect(() => {
@@ -88,10 +141,14 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     };
     setMessages((prev) => [...prev, userMsg]);
     wsRef.current.send(JSON.stringify({
-      type: "message",
+      type: "human",
       text: payload.text,
       images: payload.images?.length ? payload.images : undefined,
     }));
+  }
+
+  function handleStop() {
+    wsRef.current?.send(JSON.stringify({ type: "stop" }));
   }
 
   function handleModeChange(agentName: string, mode: "chat" | "think") {
@@ -109,6 +166,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   }
 
   async function handleNewSession(workspaceId?: string) {
+    if (createSession.isPending) return; // debounce: prevent duplicate creation
     const s = await createSession.mutateAsync(workspaceId);
     setActiveSessionId(s.id);
     setMessages([]);
@@ -125,7 +183,8 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   }
 
   const showWelcome = !activeSessionId;
-  const isConnected = wsRef.current?.readyState === WebSocket.OPEN;
+  const isConnected = wsConnected;
+  const isStreaming = messages.some((m) => m.streaming || m.thinking);
 
   return (
     <div className="flex h-full flex-1 overflow-hidden">
@@ -173,6 +232,8 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
                 onSend={handleSend}
                 disabled={!isConnected}
                 supportsImage={allAgents.some((a) => a.name === agents[0]?.name && a.supportsImage)}
+                isStreaming={isStreaming}
+                onStop={handleStop}
               />
             )}
           </main>
