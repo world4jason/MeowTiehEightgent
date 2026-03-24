@@ -20,6 +20,10 @@ export default defineConfig({
         target: "http://localhost:3100",
         ws: true,
       },
+      "/chat/ws": {
+        target: "http://localhost:3100",
+        ws: true,
+      },
     },
   },
 });

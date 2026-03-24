@@ -21,6 +21,12 @@ import { applyTokenMessage, applyDoneMessage, applyStreamStart, applyChunkMessag
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
 const WS_BASE = CHAT_URL.replace(/^http/, "ws");
 
+// Node.js Chat WS (via Vite proxy /chat/ws → Mth server)
+// Falls back to Python WS if VITE_CHAT_WS is not set
+const CHAT_WS_BASE = import.meta.env.VITE_CHAT_WS === "node"
+  ? `ws://${window.location.host}`  // Vite proxy → Mth server /chat/ws
+  : WS_BASE;                        // Direct to Python :8000/ws
+
 export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boolean; onOpenSettings?: () => void }) {
   const { activeSessionId, setActiveSessionId, messages, setMessages, agents, setAgents, setHasUnreadChat, wsRef } = useChatContext();
   const [membersOpen, setMembersOpen] = useState(false);
@@ -117,8 +123,9 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     }
   }, [isVisible, setHasUnreadChat, setMessages, setAgents]);
 
-  // Use query param for reconnect detection; backend matches /ws and ignores ?s=
-  const wsUrl = activeSessionId ? `${WS_BASE}/ws?s=${activeSessionId}` : null;
+  // WS URL: Node.js (/chat/ws) or Python (/ws) based on VITE_CHAT_WS env
+  const wsPath = import.meta.env.VITE_CHAT_WS === "node" ? "/chat/ws" : "/ws";
+  const wsUrl = activeSessionId ? `${CHAT_WS_BASE}${wsPath}?s=${activeSessionId}` : null;
 
   // Reset connection state when session changes
   useEffect(() => {
