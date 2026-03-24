@@ -1,0 +1,29 @@
+{
+  "configVersion": 1,
+  "id": "b0fb8103-6744-4a45-a008-8df70cea6487",
+  "name": "gemini",
+  "role": "general",
+  "title": null,
+  "emoji": "🟢",
+  "color": "#34d399",
+  "description": "Gemini agent",
+  "enabled": true,
+  "adapter": "gemini_local",
+  "adapterConfig": {
+    "model": "gemini-2.5-flash"
+  },
+  "model_tiers": {
+    "default": "gemini",
+    "thinking": "gemini-2.5-pro"
+  },
+  "skills": [
+    "brainstorming"
+  ],
+  "reportsTo": null,
+  "permissions": {},
+  "budget": 0,
+  "heartbeat": {
+    "cooldownSec": 10,
+    "intervalSec": 3600
+  }
+}

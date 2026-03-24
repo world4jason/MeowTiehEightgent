@@ -1,0 +1,29 @@
+{
+  "configVersion": 1,
+  "id": "b665e1f3-28f0-4ae6-af23-4abbdc45df4b",
+  "name": "claude",
+  "role": "general",
+  "title": null,
+  "emoji": "🟣",
+  "color": "#a78bfa",
+  "description": "Claude agent",
+  "enabled": true,
+  "adapter": "claude_local",
+  "adapterConfig": {
+    "model": "claude-sonnet-4-6"
+  },
+  "model_tiers": {
+    "default": "claude-sonnet-4-6",
+    "thinking": "claude-opus-4-6"
+  },
+  "skills": [
+    "brainstorming"
+  ],
+  "reportsTo": null,
+  "permissions": {},
+  "budget": 0,
+  "heartbeat": {
+    "cooldownSec": 10,
+    "intervalSec": 3600
+  }
+}

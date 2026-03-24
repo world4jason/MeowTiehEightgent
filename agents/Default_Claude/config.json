@@ -1,0 +1,9 @@
+{
+  "emoji": "✺",
+  "color": "#888888",
+  "description": "",
+  "model": "claude",
+  "skills": [],
+  "enabled": true,
+  "supports_thinking": true
+}

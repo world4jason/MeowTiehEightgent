@@ -3,7 +3,7 @@ __pycache__/
 .claude/
 history/
 hidden_sessions.json
-config.json
+/config.json
 node_modules/
 dist/
 *.tsbuildinfo
@@ -11,3 +11,4 @@ dist/
 .env.local
 .worktrees/
 .gstack/
+*.v0.bak

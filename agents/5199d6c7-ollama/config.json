@@ -1,0 +1,26 @@
+{
+  "configVersion": 1,
+  "id": "2dace4b3-d509-46c2-82b0-4d4242e1539d",
+  "name": "ollama",
+  "role": "general",
+  "title": null,
+  "emoji": "🤖",
+  "color": "#888888",
+  "description": "快樂llama",
+  "enabled": true,
+  "adapter": "ollama_api",
+  "adapterConfig": {
+    "model": "deepseek-v3.1:671b-cloud"
+  },
+  "model_tiers": null,
+  "skills": [
+    "brainstorming"
+  ],
+  "reportsTo": null,
+  "permissions": {},
+  "budget": 0,
+  "heartbeat": {
+    "cooldownSec": 10,
+    "intervalSec": 3600
+  }
+}
