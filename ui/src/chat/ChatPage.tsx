@@ -12,8 +12,9 @@ import { ChatInputArea, SendPayload } from "./ChatInputArea";
 import {
   useAgentsList, useWorkspaces, useSessions,
   useCreateSession, useRenameSession, useDeleteSession, useMoveSession,
-  useSkillsList, useScenarios,
+  useSkillsList, useScenarios, useSessionSummary, useRecompressSession,
 } from "./hooks/useChatApi";
+import { SummaryCard } from "./SummaryCard";
 import { ChatMessage, AgentInfo } from "./types";
 import { applyTokenMessage, applyDoneMessage, applyStreamStart, applyChunkMessage, applyMessageEnd, applyThinking, toHistoryChatMessage, applyTokenUpdate, applyReadyMessage, TokenUsageMap } from "./utils";
 
@@ -45,6 +46,8 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const sessionsQuery = useSessions();
   const { data: skills = [] } = useSkillsList();
   const { data: scenarios = [] } = useScenarios();
+  const { data: summaryData } = useSessionSummary(activeSessionId);
+  const recompress = useRecompressSession();
 
   // Flatten paginated sessions
   const sessions = sessionsQuery.data?.pages.flatMap((p) => p.sessions) ?? [];
@@ -271,7 +274,19 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
                 onRoundsChange={setRounds}
               />
             ) : (
-              <MessageList messages={messages} />
+              <>
+                {summaryData?.exists && activeSessionId && (
+                  <SummaryCard
+                    sessionId={activeSessionId}
+                    summary={summaryData}
+                    onRecompress={async (hint) => {
+                      await recompress.mutateAsync({ sessionId: activeSessionId, hint });
+                    }}
+                    isRecompressing={recompress.isPending}
+                  />
+                )}
+                <MessageList messages={messages} />
+              </>
             )}
 
             {!showWelcome && (

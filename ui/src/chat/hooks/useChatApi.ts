@@ -192,3 +192,31 @@ export function useScenarios() {
       chatClient.get<RawScenario[]>("/scenarios").then((list) => list.map(toScenario)),
   });
 }
+
+// ─── Session Summary ──────────────────────────────────────────
+interface SessionSummary {
+  exists: boolean;
+  summary_text?: string;
+  covered_message_count?: number;
+  total_message_count?: number;
+}
+
+export function useSessionSummary(sessionId: string | null) {
+  return useQuery({
+    queryKey: ["session", "summary", sessionId],
+    queryFn: () => chatClient.get<SessionSummary>(`/sessions/${sessionId}/summary`),
+    enabled: !!sessionId,
+    refetchInterval: 30000, // refresh every 30s
+  });
+}
+
+export function useRecompressSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, hint }: { sessionId: string; hint: string }) =>
+      chatClient.post<{ ok: boolean; summary_text: string }>(`/sessions/${sessionId}/recompress`, { hint }),
+    onSuccess: (_, { sessionId }) => {
+      qc.invalidateQueries({ queryKey: ["session", "summary", sessionId] });
+    },
+  });
+}

@@ -2006,6 +2006,49 @@ async def get_session_image(session_id: str, filename: str):
     return FileResponse(str(p))
 
 
+@app.get("/sessions/{session_id}/summary")
+async def get_session_summary(session_id: str):
+    """Get the cached summary for a session."""
+    path = HISTORY_DIR / session_id / "summary.json"
+    if not path.exists():
+        return {"exists": False}
+    try:
+        data = json.loads(path.read_text())
+        if data.get("failed"):
+            return {"exists": False}
+        return {"exists": True, **data}
+    except Exception:
+        return {"exists": False}
+
+
+@app.post("/sessions/{session_id}/recompress")
+async def recompress_session(session_id: str, body: dict = {}):
+    """Force re-summarization with optional direction hint. Runs inline."""
+    from history_manager import compress_history
+    hint = body.get("hint", "")
+    cfg = load_config()
+    summ_model = cfg.get("summarization_model", "")
+    if not summ_model:
+        raise HTTPException(status_code=400, detail="No summarization_model configured")
+
+    msg_path = session_messages_path(session_id)
+    if not msg_path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = json.loads(msg_path.read_text())
+
+    # Delete existing cache to force fresh compression
+    summary_path = HISTORY_DIR / session_id / "summary.json"
+    if summary_path.exists():
+        summary_path.unlink()
+
+    max_rounds = cfg.get("max_history_rounds", 30)
+    summary_text, _ = await compress_history(
+        session_id, messages, window_size=max_rounds,
+        summary_model=summ_model, trigger_threshold=0,  # 0 forces trigger
+    )
+    return {"ok": True, "summary_text": summary_text}
+
+
 @app.put("/sessions/{session_id}/topic")
 async def rename_session(session_id: str, body: dict):
     """Update the Topic text in the first system message."""
