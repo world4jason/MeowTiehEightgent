@@ -59,6 +59,10 @@ def tmp_project(tmp_path, monkeypatch):
     monkeypatch.setattr(a, "WORKSPACES_DIR", workspaces_dir)
     monkeypatch.setattr(a, "SCENARIOS_DIR", tmp_path / "scenarios")
 
+    # Also patch history_manager module so its functions use the temp dir
+    import history_manager as hm
+    monkeypatch.setattr(hm, "HISTORY_DIR", history_dir)
+
     # Ensure _default template exists
     default_dir = agents_dir / "_default"
     default_dir.mkdir()
@@ -2171,3 +2175,203 @@ class TestHealth:
     def test_health_returns_status_ok(self, client):
         r = client.get("/health")
         assert r.json() == {"status": "ok"}
+
+
+# ── Per-session config ────────────────────────────────────────────────────────
+
+class TestSessionConfig:
+    """Per-session config override."""
+
+    def test_load_session_config_no_file(self, tmp_project):
+        """No session_config.json → returns empty dict."""
+        from history_manager import load_session_config
+        result = load_session_config("nonexistent_session")
+        assert result == {}
+
+    def test_load_session_config_with_overrides(self, tmp_project):
+        """session_config.json exists → returns its contents."""
+        from history_manager import load_session_config
+        sid = "test-session"
+        sdir = tmp_project / "history" / sid
+        sdir.mkdir(parents=True)
+        (sdir / "session_config.json").write_text(json.dumps({
+            "max_history_rounds": 50,
+            "summary_trigger_threshold": 5,
+        }))
+        result = load_session_config(sid)
+        assert result["max_history_rounds"] == 50
+        assert result["summary_trigger_threshold"] == 5
+
+
+# ── History summarization (Phase 2) ──────────────────────────────────────────
+
+def _write_haiku_config(tmp_project):
+    """Helper: write config.json with a 'haiku' model entry for summarization tests."""
+    config = {
+        "models": {
+            "haiku": {"type": "cli", "cmd": ["claude", "--print"], "extra_flags": ["--model", "claude-haiku"]},
+        }
+    }
+    (tmp_project / "config.json").write_text(json.dumps(config))
+
+
+class TestCompressHistory:
+    """History summarization Phase 2."""
+
+    @pytest.mark.asyncio
+    async def test_no_overflow_returns_empty_summary(self, tmp_project):
+        """All messages fit in window → no summary, no model call."""
+        from history_manager import compress_history
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(5)]
+        summary, windowed = await compress_history("sid", messages, window_size=10, summary_model="haiku", trigger_threshold=5)
+        assert summary == ""
+        assert len(windowed) == 5
+
+    @pytest.mark.asyncio
+    async def test_overflow_triggers_summarization(self, tmp_project):
+        """Overflow exceeds threshold → calls model, writes summary.json."""
+        from history_manager import compress_history
+        _write_haiku_config(tmp_project)
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(40)]
+        mock_response = "This is a summary of the conversation."
+
+        async def mock_call_agent(agent, prompt):
+            return mock_response
+
+        with patch("history_manager.call_agent", mock_call_agent):
+            summary, windowed = await compress_history(
+                "test-summ-session", messages, window_size=30,
+                summary_model="haiku", trigger_threshold=5,
+            )
+        assert summary == mock_response
+        assert len(windowed) == 30
+        sj = tmp_project / "history" / "test-summ-session" / "summary.json"
+        assert sj.exists()
+        data = json.loads(sj.read_text())
+        assert data["covered_message_count"] == 10
+        assert data["total_message_count"] == 40
+
+    @pytest.mark.asyncio
+    async def test_cached_summary_reused_below_threshold(self, tmp_project):
+        """Cached summary exists, new overflow < threshold → reuse."""
+        from history_manager import compress_history
+        _write_haiku_config(tmp_project)
+        sid = "test-cache-session"
+        sdir = tmp_project / "history" / sid
+        sdir.mkdir(parents=True)
+        (sdir / "summary.json").write_text(json.dumps({
+            "summary_text": "Old summary.",
+            "covered_message_count": 10,
+            "total_message_count": 40,
+            "updated_at": "2026-03-24T10:00:00",
+        }))
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(42)]
+
+        call_count = 0
+        async def mock_call_agent(agent, prompt):
+            nonlocal call_count
+            call_count += 1
+            return "Should not be called"
+
+        with patch("history_manager.call_agent", mock_call_agent):
+            summary, windowed = await compress_history(
+                sid, messages, window_size=30,
+                summary_model="haiku", trigger_threshold=5,
+            )
+        assert summary == "Old summary."
+        assert call_count == 0
+        assert len(windowed) == 30
+        data = json.loads((sdir / "summary.json").read_text())
+        assert data["total_message_count"] == 42  # updated from 40
+
+    @pytest.mark.asyncio
+    async def test_empty_summary_model_skips_summarization(self, tmp_project):
+        """Empty summary_model → skip summarization, return empty."""
+        from history_manager import compress_history
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(40)]
+        summary, windowed = await compress_history(
+            "sid", messages, window_size=30,
+            summary_model="", trigger_threshold=5,
+        )
+        assert summary == ""
+        assert len(windowed) == 30
+
+    @pytest.mark.asyncio
+    async def test_cached_summary_refreshed_above_threshold(self, tmp_project):
+        """Cached summary exists, new overflow >= threshold → refresh."""
+        from history_manager import compress_history
+        _write_haiku_config(tmp_project)
+        sid = "test-refresh-session"
+        sdir = tmp_project / "history" / sid
+        sdir.mkdir(parents=True)
+        (sdir / "summary.json").write_text(json.dumps({
+            "summary_text": "Old summary.",
+            "covered_message_count": 10,
+            "total_message_count": 40,
+            "updated_at": "2026-03-24T10:00:00",
+        }))
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(50)]
+
+        async def mock_call_agent(agent, prompt):
+            return "Refreshed summary."
+
+        with patch("history_manager.call_agent", mock_call_agent):
+            summary, windowed = await compress_history(
+                sid, messages, window_size=30,
+                summary_model="haiku", trigger_threshold=5,
+            )
+        assert summary == "Refreshed summary."
+        data = json.loads((sdir / "summary.json").read_text())
+        assert data["covered_message_count"] == 20
+        assert data["total_message_count"] == 50
+
+    @pytest.mark.asyncio
+    async def test_summarization_failure_returns_empty(self, tmp_project):
+        """Model call fails → returns empty summary (fallback to truncation)."""
+        from history_manager import compress_history
+        _write_haiku_config(tmp_project)
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(40)]
+
+        async def mock_call_agent_fail(agent, prompt):
+            raise Exception("model crashed")
+
+        with patch("history_manager.call_agent", mock_call_agent_fail):
+            summary, windowed = await compress_history(
+                "test-fail-session", messages, window_size=30,
+                summary_model="haiku", trigger_threshold=5,
+            )
+        assert summary == ""
+        assert len(windowed) == 30
+        # Verify failure marker written
+        sj = tmp_project / "history" / "test-fail-session" / "summary.json"
+        if sj.exists():
+            data = json.loads(sj.read_text())
+            assert data.get("failed") == True
+
+    @pytest.mark.asyncio
+    async def test_failure_cooldown_prevents_retry(self, tmp_project):
+        """Failed summary with recent timestamp → skip retry."""
+        from history_manager import compress_history
+        sid = "test-cooldown-session"
+        sdir = tmp_project / "history" / sid
+        sdir.mkdir(parents=True)
+        from datetime import datetime
+        (sdir / "summary.json").write_text(json.dumps({
+            "failed": True,
+            "failed_at": datetime.now().isoformat(),
+        }))
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(40)]
+
+        call_count = 0
+        async def mock_call_agent(agent, prompt):
+            nonlocal call_count
+            call_count += 1
+            return "Should not be called"
+
+        with patch("history_manager.call_agent", mock_call_agent):
+            summary, windowed = await compress_history(
+                sid, messages, window_size=30,
+                summary_model="haiku", trigger_threshold=5,
+            )
+        assert summary == ""
+        assert call_count == 0  # no retry due to cooldown
