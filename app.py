@@ -2339,10 +2339,10 @@ async def websocket_endpoint(ws: WebSocket):
             _max_hist = load_config().get("max_history_chars", 80000)
             _trimmed_history = truncate_history(_rebuilt_history, _max_hist)
             _turn_usage: list[TokenUsage] = []
+            _current_mode = agent_modes.get(agent["name"], "chat")
 
             async def _produce():
                 try:
-                    _current_mode = agent_modes.get(agent["name"], "chat")
                     _prompt = build_prompt(
                         agent, _trimmed_history, workspace_id, active_agents,
                         mode=_current_mode,
