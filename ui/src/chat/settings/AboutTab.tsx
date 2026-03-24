@@ -1,4 +1,32 @@
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useModels, useGlobalConfig, useUpdateGlobalConfig } from "./useSettingsApi";
+
 export function AboutTab() {
+  const { data: config } = useGlobalConfig();
+  const { data: modelsData } = useModels();
+  const updateConfig = useUpdateGlobalConfig();
+
+  const [summModel, setSummModel] = useState("");
+  const [threshold, setThreshold] = useState(20);
+
+  useEffect(() => {
+    if (config) {
+      setSummModel((config.summarization_model as string) ?? "");
+      setThreshold((config.summary_trigger_threshold as number) ?? 20);
+    }
+  }, [config]);
+
+  function handleSaveConfig() {
+    updateConfig.mutate({
+      summarization_model: summModel,
+      summary_trigger_threshold: threshold,
+    });
+  }
+
+  const models = modelsData ?? [];
+
   return (
     <div className="flex-1 overflow-y-auto p-8">
       <div className="mx-auto max-w-3xl space-y-8">
@@ -37,6 +65,64 @@ export function AboutTab() {
           <p className="text-sm leading-relaxed text-muted-foreground">
             FastAPI + React，WebSocket streaming，CLI subprocess 包裝，Phase 0 穩定層（crash recovery、history sliding window、protected paths）
           </p>
+        </section>
+
+        <section className="space-y-4 border-t pt-8">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            全域設定
+          </p>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              歷史壓縮模型
+            </label>
+            {!summModel && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+                請選擇一個模型以啟用歷史壓縮功能
+              </div>
+            )}
+            <select
+              value={summModel}
+              onChange={(e) => setSummModel(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value="">-- 未啟用 --</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.emoji ? `${m.emoji} ` : ""}{m.label ?? m.id}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              壓縮觸發閾值（訊息數）
+            </label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={threshold}
+              onChange={(e) => setThreshold(Number(e.target.value))}
+              className="w-32"
+            />
+          </div>
+
+          <Button
+            onClick={handleSaveConfig}
+            disabled={updateConfig.isPending}
+            size="sm"
+          >
+            {updateConfig.isPending ? "儲存中…" : "儲存全域設定"}
+          </Button>
+
+          {updateConfig.isSuccess && (
+            <p className="text-xs text-green-600">已儲存</p>
+          )}
+          {updateConfig.isError && (
+            <p className="text-xs text-red-500">儲存失敗，請再試一次</p>
+          )}
         </section>
       </div>
     </div>

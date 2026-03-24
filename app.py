@@ -1262,6 +1262,23 @@ async def post_config(body: dict):
     return {"ok": True}
 
 
+@app.put("/config")
+async def put_config(body: dict):
+    config = load_config()
+    if "summarization_model" in body:
+        v = body["summarization_model"]
+        if not isinstance(v, str):
+            raise HTTPException(status_code=400, detail="summarization_model must be a string")
+        config["summarization_model"] = v
+    if "summary_trigger_threshold" in body:
+        v = body["summary_trigger_threshold"]
+        if not isinstance(v, int) or v < 1:
+            raise HTTPException(status_code=400, detail="summary_trigger_threshold must be a positive integer")
+        config["summary_trigger_threshold"] = v
+    CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False))
+    return {"ok": True}
+
+
 # ── Marketplace ───────────────────────────────────────────────────────────────
 
 MARKETPLACE_DIR = PROJECT_DIR / "marketplace"
@@ -2133,11 +2150,15 @@ async def websocket_endpoint(ws: WebSocket):
     _max_rounds = _session_cfg.get("max_history_rounds", _max_rounds)
     _summ_threshold = _session_cfg.get("summary_trigger_threshold", _summ_threshold)
 
+    async def _compression_progress(text: str):
+        await ws.send_json({"type": "system", "text": text})
+
     if resume_id:
         if _summ_model and messages:
             _summary_prefix, _windowed = await compress_history(
                 session_id, messages, window_size=_max_rounds,
                 summary_model=_summ_model, trigger_threshold=_summ_threshold,
+                on_progress=_compression_progress,
             )
         else:
             _summary_prefix = ""
@@ -2266,6 +2287,7 @@ async def websocket_endpoint(ws: WebSocket):
                 _summary_prefix, _windowed = await compress_history(
                     session_id, messages, window_size=_max_rounds,
                     summary_model=_summ_model, trigger_threshold=_summ_threshold,
+                    on_progress=_compression_progress,
                 )
                 _rebuilt_history = _format_history_text(topic, _summary_prefix, _windowed)
             else:

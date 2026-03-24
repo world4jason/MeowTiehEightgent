@@ -504,6 +504,22 @@ export function useUpdateConfig() {
   });
 }
 
+export function useGlobalConfig() {
+  return useQuery({
+    queryKey: settingsKeys.config,
+    queryFn: () => chatClient.get<Record<string, unknown>>("/config"),
+  });
+}
+
+export function useUpdateGlobalConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      chatClient.put<{ ok: boolean }>("/config", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: settingsKeys.config }),
+  });
+}
+
 // ─── Scenarios ───────────────────────────────────────────────
 
 export interface ScenarioDetail {
