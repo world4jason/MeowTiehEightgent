@@ -645,17 +645,7 @@ def _parse_jsonl_line(line: str, model_id: str) -> tuple[str | None, dict | None
     return (None, None)
 
 
-TRUNCATION_MARKER = "[... 較早對話已省略 ...]\n\n"
-
-def truncate_history(history_text: str, max_chars: int) -> str:
-    """Sliding window: remove oldest [Agent]: blocks until under max_chars."""
-    if len(history_text) <= max_chars:
-        return history_text
-    segments = re.split(r'(?=\n\[[\w\s\-]+\]: )', history_text)
-    while segments and len("".join(segments)) > max_chars:
-        segments.pop(0)
-    truncated = "".join(segments)
-    return TRUNCATION_MARKER + truncated.lstrip("\n")
+from history_manager import truncate_history, apply_sliding_window, TRUNCATION_MARKER
 
 
 def accumulate_token_usage(totals: dict, agent_name: str, input_tokens: int, output_tokens: int) -> None:
@@ -672,12 +662,6 @@ def format_token_count(n: int) -> str:
         return str(n)
     return f"{n / 1000:.1f}k"
 
-
-def apply_sliding_window(messages: list, max_rounds: int = 30) -> list:
-    """Keep only the most recent max_rounds messages; discard older ones."""
-    if len(messages) <= max_rounds:
-        return messages
-    return messages[-max_rounds:]
 
 
 def _resolve_timeout(agent: dict, key: str, default: float) -> float:
