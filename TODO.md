@@ -41,8 +41,8 @@
 
 ### 中優先
 
-- [ ] **History 自動壓縮 Phase 2（Summarization）**（實作中）
-  使用輕量 model 壓縮溢出訊息為摘要，cache 在 summary.json。
+- [x] **History 自動壓縮 Phase 2（Summarization）**
+  使用輕量 model 壓縮溢出訊息為摘要，cache 在 summary.json。含 model_tiers think mode、摘要卡片 UI、壓縮進度通知、手動重壓縮、think mode badge。
   Spec: `docs/superpowers/specs/2026-03-24-think-mode-history-summarization-design.md`
   Plan: `docs/superpowers/plans/2026-03-24-think-mode-history-summarization.md`
 
