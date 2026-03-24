@@ -4,7 +4,7 @@
 
 **Goal:** Add model_tiers-based think mode switching (Gemini → gemini-2.5-pro) with user notification, and implement history summarization Phase 2 using a configurable lightweight model to compress overflow messages into cached summaries.
 
-**Architecture:** Two independent features sharing `app.py`. Feature 1 adds runtime model resolution in `stream_agent()` and WS system messages. Feature 2 adds `compress_history()` as a standalone function called before `build_prompt()`, with `summary.json` cache per session. Both features plus TODO cleanup.
+**Architecture:** Two independent features. Feature 1 adds runtime model resolution in `stream_agent()` and WS system messages. Feature 2 adds `compress_history()` in a new `history_manager.py` module (extracted from app.py), with `summary.json` cache per session. CEO review added: history module extraction, compression progress WS, disk write safety, summary UI card, summarization_model Settings UI, compression stats, manual re-compress, think mode badge.
 
 **Tech Stack:** Python FastAPI, React + react-query, vitest (frontend), pytest (backend)
 
@@ -16,14 +16,47 @@
 
 | File | Responsibility |
 |------|---------------|
-| `app.py` | `resolve_thinking_model()`, modify `stream_agent()`, `compress_history()`, `load_session_config()`, WS `set_mode` notification |
+| `history_manager.py` | **NEW:** `compress_history()`, `truncate_history()`, `apply_sliding_window()`, `load_session_config()`, `_format_history_text()`, `SUMMARIZATION_PROMPT` |
+| `app.py` | `resolve_thinking_model()`, modify `stream_agent()`, `_handle_set_mode()`, WS compression progress, import from history_manager |
 | `test_api.py` | All backend tests for both features |
 | `config.json` | Add `summarization_model`, `summary_trigger_threshold` |
 | `agents/gemini/config.json` | Add `supports_thinking: true`, `model_tiers` |
 | `ui/src/chat/settings/AgentsTab.tsx` | Thinking model dropdown in agent edit form |
-| `ui/src/chat/settings/useSettingsApi.ts` | No changes needed (PUT `/agents/{name}` already passes full body) |
-| `ui/src/chat/types.ts` | Add `modelTiers` to `AgentDetail` type |
+| `ui/src/chat/settings/SettingsShell.tsx` | Add summarization_model selector (global config) |
+| `ui/src/chat/ChatPage.tsx` | Summary card, compression stats, think mode badge |
+| `ui/src/chat/MessageList.tsx` | Think mode badge on message bubbles |
+| `ui/src/chat/SummaryCard.tsx` | **NEW:** Collapsible summary card + re-compress button |
+| `ui/src/chat/types.ts` | Add `modelTiers`, `mode` to types |
 | `TODO.md` | Cleanup duplicates/outdated items |
+
+---
+
+## Task 0: Extract history_manager.py Module (CEO Review)
+
+**Files:**
+- Create: `history_manager.py`
+- Modify: `app.py` (remove moved functions, add imports)
+- Test: `test_api.py` (update imports)
+
+Move these functions from `app.py` to `history_manager.py`:
+- `TRUNCATION_MARKER` (L648)
+- `truncate_history()` (L650-658)
+- `apply_sliding_window()` (L676-680)
+
+In `app.py`, add `from history_manager import truncate_history, apply_sliding_window, TRUNCATION_MARKER`.
+
+New functions (`compress_history`, `load_session_config`, `_format_history_text`, `SUMMARIZATION_PROMPT`) will be added directly to `history_manager.py` in Task 4.
+
+- [ ] **Step 1: Create history_manager.py with moved functions**
+- [ ] **Step 2: Update app.py imports**
+- [ ] **Step 3: Update test_api.py imports if needed**
+- [ ] **Step 4: Run full test suite to verify no regressions**
+- [ ] **Step 5: Commit**
+
+```bash
+git add history_manager.py app.py test_api.py
+git commit -m "refactor: extract history_manager.py from app.py"
+```
 
 ---
 
@@ -830,15 +863,18 @@ async def compress_history(
         logger.exception("compress_history: summarization failed for session %s", session_id)
         return ("", windowed)
 
-    # Write cache
+    # Write cache (disk write failure is non-fatal — summary still returned)
     summary_data = {
         "summary_text": summary_text,
         "covered_message_count": len(overflow),
         "total_message_count": len(messages),
         "updated_at": datetime.now().isoformat(),
     }
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
-    summary_path.write_text(json.dumps(summary_data, ensure_ascii=False, indent=2))
+    try:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(summary_data, ensure_ascii=False, indent=2))
+    except OSError:
+        logger.warning("compress_history: failed to write summary.json for session %s", session_id)
 
     return (summary_text, windowed)
 ```
@@ -1055,10 +1091,228 @@ git commit -m "test: add integration tests for model_tiers + compress_history"
 
 ---
 
+## Task 8: Compression Progress WS + Cancellable (CEO Review)
+
+**Files:**
+- Modify: `app.py` (WS loop where compress_history is called)
+- Modify: `history_manager.py` (add progress callback parameter)
+
+- [ ] **Step 1: Add optional `on_progress` callback to `compress_history()`**
+
+```python
+async def compress_history(
+    session_id: str,
+    messages: list,
+    window_size: int,
+    summary_model: str,
+    trigger_threshold: int,
+    on_progress: Callable[[str], Awaitable[None]] | None = None,
+) -> tuple[str, list]:
+```
+
+Before calling `call_agent`, invoke: `if on_progress: await on_progress("正在壓縮對話歷史...")`
+
+- [ ] **Step 2: In WS loop, pass progress callback that sends system messages**
+
+```python
+async def _compression_progress(text: str):
+    await ws.send_json({"type": "system", "text": text})
+
+_summary_prefix, _windowed = await compress_history(
+    session_id, messages, _max_rounds, _summ_model, _summ_threshold,
+    on_progress=_compression_progress,
+)
+```
+
+- [ ] **Step 3: Add cancellation support — check for `stop` messages during compression**
+
+Wrap `call_agent` in a task that can be cancelled if user sends `stop`:
+
+```python
+async def _cancellable_summarize(agent, prompt, event_queue):
+    """Run summarization with stop check."""
+    task = asyncio.create_task(call_agent(agent, prompt))
+    while not task.done():
+        try:
+            evt = event_queue.get_nowait()
+            if evt and evt.get("type") == "stop":
+                task.cancel()
+                return ""
+        except asyncio.QueueEmpty:
+            pass
+        await asyncio.sleep(0.5)
+    return task.result()
+```
+
+- [ ] **Step 4: Run tests, commit**
+
+```bash
+git add history_manager.py app.py
+git commit -m "feat: add compression progress WS messages + cancellable"
+```
+
+---
+
+## Task 9: Summary Visualization Card (CEO Review — Expansion 1)
+
+**Files:**
+- Create: `ui/src/chat/SummaryCard.tsx`
+- Modify: `ui/src/chat/ChatPage.tsx` (fetch summary, render card)
+- Modify: `app.py` (add GET `/sessions/{id}/summary` endpoint)
+
+- [ ] **Step 1: Add backend endpoint**
+
+```python
+@app.get("/sessions/{session_id}/summary")
+async def get_session_summary(session_id: str):
+    path = HISTORY_DIR / session_id / "summary.json"
+    if not path.exists():
+        return {"exists": False}
+    try:
+        data = json.loads(path.read_text())
+        return {"exists": True, **data}
+    except Exception:
+        return {"exists": False}
+```
+
+- [ ] **Step 2: Create SummaryCard.tsx**
+
+Collapsible card at top of message list showing:
+- "對話摘要" header with collapse toggle
+- Summary text (collapsed by default)
+- Stats: "已壓縮 N 則訊息"
+- "重新壓縮" button (wired in Task 11)
+
+- [ ] **Step 3: Fetch summary in ChatPage and render card**
+- [ ] **Step 4: Commit**
+
+```bash
+git add ui/src/chat/SummaryCard.tsx ui/src/chat/ChatPage.tsx app.py
+git commit -m "feat(ui): add collapsible summary card for compressed history"
+```
+
+---
+
+## Task 10: Settings Summarization Model Selector (CEO Review — Expansion 2)
+
+**Files:**
+- Modify: `ui/src/chat/settings/SettingsShell.tsx` or new `GlobalConfigTab.tsx`
+- Modify: `ui/src/chat/settings/useSettingsApi.ts` (add config mutation)
+- Modify: `app.py` (PUT `/config` endpoint if not exists)
+
+- [ ] **Step 1: Add PUT `/config` endpoint for global config updates**
+
+```python
+@app.put("/config")
+async def update_config(body: dict):
+    config = load_config()
+    for key in ("summarization_model", "summary_trigger_threshold"):
+        if key in body:
+            config[key] = body[key]
+    CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False))
+    return {"ok": True}
+```
+
+- [ ] **Step 2: Add UI selector in About tab or new Config section**
+
+Model dropdown for `summarization_model` + number input for `summary_trigger_threshold`.
+Show warning banner when `summarization_model` is empty: "請選擇一個模型以啟用歷史壓縮功能"
+
+- [ ] **Step 3: Add react-query mutation hook**
+- [ ] **Step 4: Commit**
+
+```bash
+git add ui/src/chat/settings/ app.py
+git commit -m "feat(ui): add summarization model selector in Settings"
+```
+
+---
+
+## Task 11: Manual Re-Compress + Direction Hints (CEO Review — Expansion 4)
+
+**Files:**
+- Modify: `ui/src/chat/SummaryCard.tsx` (re-compress button + hint input)
+- Modify: `app.py` (add POST `/sessions/{id}/recompress` endpoint)
+- Modify: `history_manager.py` (accept optional direction hint in prompt)
+
+- [ ] **Step 1: Add recompress endpoint**
+
+```python
+@app.post("/sessions/{session_id}/recompress")
+async def recompress_session(session_id: str, body: dict = {}):
+    """Force re-summarization with optional direction hint."""
+    hint = body.get("hint", "")
+    # Delete existing summary.json to force re-compress
+    summary_path = HISTORY_DIR / session_id / "summary.json"
+    if summary_path.exists():
+        summary_path.unlink()
+    # Return OK — next agent turn will trigger fresh compression
+    # Or do it inline if messages exist
+    return {"ok": True}
+```
+
+- [ ] **Step 2: Add direction hint support to SUMMARIZATION_PROMPT**
+
+When hint is provided, append to prompt: `\n\n使用者補充：{hint}`
+
+- [ ] **Step 3: Wire re-compress button in SummaryCard**
+
+Button sends POST to `/sessions/{id}/recompress` with optional hint text.
+After success, refetch summary.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add ui/src/chat/SummaryCard.tsx app.py history_manager.py
+git commit -m "feat: add manual re-compress with direction hints"
+```
+
+---
+
+## Task 12: Think Mode Badge on Messages (CEO Review — Expansion 5)
+
+**Files:**
+- Modify: `app.py` (add `mode` field to message_end WS event)
+- Modify: `ui/src/chat/MessageList.tsx` (render 🧠 badge)
+- Modify: `ui/src/chat/types.ts` (add mode to message type)
+
+- [ ] **Step 1: Add `mode` to WS message_end event**
+
+In app.py where `_msg_end` is built (~L2317):
+
+```python
+_msg_end: dict = {
+    "type": "message_end",
+    "agent": agent["name"],
+    "color": agent["color"],
+    "timestamp": ts,
+    "duration_ms": duration_ms,
+    "mode": _current_mode,  # ← NEW
+}
+```
+
+- [ ] **Step 2: Add mode to frontend message type**
+
+In `ui/src/chat/types.ts`, add `mode?: "chat" | "think"` to message interface.
+
+- [ ] **Step 3: Render 🧠 badge in MessageList**
+
+When `msg.mode === "think"`, show a small 🧠 icon next to agent name in the message bubble.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add app.py ui/src/chat/MessageList.tsx ui/src/chat/types.ts
+git commit -m "feat(ui): add think mode badge on agent messages"
+```
+
+---
+
 ## Summary
 
 | Task | What | Tests |
 |------|------|-------|
+| 0 | Extract `history_manager.py` from app.py | Existing suite |
 | 1 | `resolve_thinking_model` + `stream_agent` dispatch | 4 unit tests |
 | 2 | Extract `_handle_set_mode` + WS notification + config files | 3 unit tests |
 | 3 | Settings UI thinking model dropdown | Manual |
@@ -1066,3 +1320,8 @@ git commit -m "test: add integration tests for model_tiers + compress_history"
 | 5 | Wire into WS loop + config | Existing suite |
 | 6 | TODO.md cleanup | N/A |
 | 7 | Integration tests | 2 integration tests |
+| 8 | Compression progress WS + cancellable (CEO) | 1 test |
+| 9 | Summary visualization card (CEO Expansion 1+3) | Manual |
+| 10 | Settings summarization_model selector (CEO Expansion 2) | Manual |
+| 11 | Manual re-compress + direction hints (CEO Expansion 4) | 1 test |
+| 12 | Think mode badge on messages (CEO Expansion 5) | Manual |
