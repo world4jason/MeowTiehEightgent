@@ -1009,6 +1009,37 @@ async def stream_api_agent(agent: dict, prompt: str):
                         pass
 
 
+def build_mode_switch_notification(agent: dict, mode: str) -> dict | None:
+    """Build a system message for model_tiers mode switches. Returns None if no notification needed."""
+    tiers = agent.get("model_tiers")
+    if not tiers or "thinking" not in tiers:
+        return None
+    thinking_key = tiers["thinking"]
+    name = agent.get("name", "Agent")
+    if mode == "think":
+        return {"type": "system", "text": f"\U0001f9e0 {name} 已切換至思考模式 ({thinking_key})"}
+    else:
+        return {"type": "system", "text": f"\U0001f4ac {name} 已切換至對話模式"}
+
+
+async def _handle_set_mode(ws, evt, agent_modes: dict, active_agents: list):
+    """Shared handler for set_mode WS messages."""
+    _sm_agent = evt.get("agent", "")
+    _sm_mode = evt.get("mode", "")
+    if _sm_agent not in agent_modes:
+        await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
+    elif _sm_mode not in ("chat", "think"):
+        await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
+    else:
+        agent_modes[_sm_agent] = _sm_mode
+        await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
+        _sm_agent_obj = next((a for a in active_agents if a["name"] == _sm_agent), None)
+        if _sm_agent_obj:
+            _notif = build_mode_switch_notification(_sm_agent_obj, _sm_mode)
+            if _notif:
+                await ws.send_json(_notif)
+
+
 def resolve_thinking_model(agent: dict) -> dict | None:
     """Resolve model_tiers.thinking to a full model config dict.
     Returns a shallow copy of agent with thinking model's cmd/timeouts merged,
@@ -1373,6 +1404,7 @@ async def list_agents():
             "type": a.get("type", "cli"),
             "source": "chat",
             "supportsThinking": a.get("supports_thinking", None),
+            "modelTiers": a.get("model_tiers", None),
         }
         for a in registry.values()
     ]
@@ -2286,15 +2318,7 @@ async def websocket_endpoint(ws: WebSocket):
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
                     elif t == "set_mode":
-                        _sm_agent = evt.get("agent", "")
-                        _sm_mode = evt.get("mode", "")
-                        if _sm_agent not in agent_modes:
-                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
-                        elif _sm_mode not in ("chat", "think"):
-                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
-                        else:
-                            agent_modes[_sm_agent] = _sm_mode
-                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
+                        await _handle_set_mode(ws, evt, agent_modes, active_agents)
                     elif t == "human":
                         pending_humans.append(evt)
 
@@ -2405,15 +2429,7 @@ async def websocket_endpoint(ws: WebSocket):
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
                     elif t == "set_mode":
-                        _sm_agent = evt.get("agent", "")
-                        _sm_mode = evt.get("mode", "")
-                        if _sm_agent not in agent_modes:
-                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
-                        elif _sm_mode not in ("chat", "think"):
-                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
-                        else:
-                            agent_modes[_sm_agent] = _sm_mode
-                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
+                        await _handle_set_mode(ws, evt, agent_modes, active_agents)
                     elif t == "human":
                         text = evt["text"]
                         imgs = evt.get("images") or []
@@ -2462,15 +2478,7 @@ async def websocket_endpoint(ws: WebSocket):
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
                     elif t == "set_mode":
-                        _sm_agent = evt.get("agent", "")
-                        _sm_mode = evt.get("mode", "")
-                        if _sm_agent not in agent_modes:
-                            await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
-                        elif _sm_mode not in ("chat", "think"):
-                            await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
-                        else:
-                            agent_modes[_sm_agent] = _sm_mode
-                            await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
+                        await _handle_set_mode(ws, evt, agent_modes, active_agents)
                     elif t == "human":
                         text = evt["text"]
                         imgs = evt.get("images") or []

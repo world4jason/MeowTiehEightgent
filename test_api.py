@@ -2051,6 +2051,42 @@ class TestModelTiers:
         assert "--effort" not in args
 
 
+class TestModelTiersNotification:
+    """WS system message when model_tiers switches model."""
+
+    def test_set_mode_think_with_tiers_sends_system_message(self, tmp_project):
+        """set_mode think on agent with model_tiers → system message emitted."""
+        import app as a
+        agent = {
+            "name": "gemini",
+            "model_tiers": {"default": "gemini", "thinking": "gemini-2.5-pro"},
+            "supports_thinking": True,
+        }
+        msg = a.build_mode_switch_notification(agent, "think")
+        assert msg is not None
+        assert "gemini-2.5-pro" in msg["text"]
+        assert msg["type"] == "system"
+
+    def test_set_mode_chat_with_tiers_sends_system_message(self, tmp_project):
+        """set_mode chat on agent with model_tiers → system message emitted."""
+        import app as a
+        agent = {
+            "name": "gemini",
+            "model_tiers": {"default": "gemini", "thinking": "gemini-2.5-pro"},
+            "supports_thinking": True,
+        }
+        msg = a.build_mode_switch_notification(agent, "chat")
+        assert msg is not None
+        assert msg["type"] == "system"
+
+    def test_set_mode_no_tiers_no_notification(self, tmp_project):
+        """set_mode on agent without model_tiers → no notification."""
+        import app as a
+        agent = {"name": "claude", "supports_thinking": True}
+        msg = a.build_mode_switch_notification(agent, "think")
+        assert msg is None
+
+
 class TestTokenTracking:
     """Task 5 — per-agent cumulative token tracking."""
 
