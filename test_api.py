@@ -2375,3 +2375,52 @@ class TestCompressHistory:
             )
         assert summary == ""
         assert call_count == 0  # no retry due to cooldown
+
+
+class TestIntegrationThinkModeSummarization:
+    """End-to-end integration tests."""
+
+    @pytest.mark.asyncio
+    async def test_compress_history_with_session_config_override(self, tmp_project):
+        """Per-session config overrides global threshold."""
+        from history_manager import compress_history
+        sid = "test-override-session"
+        sdir = tmp_project / "history" / sid
+        sdir.mkdir(parents=True)
+        (sdir / "session_config.json").write_text(json.dumps({
+            "summary_trigger_threshold": 3,
+        }))
+        # Need haiku model in config
+        config = {"models": {"haiku": {"type": "cli", "cmd": ["claude", "--print"]}}}
+        (tmp_project / "config.json").write_text(json.dumps(config))
+
+        messages = [{"type": "message", "agent": "Claude", "text": f"msg {i}"} for i in range(35)]
+
+        async def mock_call_agent(agent, prompt):
+            return "Session override summary."
+
+        with patch("history_manager.call_agent", mock_call_agent):
+            summary, windowed = await compress_history(
+                sid, messages, window_size=30,
+                summary_model="haiku", trigger_threshold=3,
+            )
+        assert summary == "Session override summary."
+
+    def test_model_tiers_preserved_through_registry(self, tmp_project):
+        """model_tiers from agent config.json survives get_agent_registry."""
+        import app as a
+        agent_dir = tmp_project / "agents" / "gemini"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.json").write_text(json.dumps({
+            "emoji": "\U0001f7e2",
+            "color": "#34d399",
+            "model": "gemini",
+            "enabled": True,
+            "supports_thinking": True,
+            "model_tiers": {"default": "gemini", "thinking": "gemini-2.5-pro"},
+        }))
+        config = {"models": {"gemini": {"type": "cli", "cmd": ["gemini", "-p"]}}}
+        (tmp_project / "config.json").write_text(json.dumps(config))
+        registry = a.get_agent_registry()
+        assert "gemini" in registry
+        assert registry["gemini"].get("model_tiers") == {"default": "gemini", "thinking": "gemini-2.5-pro"}
