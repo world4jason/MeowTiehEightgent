@@ -477,7 +477,7 @@ export async function startServer(): Promise<StartedServer> {
   }
 
   // --- Agent file sync: bridge file-managed agents into the DB ---
-  const agentFileSyncProjectRoot = process.env.MTH_PROJECT_ROOT ?? process.cwd();
+  const agentFileSyncProjectRoot = process.env.MTH_PROJECT_ROOT ?? resolve(process.cwd(), "..");
   try {
     const syncResult = await syncAgentFilesToDb(db as any, agentFileSyncProjectRoot, logger);
     if (syncResult.upserted > 0 || syncResult.unmarked > 0) {
@@ -529,20 +529,20 @@ export async function startServer(): Promise<StartedServer> {
   process.env.MTH_LISTEN_PORT = String(listenPort);
   process.env.MTH_API_URL = `http://${runtimeApiHost}:${listenPort}`;
   
-  // ── Chat WebSocket (must register BEFORE live-events to claim /chat/ws) ──
-  const chatProjectRoot = process.env.MTH_PROJECT_ROOT ?? process.cwd();
-  {
-    const { createChatWebSocketServer, handleChatWebSocket } = await import("./chat/chat-ws.js");
-    const chatWss = createChatWebSocketServer();
-    server.on("upgrade", (req, socket, head) => {
-      if (!req.url) return;                               // let next handler deal with it
-      const url = new URL(req.url, "http://localhost");
-      if (url.pathname !== "/chat/ws") return;             // not ours — fall through
-      chatWss.handleUpgrade(req, socket as any, head, (ws: any) => {
-        handleChatWebSocket(ws, req, { projectRoot: chatProjectRoot });
-      });
+  // ── Chat WebSocket ──────────────────────────────────────────────────────────
+  // Must intercept upgrade BEFORE live-events to claim /chat/ws.
+  // We wrap the live-events setup so we can route in a single upgrade handler.
+  const chatProjectRoot = process.env.MTH_PROJECT_ROOT ?? resolve(process.cwd(), "..");
+  const { createChatWebSocketServer, handleChatWebSocket } = await import("./chat/chat-ws.js");
+  const chatWss = createChatWebSocketServer();
+  server.on("upgrade", (req, socket, head) => {
+    if (!req.url) return;
+    const url = new URL(req.url, "http://localhost");
+    if (url.pathname !== "/chat/ws") return;
+    chatWss.handleUpgrade(req, socket as any, head, (ws: any) => {
+      handleChatWebSocket(ws, req, { projectRoot: chatProjectRoot });
     });
-  }
+  });
 
   setupLiveEventsWebSocketServer(server, db as any, {
     deploymentMode: config.deploymentMode,

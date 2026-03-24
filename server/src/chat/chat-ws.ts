@@ -769,19 +769,32 @@ export function handleChatWebSocket(
               send(ws, { type: "chunk", agent: agent.name, text: chunk });
             }
           } else if (effectiveAgent.cmd && effectiveAgent.cmd.length > 0) {
-            // CLI agent
+            // CLI agent — build command with json output flags
             const idleTimeoutMs =
               (effectiveAgent.idle_timeout_seconds ?? 120) * 1000;
             const startupTimeoutMs =
               (effectiveAgent.startup_timeout_seconds ?? 120) * 1000;
 
+            // Add --output-format stream-json for token tracking (same as Python _get_json_output_flags)
+            const adapterType = effectiveAgent.adapter ?? "";
+            const jsonFlags: string[] = [];
+            const useJson = adapterType === "claude_local" || adapterType === "gemini_local";
+            if (useJson) {
+              jsonFlags.push("--output-format", "stream-json");
+              if (adapterType === "claude_local") jsonFlags.push("--verbose");
+            }
+            // Inject json flags between binary and rest of args (before --print/-p to avoid yargs issues)
+            const cmdBinary = effectiveAgent.cmd.slice(0, 1);
+            const cmdRest = effectiveAgent.cmd.slice(1);
+            const fullCmd = [...cmdBinary, ...jsonFlags, ...cmdRest];
+
             for await (const chunk of streamCliAgent(
-              effectiveAgent.cmd,
+              fullCmd,
               prompt,
               {
                 idleTimeoutMs,
                 startupTimeoutMs,
-                jsonOutput: true,
+                jsonOutput: useJson,
                 cwd: projectRoot,
               },
             )) {

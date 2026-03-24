@@ -240,6 +240,10 @@ export function setupLiveEventsWebSocketServer(
     }
 
     const url = new URL(req.url, "http://localhost");
+
+    // Skip paths handled by other WS handlers (e.g., /chat/ws)
+    if (url.pathname.startsWith("/chat/")) return;
+
     const companyId = parseCompanyId(url.pathname);
     if (!companyId) {
       socket.destroy();
