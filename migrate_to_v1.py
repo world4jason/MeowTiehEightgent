@@ -164,7 +164,12 @@ def migrate_agent_folder(agents_dir: Path, folder_name: str, dry_run: bool = Fal
         log.info("[DRY RUN] Would migrate %s → %s", folder_name, new_folder_name)
         return new_folder_name
 
-    # Write new config first, then rename folder
+    # Backup original config, then write new config, then rename folder
+    backup_path = config_path.with_suffix(".json.v0.bak")
+    if not backup_path.exists():
+        import shutil
+        shutil.copy2(config_path, backup_path)
+        log.info("Backed up %s/config.json → config.json.v0.bak", folder_name)
     config_path.write_text(json.dumps(v1, indent=2, ensure_ascii=False), encoding="utf-8")
     log.info("Wrote v1 config to %s/config.json", folder_name)
 
