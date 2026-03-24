@@ -2443,3 +2443,255 @@ class TestIntegrationThinkModeSummarization:
         registry = a.get_agent_registry()
         assert "gemini" in registry
         assert registry["gemini"].get("model_tiers") == {"default": "gemini", "thinking": "gemini-2.5-pro"}
+
+
+# ── Adapter Preset CRUD ──────────────────────────────────────────────────────
+
+class TestAdapterPresets:
+    """Tests for /adapter-presets CRUD endpoints."""
+
+    def test_list_presets_v0_format(self, client):
+        """GET /adapter-presets returns converted old models as presets."""
+        r = client.get("/adapter-presets")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        # The fixture has "test-model" in the old models format
+        assert any(p["adapter_type"] == "test-model" for p in data)
+
+    def test_list_presets_v1_format(self, tmp_project, client):
+        """GET /adapter-presets returns native adapter_presets when present."""
+        import app as a
+        cfg = {
+            "adapter_presets": {
+                "claude_local": {
+                    "command": "claude",
+                    "defaultArgs": ["--print"],
+                    "defaultModel": "claude-sonnet-4-6",
+                },
+                "ollama_api": {
+                    "baseUrl": "http://127.0.0.1:11434",
+                },
+            }
+        }
+        (tmp_project / "config.json").write_text(json.dumps(cfg))
+
+        r = client.get("/adapter-presets")
+        assert r.status_code == 200
+        data = r.json()
+        types = [p["adapter_type"] for p in data]
+        assert "claude_local" in types
+        assert "ollama_api" in types
+        # Verify fields are present
+        claude = next(p for p in data if p["adapter_type"] == "claude_local")
+        assert claude["command"] == "claude"
+        assert claude["defaultArgs"] == ["--print"]
+
+    def test_create_preset(self, client):
+        """POST /adapter-presets creates a new preset."""
+        payload = {
+            "adapter_type": "new_adapter",
+            "command": "new-cmd",
+            "defaultArgs": ["--fast"],
+            "defaultModel": "new-model-v1",
+            "timeoutSec": 300,
+        }
+        r = client.post("/adapter-presets", json=payload)
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+        assert r.json()["adapter_type"] == "new_adapter"
+
+        # Verify it appears in the list
+        r2 = client.get("/adapter-presets")
+        types = [p["adapter_type"] for p in r2.json()]
+        assert "new_adapter" in types
+        new = next(p for p in r2.json() if p["adapter_type"] == "new_adapter")
+        assert new["command"] == "new-cmd"
+        assert new["timeoutSec"] == 300
+
+    def test_create_preset_missing_type(self, client):
+        """POST /adapter-presets without adapter_type returns 400."""
+        r = client.post("/adapter-presets", json={"command": "x"})
+        assert r.status_code == 400
+
+    def test_create_preset_duplicate(self, client):
+        """POST /adapter-presets with existing adapter_type returns 409."""
+        payload = {"adapter_type": "dup_adapter", "command": "x"}
+        r1 = client.post("/adapter-presets", json=payload)
+        assert r1.status_code == 200
+        r2 = client.post("/adapter-presets", json=payload)
+        assert r2.status_code == 409
+
+    def test_update_preset(self, client):
+        """PUT /adapter-presets/{type} updates an existing preset."""
+        # Create first
+        client.post("/adapter-presets", json={
+            "adapter_type": "upd_adapter",
+            "command": "old-cmd",
+            "timeoutSec": 60,
+        })
+        # Update
+        r = client.put("/adapter-presets/upd_adapter", json={
+            "command": "new-cmd",
+            "timeoutSec": 120,
+        })
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+        # Verify
+        presets = client.get("/adapter-presets").json()
+        upd = next(p for p in presets if p["adapter_type"] == "upd_adapter")
+        assert upd["command"] == "new-cmd"
+        assert upd["timeoutSec"] == 120
+
+    def test_update_preset_not_found(self, client):
+        """PUT /adapter-presets/{type} for nonexistent type returns 404."""
+        r = client.put("/adapter-presets/ghost_adapter", json={"command": "x"})
+        assert r.status_code == 404
+
+    def test_delete_preset(self, client):
+        """DELETE /adapter-presets/{type} removes the preset."""
+        client.post("/adapter-presets", json={
+            "adapter_type": "del_adapter",
+            "command": "x",
+        })
+        r = client.delete("/adapter-presets/del_adapter")
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+        # Verify gone
+        presets = client.get("/adapter-presets").json()
+        assert not any(p["adapter_type"] == "del_adapter" for p in presets)
+
+    def test_delete_preset_idempotent(self, client):
+        """DELETE /adapter-presets/{type} for nonexistent type still returns ok."""
+        r = client.delete("/adapter-presets/nonexistent")
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+    def test_models_endpoint_returns_preset_data(self, tmp_project, client):
+        """GET /models returns the same data as adapter_presets (backward compat)."""
+        import app as a
+        cfg = {
+            "adapter_presets": {
+                "claude_local": {
+                    "command": "claude",
+                    "defaultArgs": ["--print"],
+                }
+            }
+        }
+        (tmp_project / "config.json").write_text(json.dumps(cfg))
+
+        r = client.get("/models")
+        assert r.status_code == 200
+        data = r.json()
+        assert any(m["id"] == "claude_local" for m in data)
+        cl = next(m for m in data if m["id"] == "claude_local")
+        assert cl["command"] == "claude"
+
+    def test_create_preset_in_v1_config(self, tmp_project, client):
+        """POST /adapter-presets writes to adapter_presets key (not models) in v1 config."""
+        import app as a
+        cfg = {
+            "adapter_presets": {
+                "claude_local": {"command": "claude"},
+            }
+        }
+        (tmp_project / "config.json").write_text(json.dumps(cfg))
+
+        r = client.post("/adapter-presets", json={
+            "adapter_type": "gemini_local",
+            "command": "gemini",
+            "defaultArgs": ["-p"],
+        })
+        assert r.status_code == 200
+
+        # Verify it was written to adapter_presets, not models
+        saved = json.loads((tmp_project / "config.json").read_text())
+        assert "gemini_local" in saved["adapter_presets"]
+        assert "models" not in saved
+
+    def test_create_preset_in_v0_config(self, client, tmp_project):
+        """POST /adapter-presets writes to models key in v0 config (backward compat)."""
+        # The default fixture uses "models" key
+        r = client.post("/adapter-presets", json={
+            "adapter_type": "new_cli",
+            "command": "new-cli-cmd",
+        })
+        assert r.status_code == 200
+
+        saved = json.loads((tmp_project / "config.json").read_text())
+        assert "new_cli" in saved["models"]
+
+
+class TestOllamaResolveFromPresets:
+    """Tests that Ollama endpoints resolve base_url from adapter_presets."""
+
+    def _mock_httpx_get(self, json_data):
+        mock_response = MagicMock()
+        mock_response.json.return_value = json_data
+
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        mock_cls = MagicMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        return mock_cls, mock_client
+
+    def test_ollama_models_uses_v1_preset_url(self, tmp_project, client):
+        """GET /providers/ollama/models uses baseUrl from adapter_presets.ollama_api."""
+        cfg = {
+            "adapter_presets": {
+                "ollama_api": {"baseUrl": "http://custom-ollama:11434"},
+            }
+        }
+        (tmp_project / "config.json").write_text(json.dumps(cfg))
+
+        mock_cls, mock_client = self._mock_httpx_get(
+            {"models": [{"name": "llama3"}]}
+        )
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/models")
+
+        assert r.status_code == 200
+        call_url = mock_client.get.call_args[0][0]
+        assert "custom-ollama:11434" in call_url
+
+    def test_ollama_models_falls_back_to_v0(self, tmp_project, client):
+        """GET /providers/ollama/models falls back to models.ollama.baseUrl."""
+        cfg = {
+            "models": {
+                "ollama": {
+                    "type": "api",
+                    "baseUrl": "http://v0-ollama:11434",
+                }
+            }
+        }
+        (tmp_project / "config.json").write_text(json.dumps(cfg))
+
+        mock_cls, mock_client = self._mock_httpx_get(
+            {"models": [{"name": "phi3"}]}
+        )
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/models")
+
+        assert r.status_code == 200
+        call_url = mock_client.get.call_args[0][0]
+        assert "v0-ollama:11434" in call_url
+
+    def test_ollama_models_default_fallback(self, tmp_project, client):
+        """GET /providers/ollama/models uses default URL when no config."""
+        cfg = {"models": {}}
+        (tmp_project / "config.json").write_text(json.dumps(cfg))
+
+        mock_cls, mock_client = self._mock_httpx_get(
+            {"models": [{"name": "gemma"}]}
+        )
+        with patch("app.httpx.AsyncClient", mock_cls):
+            r = client.get("/providers/ollama/models")
+
+        assert r.status_code == 200
+        call_url = mock_client.get.call_args[0][0]
+        assert "127.0.0.1:11434" in call_url

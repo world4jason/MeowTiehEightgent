@@ -1415,8 +1415,10 @@ async def put_user_md(body: dict):
 
 @app.get("/models")
 async def list_models():
-    models = load_models()
-    return [{"id": mid, **m} for mid, m in models.items()]
+    """Backward-compatible model list — returns adapter_presets if available,
+    otherwise falls back to old models dict."""
+    presets = load_adapter_presets()
+    return [{"id": mid, **m} for mid, m in presets.items()]
 
 
 @app.post("/models")
@@ -1460,6 +1462,66 @@ async def update_model(mid: str, body: dict):
 async def delete_model(mid: str):
     cfg = load_config()
     cfg.get("models", {}).pop(mid, None)
+    save_config(cfg)
+    return {"ok": True}
+
+
+# ── Adapter Preset CRUD ───────────────────────────────────────────────────────
+
+def _adapter_presets_key(cfg: dict) -> str:
+    """Return the config key that holds adapter presets ('adapter_presets' or 'models')."""
+    return "adapter_presets" if "adapter_presets" in cfg else "models"
+
+
+@app.get("/adapter-presets")
+async def list_adapter_presets():
+    """List all adapter presets from config.json."""
+    presets = load_adapter_presets()
+    return [{"adapter_type": k, **v} for k, v in presets.items()]
+
+
+@app.post("/adapter-presets")
+async def create_adapter_preset(body: dict):
+    """Create a new adapter preset."""
+    adapter_type = body.get("adapter_type", "").strip()
+    if not adapter_type:
+        raise HTTPException(status_code=400, detail="adapter_type required")
+
+    cfg = load_config()
+    key = _adapter_presets_key(cfg)
+    if key not in cfg:
+        cfg[key] = {}
+    if adapter_type in cfg[key]:
+        raise HTTPException(status_code=409, detail="Adapter preset already exists")
+
+    # Build entry from body, excluding adapter_type itself
+    entry = {k: v for k, v in body.items() if k != "adapter_type"}
+    cfg[key][adapter_type] = entry
+    save_config(cfg)
+    return {"ok": True, "adapter_type": adapter_type}
+
+
+@app.put("/adapter-presets/{adapter_type}")
+async def update_adapter_preset(adapter_type: str, body: dict):
+    """Update an existing adapter preset."""
+    cfg = load_config()
+    key = _adapter_presets_key(cfg)
+    if key not in cfg or adapter_type not in cfg[key]:
+        raise HTTPException(status_code=404, detail="Adapter preset not found")
+
+    # Remove adapter_type from body if present (it's in the path)
+    body.pop("adapter_type", None)
+    cfg[key][adapter_type].update(body)
+    save_config(cfg)
+    return {"ok": True}
+
+
+@app.delete("/adapter-presets/{adapter_type}")
+async def delete_adapter_preset(adapter_type: str):
+    """Delete an adapter preset."""
+    cfg = load_config()
+    key = _adapter_presets_key(cfg)
+    cfg.get(key, {}).pop(adapter_type, None)
     save_config(cfg)
     return {"ok": True}
 
