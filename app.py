@@ -162,8 +162,53 @@ def save_config(cfg: dict):
 
 
 def load_models() -> dict:
+    """Legacy helper — returns the old-style models dict.
+    Kept for backward compatibility with resolve_thinking_model,
+    _resolve_timeout, _resolve_supports_image, and model CRUD endpoints.
+    """
     cfg = load_config()
     return cfg.get("models", DEFAULT_MODELS)
+
+
+def _convert_models_to_presets(models: dict) -> dict:
+    """Convert old v0 models dict to adapter_presets-like dict on the fly.
+
+    The keys remain the same as the old model IDs (e.g. "claude", "ollama")
+    so that v0 agents with model="claude" can still look up their preset.
+    Each entry is augmented with command/defaultArgs extracted from cmd[].
+    """
+    presets: dict = {}
+    for mid, m in models.items():
+        preset: dict = dict(m)  # shallow copy
+        # Extract command + defaultArgs from cmd list
+        cmd_list = m.get("cmd", [])
+        if cmd_list:
+            preset["command"] = cmd_list[0]
+            preset["defaultArgs"] = cmd_list[1:]
+        # Map apiModel → defaultModel for consistency
+        if "apiModel" in m:
+            preset["defaultModel"] = m["apiModel"]
+        # Map timeout fields
+        if "idle_timeout_seconds" in m:
+            preset["timeoutSec"] = m["idle_timeout_seconds"]
+        if "startup_timeout_seconds" in m:
+            preset["startupTimeoutSec"] = m["startup_timeout_seconds"]
+        presets[mid] = preset
+    return presets
+
+
+def load_adapter_presets() -> dict:
+    """Load adapter presets from config.json.
+
+    - If ``adapter_presets`` key exists → return it directly.
+    - Otherwise convert old ``models`` dict on the fly (backward compat).
+    """
+    cfg = load_config()
+    if "adapter_presets" in cfg:
+        return cfg["adapter_presets"]
+    # Fallback: convert old models format
+    models = cfg.get("models", DEFAULT_MODELS)
+    return _convert_models_to_presets(models)
 
 
 # ── Migration from old config format ──────────────────────────────────────────
@@ -307,9 +352,97 @@ def ensure_workspace(agent: dict):
 
 # ── Agent registry ────────────────────────────────────────────────────────────
 
+def _merge_v0_agent(agent: dict, agent_dir: Path, models: dict) -> tuple[str, dict]:
+    """Merge connection info for a v0 agent (legacy model soft-ref format).
+
+    Returns (registry_key, merged_agent_dict).
+    """
+    name = agent_dir.name
+    agent["name"] = name
+    agent["workspace"] = agent_dir
+
+    model_id = agent.get("model", "")
+    agent["model_id"] = model_id
+    if model_id in models:
+        m = models[model_id]
+        agent["type"] = m.get("type", "cli")
+        if "cmd" in m:
+            base_cmd = list(m["cmd"])
+            # Append extra_flags if defined (e.g. ["--model", "claude-opus-4-5"])
+            for flag in m.get("extra_flags", []):
+                if flag not in base_cmd:
+                    base_cmd.append(flag)
+            agent["cmd"] = base_cmd
+        if "baseUrl" in m:
+            agent["baseUrl"] = m["baseUrl"]
+        if "apiModel" in m:
+            agent["model"] = m["apiModel"]  # for API calls
+        # Merge timeout fields from model config (agent-level config takes precedence)
+        for timeout_key in ("idle_timeout_seconds", "startup_timeout_seconds"):
+            if timeout_key not in agent and timeout_key in m:
+                agent[timeout_key] = m[timeout_key]
+
+    return name, agent
+
+
+def _merge_v1_agent(agent: dict, agent_dir: Path, presets: dict) -> tuple[str, dict]:
+    """Merge connection info for a v1 agent (adapter-based format).
+
+    Returns (registry_key, merged_agent_dict).
+    Registry key = agent["name"] from config.json (not the folder name).
+    """
+    name = agent.get("name", agent_dir.name)
+    agent["name"] = name
+    agent["workspace"] = agent_dir
+
+    adapter_type = agent.get("adapter", "")
+    adapter_config = agent.get("adapterConfig") or {}
+    preset = presets.get(adapter_type) or {}
+
+    # Determine type: "api" if baseUrl in preset, else "cli"
+    if "baseUrl" in preset:
+        agent["type"] = "api"
+        agent["baseUrl"] = preset["baseUrl"]
+    else:
+        agent["type"] = "cli"
+
+    # Build cmd from preset command + defaultArgs (CLI adapters only)
+    command = adapter_config.get("command") or preset.get("command")
+    if command:
+        default_args = preset.get("defaultArgs", [])
+        agent["cmd"] = [command] + list(default_args)
+
+    # Model: adapterConfig.model > preset.defaultModel
+    model = adapter_config.get("model") or preset.get("defaultModel")
+    if model:
+        agent["model"] = model
+
+    # model_id for legacy fallback paths (_resolve_timeout, etc.)
+    agent["model_id"] = adapter_type
+
+    # Timeouts: adapterConfig.timeoutSec > preset.timeoutSec
+    timeout_sec = adapter_config.get("timeoutSec") or preset.get("timeoutSec")
+    if timeout_sec is not None:
+        agent["idle_timeout_seconds"] = timeout_sec
+
+    startup_timeout_sec = adapter_config.get("startupTimeoutSec") or preset.get("startupTimeoutSec")
+    if startup_timeout_sec is not None:
+        agent["startup_timeout_seconds"] = startup_timeout_sec
+
+    # supports_image from preset
+    if "supports_image" in preset and "supports_image" not in agent:
+        agent["supports_image"] = preset["supports_image"]
+
+    return name, agent
+
+
 def get_agent_registry() -> dict[str, dict]:
-    """Load all agents by scanning agents/ folders for config.json."""
+    """Load all agents by scanning agents/ folders for config.json.
+
+    Supports both v0 (model soft-ref) and v1 (adapter-based) agent configs.
+    """
     models = load_models()
+    presets = load_adapter_presets()
     registry: dict[str, dict] = {}
 
     for agent_dir in sorted(AGENTS_DIR.iterdir()):
@@ -320,33 +453,14 @@ def get_agent_registry() -> dict[str, dict]:
             continue
         try:
             agent = json.loads(config_path.read_text())
-            name = agent_dir.name
-            agent["name"] = name
-            agent["workspace"] = agent_dir
 
-            # Merge model connection info
-            model_id = agent.get("model", "")
-            agent["model_id"] = model_id
-            if model_id in models:
-                m = models[model_id]
-                agent["type"] = m.get("type", "cli")
-                if "cmd" in m:
-                    base_cmd = list(m["cmd"])
-                    # Append extra_flags if defined (e.g. ["--model", "claude-opus-4-5"])
-                    for flag in m.get("extra_flags", []):
-                        if flag not in base_cmd:
-                            base_cmd.append(flag)
-                    agent["cmd"] = base_cmd
-                if "baseUrl" in m:
-                    agent["baseUrl"] = m["baseUrl"]
-                if "apiModel" in m:
-                    agent["model"] = m["apiModel"]  # for API calls
-                # Merge timeout fields from model config (agent-level config takes precedence)
-                for timeout_key in ("idle_timeout_seconds", "startup_timeout_seconds"):
-                    if timeout_key not in agent and timeout_key in m:
-                        agent[timeout_key] = m[timeout_key]
+            # Detect v1 (has configVersion field) vs v0 (legacy)
+            if agent.get("configVersion", 0) >= 1:
+                key, merged = _merge_v1_agent(agent, agent_dir, presets)
+            else:
+                key, merged = _merge_v0_agent(agent, agent_dir, models)
 
-            registry[name] = agent
+            registry[key] = merged
         except Exception:
             continue
 
@@ -1044,11 +1158,26 @@ def resolve_thinking_model(agent: dict) -> dict | None:
     """Resolve model_tiers.thinking to a full model config dict.
     Returns a shallow copy of agent with thinking model's cmd/timeouts merged,
     or None if no thinking tier is configured or the model key is missing.
+
+    For v1 agents (with adapter field), model_tiers values are model variant
+    names (e.g. "claude-opus-4-6") that override the adapter's model parameter.
+    The adapter preset provides the base command/connection info.
+
+    For v0 agents, model_tiers values reference model IDs in the models dict.
     """
     tiers = agent.get("model_tiers")
     if not tiers or "thinking" not in tiers:
         return None
     thinking_key = tiers["thinking"]
+
+    # v1 agents: model_tiers are model variant names, not model IDs.
+    # Use the same adapter preset but override the model parameter.
+    if agent.get("configVersion", 0) >= 1:
+        resolved = dict(agent)
+        resolved["model"] = thinking_key
+        return resolved
+
+    # v0 path: look up thinking_key in old models dict
     models = load_models()
     if thinking_key not in models:
         logger.warning("model_tiers.thinking=%r not found in models config", thinking_key)
@@ -2069,11 +2198,22 @@ async def rename_session(session_id: str, body: dict):
 
 # ── Ollama model list ─────────────────────────────────────────────────────────
 
+def _resolve_ollama_base_url() -> str:
+    """Resolve Ollama base URL from adapter_presets (v1) or models (v0)."""
+    presets = load_adapter_presets()
+    # v1: adapter_presets has "ollama_api" with baseUrl
+    if "ollama_api" in presets and "baseUrl" in presets["ollama_api"]:
+        return presets["ollama_api"]["baseUrl"]
+    # v0: models has "ollama" with baseUrl (also found in converted presets)
+    if "ollama" in presets and "baseUrl" in presets["ollama"]:
+        return presets["ollama"]["baseUrl"]
+    return "http://127.0.0.1:11434"
+
+
 @app.get("/providers/ollama/models")
 async def ollama_models(base_url: str = ""):
     if not base_url:
-        models = load_models()
-        base_url = models.get("ollama", {}).get("baseUrl", "http://127.0.0.1:11434")
+        base_url = _resolve_ollama_base_url()
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             r = await client.get(f"{base_url}/api/tags")
@@ -2090,8 +2230,7 @@ async def ollama_models(base_url: str = ""):
 async def ollama_pull(payload: dict):
     base_url = payload.get("base_url", "").strip()
     if not base_url:
-        models = load_models()
-        base_url = models.get("ollama", {}).get("baseUrl", "http://127.0.0.1:11434")
+        base_url = _resolve_ollama_base_url()
     model_name = payload.get("model", "").strip()
     if not model_name:
         raise HTTPException(status_code=400, detail="model required")
