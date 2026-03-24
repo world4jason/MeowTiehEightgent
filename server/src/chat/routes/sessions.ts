@@ -18,6 +18,7 @@ import {
   type SessionListItem,
 } from "../session-store.js";
 import type { ChatMessage } from "../types.js";
+import { getSessionSummary, recompressSession } from "../history-manager.js";
 
 // ── Hidden-sessions helpers ─────────────────────────────────────────────────
 
@@ -285,6 +286,40 @@ export function createSessionRoutes(projectRoot: string): Router {
       }
 
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Internal error" });
+    }
+  });
+
+  /**
+   * GET /sessions/:id/summary — Return cached summary.json
+   */
+  router.get("/sessions/:id/summary", async (req, res) => {
+    try {
+      const sessionId = req.params.id;
+      const summary = await getSessionSummary(historyDir, sessionId);
+      if (summary === null) {
+        res.json({});
+        return;
+      }
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Internal error" });
+    }
+  });
+
+  /**
+   * POST /sessions/:id/recompress — Re-compress session history (stub)
+   */
+  router.post("/sessions/:id/recompress", async (req, res) => {
+    try {
+      const sessionId = req.params.id;
+      const summary = await recompressSession(historyDir, sessionId);
+      if (summary === null) {
+        res.json({});
+        return;
+      }
+      res.json(summary);
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Internal error" });
     }

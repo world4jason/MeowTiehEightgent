@@ -546,7 +546,21 @@ export async function startServer(): Promise<StartedServer> {
 
   // ── Chat REST API routes (/chat/api/*) ────────────────────────────────────
   const { createChatAgentRoutes } = await import("./chat/routes/agents.js");
+  const { createSessionRoutes } = await import("./chat/routes/sessions.js");
+  const { createAdapterPresetRoutes } = await import("./chat/routes/adapter-presets.js");
+  const { createSkillRoutes } = await import("./chat/routes/skills.js");
+  const { createWorkspaceRoutes } = await import("./chat/routes/workspaces.js");
+  const { createScenarioRoutes } = await import("./chat/routes/scenarios.js");
+  const { createMarketplaceRoutes } = await import("./chat/routes/marketplace.js");
+
+  app.get("/chat/api/health", (_req, res) => res.json({ status: "ok" }));
   app.use("/chat/api", createChatAgentRoutes(chatProjectRoot));
+  app.use("/chat/api", createSessionRoutes(chatProjectRoot));
+  app.use("/chat/api", createAdapterPresetRoutes(chatProjectRoot));
+  app.use("/chat/api", createSkillRoutes(chatProjectRoot));
+  app.use("/chat/api", createWorkspaceRoutes(chatProjectRoot));
+  app.use("/chat/api", createScenarioRoutes(chatProjectRoot));
+  app.use("/chat/api", createMarketplaceRoutes(chatProjectRoot));
 
   setupLiveEventsWebSocketServer(server, db as any, {
     deploymentMode: config.deploymentMode,
