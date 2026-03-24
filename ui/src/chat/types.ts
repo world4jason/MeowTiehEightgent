@@ -31,6 +31,7 @@ export interface AgentInfo {
   mode?: "chat" | "think";
   messageCount?: number;
   supportsImage?: boolean;
+  modelTiers?: { default?: string; thinking?: string };
 }
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -97,6 +98,7 @@ export interface AgentDetail {
   skills: string[];
   enabled: boolean;
   supports_thinking?: boolean;
+  model_tiers?: { default?: string; thinking?: string };
 }
 
 export interface MarketplaceAgent {

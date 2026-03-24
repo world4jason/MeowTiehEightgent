@@ -157,6 +157,8 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
   const [color, setColor] = useState("");
   const [model, setModel] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [supportsThinking, setSupportsThinking] = useState(false);
+  const [thinkingModel, setThinkingModel] = useState("");
 
   const [agentMd, setAgentMd] = useState("");
   const [identity, setIdentity] = useState("");
@@ -186,6 +188,8 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
       setColor(detail.color ?? "");
       setModel(detail.model ?? "");
       setSelectedSkills(detail.skills ?? []);
+      setSupportsThinking(detail.supports_thinking ?? false);
+      setThinkingModel(detail.model_tiers?.thinking ?? "");
     }
   }, [agentName, detail]);
 
@@ -235,6 +239,10 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
         color,
         model,
         skills: selectedSkills,
+        supports_thinking: supportsThinking,
+        model_tiers: thinkingModel
+          ? { default: model, thinking: thinkingModel }
+          : undefined,
       });
 
       // Save MD files only if changed
@@ -261,6 +269,7 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
     }
   }, [
     agentName, description, color, model, selectedSkills,
+    supportsThinking, thinkingModel,
     agentMd, identity, soul,
     updateAgent, updateAgentMd, updateIdentity, updateSoul,
   ]);
@@ -385,6 +394,39 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Thinking mode */}
+        <div className="space-y-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={supportsThinking}
+              onChange={(e) => {
+                setSupportsThinking(e.target.checked);
+                if (!e.target.checked) setThinkingModel("");
+              }}
+            />
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              支援思考模式
+            </span>
+          </label>
+          {supportsThinking && (
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={thinkingModel}
+              onChange={(e) => setThinkingModel(e.target.value)}
+            >
+              <option value="">-- 使用預設 (--effort max) --</option>
+              {models
+                .filter((m) => m.id !== model)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.emoji ?? "🤖"} {m.label ?? m.id}
+                  </option>
+                ))}
+            </select>
+          )}
         </div>
       </div>
 
