@@ -235,21 +235,24 @@ In `app.py`, modify `stream_agent` (~line 1025):
 async def stream_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
     """Dispatch to streaming implementation, with model_tiers resolution."""
     effective_agent = agent
+    subprocess_mode = mode  # mode passed to subprocess (may differ from caller's mode)
     if mode == "think":
         resolved = resolve_thinking_model(agent)
         if resolved is not None:
             effective_agent = resolved
             # model_tiers takes precedence: don't also pass mode="think"
             # to stream_cli_agent (avoids double --effort max)
-            mode = "chat"  # reset mode since we already switched model
+            subprocess_mode = "chat"  # only affects subprocess, caller keeps mode="think" for badge
 
     if effective_agent.get("type") == "api":
         async for chunk in stream_api_agent(effective_agent, prompt):
             yield chunk
     else:
-        async for chunk in stream_cli_agent(effective_agent, prompt, images=images, mode=mode):
+        async for chunk in stream_cli_agent(effective_agent, prompt, images=images, mode=subprocess_mode):
             yield chunk
 ```
+
+**IMPORTANT (Eng Review Issue 2):** `_current_mode` in the WS loop caller stays `"think"` — used for badge (Task 12) and WS events. Only `subprocess_mode` is reset inside `stream_agent`. UI display matches user intent.
 
 - [ ] **Step 8: Run all model_tiers tests**
 
@@ -767,7 +770,7 @@ Expected: FAIL
 
 - [ ] **Step 7: Implement `compress_history()` and `SUMMARIZATION_PROMPT`**
 
-Add in `app.py` after `truncate_history()` (~line 659):
+Add in `history_manager.py` (where `truncate_history` was moved in Task 0). `compress_history` imports `call_agent` from `app` at call time to avoid circular imports:
 
 ```python
 SUMMARIZATION_PROMPT = """請閱讀以下多人對話，先判斷對話性質，再據此摘要。
@@ -814,8 +817,20 @@ async def compress_history(
         except Exception:
             pass
 
+    # Failure cooldown: if last attempt failed < 5 min ago, skip (Eng Review Issue 3)
+    if cached and cached.get("failed"):
+        failed_at = cached.get("failed_at", "")
+        if failed_at:
+            try:
+                from datetime import datetime as _dt
+                elapsed = (_dt.now() - _dt.fromisoformat(failed_at)).total_seconds()
+                if elapsed < 300:  # 5 min cooldown
+                    return ("", windowed)
+            except Exception:
+                pass
+
     # Check if we need to re-summarize
-    if cached:
+    if cached and not cached.get("failed"):
         new_overflow = len(overflow) - cached.get("covered_message_count", 0)
         if new_overflow < trigger_threshold:
             # Update total_message_count even when reusing
@@ -861,6 +876,13 @@ async def compress_history(
             return ("", windowed)
     except Exception:
         logger.exception("compress_history: summarization failed for session %s", session_id)
+        # Write failure marker with cooldown (Eng Review Issue 3)
+        try:
+            failure_data = {"failed": True, "failed_at": datetime.now().isoformat()}
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(json.dumps(failure_data, ensure_ascii=False))
+        except OSError:
+            pass
         return ("", windowed)
 
     # Write cache (disk write failure is non-fatal — summary still returned)
@@ -1124,24 +1146,42 @@ _summary_prefix, _windowed = await compress_history(
 )
 ```
 
-- [ ] **Step 3: Add cancellation support — check for `stop` messages during compression**
+- [ ] **Step 3: Add cancellation support using asyncio.wait**
 
-Wrap `call_agent` in a task that can be cancelled if user sends `stop`:
+**IMPLEMENTATION NOTE (Eng Review Issue 6):** Don't use manual queue polling — the WS event loop is blocked during compression. Instead, use `asyncio.wait` with a WS listener task:
 
 ```python
-async def _cancellable_summarize(agent, prompt, event_queue):
-    """Run summarization with stop check."""
-    task = asyncio.create_task(call_agent(agent, prompt))
-    while not task.done():
-        try:
-            evt = event_queue.get_nowait()
-            if evt and evt.get("type") == "stop":
-                task.cancel()
-                return ""
-        except asyncio.QueueEmpty:
-            pass
-        await asyncio.sleep(0.5)
-    return task.result()
+async def _cancellable_compress(compress_coro, ws):
+    """Run compression with stop-message cancellation via asyncio.wait."""
+    compress_task = asyncio.create_task(compress_coro)
+
+    async def _listen_for_stop():
+        """Listen for WS stop message during compression."""
+        while True:
+            try:
+                msg = await asyncio.wait_for(ws.receive_json(), timeout=1.0)
+                if msg.get("type") == "stop":
+                    return "stopped"
+            except asyncio.TimeoutError:
+                continue
+            except Exception:
+                return None
+
+    stop_task = asyncio.create_task(_listen_for_stop())
+    done, pending = await asyncio.wait(
+        {compress_task, stop_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    for p in pending:
+        p.cancel()
+
+    if compress_task in done:
+        return compress_task.result()
+    else:
+        # User cancelled
+        await ws.send_json({"type": "system", "text": "壓縮已取消，使用截斷模式"})
+        return ("", None)  # fallback signal
 ```
 
 - [ ] **Step 4: Run tests, commit**
@@ -1206,9 +1246,17 @@ git commit -m "feat(ui): add collapsible summary card for compressed history"
 @app.put("/config")
 async def update_config(body: dict):
     config = load_config()
-    for key in ("summarization_model", "summary_trigger_threshold"):
-        if key in body:
-            config[key] = body[key]
+    # Eng Review Issue 8: validate types
+    if "summarization_model" in body:
+        v = body["summarization_model"]
+        if not isinstance(v, str):
+            raise HTTPException(status_code=400, detail="summarization_model must be a string")
+        config["summarization_model"] = v
+    if "summary_trigger_threshold" in body:
+        v = body["summary_trigger_threshold"]
+        if not isinstance(v, int) or v < 1:
+            raise HTTPException(status_code=400, detail="summary_trigger_threshold must be a positive integer")
+        config["summary_trigger_threshold"] = v
     CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False))
     return {"ok": True}
 ```
@@ -1235,20 +1283,37 @@ git commit -m "feat(ui): add summarization model selector in Settings"
 - Modify: `app.py` (add POST `/sessions/{id}/recompress` endpoint)
 - Modify: `history_manager.py` (accept optional direction hint in prompt)
 
-- [ ] **Step 1: Add recompress endpoint**
+- [ ] **Step 1: Add recompress endpoint (inline execution — Eng Review Issue 4)**
 
 ```python
 @app.post("/sessions/{session_id}/recompress")
 async def recompress_session(session_id: str, body: dict = {}):
-    """Force re-summarization with optional direction hint."""
+    """Force re-summarization with optional direction hint. Runs inline."""
+    from history_manager import compress_history
     hint = body.get("hint", "")
-    # Delete existing summary.json to force re-compress
+    cfg = load_config()
+    summ_model = cfg.get("summarization_model", "")
+    if not summ_model:
+        raise HTTPException(status_code=400, detail="No summarization_model configured")
+
+    # Load messages
+    msg_path = session_messages_path(session_id)
+    if not msg_path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = json.loads(msg_path.read_text())
+
+    # Delete existing cache to force fresh compression
     summary_path = HISTORY_DIR / session_id / "summary.json"
     if summary_path.exists():
         summary_path.unlink()
-    # Return OK — next agent turn will trigger fresh compression
-    # Or do it inline if messages exist
-    return {"ok": True}
+
+    max_rounds = cfg.get("max_history_rounds", 30)
+    threshold = 0  # force trigger by setting threshold to 0
+    summary_text, _ = await compress_history(
+        session_id, messages, max_rounds, summ_model, threshold,
+        direction_hint=hint,
+    )
+    return {"ok": True, "summary_text": summary_text}
 ```
 
 - [ ] **Step 2: Add direction hint support to SUMMARIZATION_PROMPT**
@@ -1276,7 +1341,7 @@ git commit -m "feat: add manual re-compress with direction hints"
 - Modify: `ui/src/chat/MessageList.tsx` (render 🧠 badge)
 - Modify: `ui/src/chat/types.ts` (add mode to message type)
 
-- [ ] **Step 1: Add `mode` to WS message_end event**
+- [ ] **Step 1: Add `mode` to WS message_end event AND history JSON (Eng Review Issue 9)**
 
 In app.py where `_msg_end` is built (~L2317):
 
@@ -1290,6 +1355,22 @@ _msg_end: dict = {
     "mode": _current_mode,  # ← NEW
 }
 ```
+
+Also add `mode` to the history `msg` dict (~L2308):
+
+```python
+msg = {
+    "type": "message",
+    "agent": agent["name"],
+    "color": agent["color"],
+    "text": response,
+    "timestamp": ts,
+    "duration_ms": duration_ms,
+    "mode": _current_mode,  # ← NEW: persist for reload
+}
+```
+
+This ensures badge survives page refresh.
 
 - [ ] **Step 2: Add mode to frontend message type**
 
