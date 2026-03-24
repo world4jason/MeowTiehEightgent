@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { ChatSession, WorkspaceInfo } from "./types";
 import { SessionMoveDropdown } from "./SessionMoveDropdown";
 
-const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
+const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "/chat/api";
 
 async function downloadSession(e: React.MouseEvent, sessionId: string, sessionName: string) {
   e.stopPropagation();

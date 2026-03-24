@@ -11,7 +11,7 @@ import type {
   MdContent,
 } from "../types";
 
-const BASE_URL = (import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000") as string;
+const BASE_URL = (import.meta.env.VITE_CHAT_URL ?? "/chat/api") as string;
 
 // ─── Query keys ───────────────────────────────────────────────
 export const settingsKeys = {

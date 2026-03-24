@@ -13,7 +13,7 @@ describe("chatClient", () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     await chatClient.get("/agents");
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/agents",
+      "/chat/api/agents",
       expect.any(Object)
     );
   });

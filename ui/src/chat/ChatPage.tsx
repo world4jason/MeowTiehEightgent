@@ -18,7 +18,7 @@ import { SummaryCard } from "./SummaryCard";
 import { ChatMessage, AgentInfo } from "./types";
 import { applyTokenMessage, applyDoneMessage, applyStreamStart, applyChunkMessage, applyMessageEnd, applyThinking, toHistoryChatMessage, applyTokenUpdate, applyReadyMessage, TokenUsageMap } from "./utils";
 
-const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
+const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "/chat/api";
 const WS_BASE = CHAT_URL.replace(/^http/, "ws");
 
 // Node.js Chat WS (via Vite proxy /chat/ws → Mth server)

@@ -54,7 +54,7 @@ import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useState, useEffect } from "react";
 import type { ChatMode } from "./chat/types";
 
-const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000";
+const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "/chat/api";
 
 
 function BootstrapPendingPage({ hasActiveInvite = false }: { hasActiveInvite?: boolean }) {
