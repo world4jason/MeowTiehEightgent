@@ -2380,9 +2380,10 @@ async def websocket_endpoint(ws: WebSocket):
                 "text": response,
                 "timestamp": ts,
                 "duration_ms": duration_ms,
+                "mode": _current_mode,
             }
             _usage_obj = _turn_usage[0] if _turn_usage else None
-            _msg_end: dict = {"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms}
+            _msg_end: dict = {"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms, "mode": _current_mode}
             if _usage_obj:
                 _msg_end["usage"] = {"input": _usage_obj.input_tokens, "output": _usage_obj.output_tokens, "cached": _usage_obj.cached_tokens}
                 accumulate_token_usage(_session_token_totals, agent["name"], _usage_obj.input_tokens, _usage_obj.output_tokens)

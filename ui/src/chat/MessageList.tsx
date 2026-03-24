@@ -50,6 +50,9 @@ export function MessageList({ messages }: MessageListProps) {
               {msg.role === "agent" && msg.agentName && (
                 <p className="mb-1 text-xs font-semibold flex items-center gap-1.5" style={{ color: msg.agentColor }}>
                   {msg.agentName}
+                  {msg.mode === "think" && (
+                    <span className="ml-1 text-xs" title="思考模式">🧠</span>
+                  )}
                   {formatTime(msg.timestamp) && (
                     <span className="text-[10px] text-muted-foreground font-normal">
                       {formatTime(msg.timestamp)}

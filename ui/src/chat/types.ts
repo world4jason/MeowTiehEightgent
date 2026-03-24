@@ -8,6 +8,7 @@ export interface ChatMessage {
   timestamp: number;
   streaming?: boolean;
   thinking?: boolean;
+  mode?: "chat" | "think";
 }
 
 export interface ChatSession {
