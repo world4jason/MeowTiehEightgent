@@ -467,6 +467,65 @@ def get_agent_registry() -> dict[str, dict]:
     return registry
 
 
+def _find_agent_dir(name: str) -> Path | None:
+    """Find an agent folder by display name.
+
+    Scans agents/ directory. For v1 configs (has 'name' field), matches against
+    the config name. For v0 configs (no 'name' field), matches against folder name.
+    Skips _default/ and Default_* folders.
+    Returns the Path to the matching folder, or None.
+    """
+    if name == "_default":
+        p = AGENTS_DIR / "_default"
+        return p if p.is_dir() else None
+
+    for agent_dir in AGENTS_DIR.iterdir():
+        if not agent_dir.is_dir():
+            continue
+        if agent_dir.name.startswith("_") or agent_dir.name.startswith("Default_"):
+            continue
+        config_path = agent_dir / "config.json"
+        if not config_path.exists():
+            continue
+        try:
+            cfg = json.loads(config_path.read_text())
+        except Exception:
+            continue
+        # v1 config: has 'name' field — match against it
+        if "name" in cfg:
+            if cfg["name"] == name:
+                return agent_dir
+        else:
+            # v0 config: match against folder name
+            if agent_dir.name == name:
+                return agent_dir
+
+    return None
+
+
+def _get_installed_agent_names() -> set[str]:
+    """Return set of display names for all installed agents.
+
+    Used for marketplace 'installed' checks. Handles both v0 (folder name)
+    and v1 (config name field) agents.
+    """
+    names: set[str] = set()
+    for agent_dir in AGENTS_DIR.iterdir():
+        if not agent_dir.is_dir() or agent_dir.name.startswith("_"):
+            continue
+        config_path = agent_dir / "config.json"
+        if config_path.exists():
+            try:
+                cfg = json.loads(config_path.read_text())
+                # v1: use config name; v0: use folder name
+                names.add(cfg.get("name", agent_dir.name))
+            except Exception:
+                names.add(agent_dir.name)
+        else:
+            names.add(agent_dir.name)
+    return names
+
+
 # ── Skill resolver ────────────────────────────────────────────────────────────
 
 _THINK_RE = re.compile(r'^/think(?:\s+@(\S+))?$', re.IGNORECASE)
@@ -1442,7 +1501,7 @@ MARKETPLACE_DIR = PROJECT_DIR / "marketplace"
 async def list_marketplace_agents():
     if not MARKETPLACE_DIR.exists():
         return []
-    installed = {d.name for d in AGENTS_DIR.iterdir() if d.is_dir() and not d.name.startswith("_")}
+    installed_names = _get_installed_agent_names()
     result = []
     for agent_dir in sorted(MARKETPLACE_DIR.iterdir()):
         if not agent_dir.is_dir():
@@ -1456,7 +1515,7 @@ async def list_marketplace_agents():
             "emoji": cfg.get("emoji", "🤖"),
             "color": cfg.get("color", "#888"),
             "description": cfg.get("description", ""),
-            "installed": agent_dir.name in installed,
+            "installed": agent_dir.name in installed_names,
         })
     return result
 
@@ -1475,7 +1534,7 @@ async def get_marketplace_agent(agent_id: str):
         "agent_md": (src / "AGENT.md").read_text() if (src / "AGENT.md").exists() else "",
         "identity_md": (src / "IDENTITY.md").read_text() if (src / "IDENTITY.md").exists() else "",
         "soul_md": (src / "SOUL.md").read_text() if (src / "SOUL.md").exists() else "",
-        "installed": (AGENTS_DIR / agent_id).exists(),
+        "installed": _find_agent_dir(agent_id) is not None,
     }
 
 
@@ -1539,23 +1598,46 @@ async def install_marketplace_agent(agent_id: str, body: dict = {}):
     dest_name = (body.get("name") or agent_id).strip()
     if not dest_name:
         raise HTTPException(status_code=400, detail="Name cannot be empty")
-    dst = AGENTS_DIR / dest_name
-    if dst.exists():
+
+    # Check if agent with this display name already exists (v0 or v1)
+    if _find_agent_dir(dest_name) is not None:
         raise HTTPException(status_code=409, detail=f"Agent '{dest_name}' already exists")
+
+    # Generate UUID and create v1 folder: {short-uuid-8chars}-{name}/
+    new_agent_id = str(uuid.uuid4())
+    short_id = new_agent_id[:8]
+    folder_name = f"{short_id}-{dest_name}"
+    dst = AGENTS_DIR / folder_name
     dst.mkdir(parents=True)
     (dst / "memory").mkdir()
     for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
         src_file = src / fname
         if src_file.exists():
             (dst / fname).write_text(src_file.read_text())
-    # Merge marketplace config with chosen model and custom name
-    cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
-    if body.get("model"):
-        cfg["model"] = body["model"]
-    cfg["name"] = dest_name
+    # Merge marketplace config into v1 format
+    mkt_cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
+    cfg = {
+        "configVersion": 1,
+        "id": new_agent_id,
+        "name": dest_name,
+        "role": mkt_cfg.get("role", ""),
+        "title": mkt_cfg.get("title", ""),
+        "emoji": mkt_cfg.get("emoji", "🤖"),
+        "color": mkt_cfg.get("color", "#888"),
+        "description": mkt_cfg.get("description", ""),
+        "enabled": True,
+        "adapter": body.get("model", mkt_cfg.get("adapter", mkt_cfg.get("model", ""))),
+        "adapterConfig": mkt_cfg.get("adapterConfig", {}),
+        "model_tiers": mkt_cfg.get("model_tiers", None),
+        "skills": mkt_cfg.get("skills", []),
+        "reportsTo": mkt_cfg.get("reportsTo", None),
+        "permissions": mkt_cfg.get("permissions", {}),
+        "budget": mkt_cfg.get("budget", {}),
+        "heartbeat": mkt_cfg.get("heartbeat", None),
+    }
     (dst / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
     (dst / "MEMORY.md").write_text(DEFAULT_MEMORY_MD)
-    return {"ok": True, "name": dest_name}
+    return {"ok": True, "name": dest_name, "id": new_agent_id}
 
 
 # ── Agents ────────────────────────────────────────────────────────────────────
@@ -1583,7 +1665,10 @@ async def list_agents():
 
 @app.get("/agents/{name}")
 async def get_agent(name: str):
-    config_path = AGENTS_DIR / name / "config.json"
+    agent_dir = _find_agent_dir(name)
+    if agent_dir is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    config_path = agent_dir / "config.json"
     if not config_path.exists():
         raise HTTPException(status_code=404, detail="Agent not found")
     data = json.loads(config_path.read_text())
@@ -1596,10 +1681,16 @@ async def add_agent(body: dict):
     name = body.get("name", "").strip()
     if not name or re.search(r'[/\\.\s]', name) or len(name) > 64:
         raise HTTPException(status_code=400, detail="Name required (no slashes, dots, or spaces)")
-    agent_dir = AGENTS_DIR / name
-    if agent_dir.exists():
+
+    # Check if agent with this display name already exists (v0 or v1)
+    if _find_agent_dir(name) is not None:
         raise HTTPException(status_code=409, detail="Agent already exists")
 
+    # Generate UUID and create v1 folder: {short-uuid-8chars}-{name}/
+    agent_id = str(uuid.uuid4())
+    short_id = agent_id[:8]
+    folder_name = f"{short_id}-{name}"
+    agent_dir = AGENTS_DIR / folder_name
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "memory").mkdir(exist_ok=True)
 
@@ -1613,21 +1704,36 @@ async def add_agent(body: dict):
         elif fname == "MEMORY.md":
             dst.write_text(DEFAULT_MEMORY_MD)
 
+    # Write v1 config.json
     config = {
+        "configVersion": 1,
+        "id": agent_id,
+        "name": name,
+        "role": body.get("role", ""),
+        "title": body.get("title", ""),
         "emoji": body.get("emoji", "🤖"),
         "color": body.get("color", "#888888"),
         "description": body.get("description", ""),
-        "model": body.get("model", ""),
-        "skills": body.get("skills") or list_skill_slugs(),
         "enabled": body.get("enabled", False),
+        "adapter": body.get("adapter", body.get("model", "")),
+        "adapterConfig": body.get("adapterConfig", {}),
+        "model_tiers": body.get("model_tiers", None),
+        "skills": body.get("skills") or list_skill_slugs(),
+        "reportsTo": body.get("reportsTo", None),
+        "permissions": body.get("permissions", {}),
+        "budget": body.get("budget", {}),
+        "heartbeat": body.get("heartbeat", None),
     }
     (agent_dir / "config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False))
-    return {"ok": True, "name": name}
+    return {"ok": True, "name": name, "id": agent_id}
 
 
 @app.put("/agents/{name}")
 async def update_agent(name: str, body: dict):
-    config_path = AGENTS_DIR / name / "config.json"
+    agent_dir = _find_agent_dir(name)
+    if agent_dir is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    config_path = agent_dir / "config.json"
     if not config_path.exists():
         raise HTTPException(status_code=404, detail="Agent not found")
     body.pop("name", None)
@@ -1639,16 +1745,21 @@ async def update_agent(name: str, body: dict):
 
 @app.delete("/agents/{name}")
 async def remove_agent(name: str):
-    config_path = AGENTS_DIR / name / "config.json"
-    if config_path.exists():
-        data = json.loads(config_path.read_text())
-        data["enabled"] = False
-        config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    agent_dir = _find_agent_dir(name)
+    if agent_dir is not None:
+        config_path = agent_dir / "config.json"
+        if config_path.exists():
+            data = json.loads(config_path.read_text())
+            data["enabled"] = False
+            config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     return {"ok": True}
 
 
 def _read_agent_file(name: str, fname: str) -> str:
-    agent_dir = AGENTS_DIR / name
+    agent_dir = _find_agent_dir(name)
+    if agent_dir is None:
+        # Fallback: try direct path for _default or unknown
+        agent_dir = AGENTS_DIR / name
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "memory").mkdir(exist_ok=True)
     path = agent_dir / fname
@@ -1663,7 +1774,10 @@ def _read_agent_file(name: str, fname: str) -> str:
 
 
 def _write_agent_file(name: str, fname: str, content: str):
-    path = AGENTS_DIR / name / fname
+    agent_dir = _find_agent_dir(name)
+    if agent_dir is None:
+        agent_dir = AGENTS_DIR / name
+    path = agent_dir / fname
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
 

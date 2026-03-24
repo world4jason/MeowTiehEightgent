@@ -638,3 +638,355 @@ class TestResolveSupportsImage:
             agent = registry["CTO"]
             # supports_image was set by _merge_v1_agent from preset
             assert app._resolve_supports_image(agent) is True
+
+
+# ---------------------------------------------------------------------------
+# Test: _find_agent_dir — locates agent folder by display name
+# ---------------------------------------------------------------------------
+
+
+class TestFindAgentDir:
+    """_find_agent_dir() finds agent folders by display name for both v0 and v1."""
+
+    def test_find_v0_agent_by_folder_name(self, tmp_path: Path):
+        """v0 agent (no 'name' field in config) is found by folder name."""
+        agents = {
+            "claude": {
+                "emoji": "🟣",
+                "color": "#a78bfa",
+                "model": "claude",
+                "skills": [],
+                "enabled": True,
+            }
+        }
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, agents)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            result = app._find_agent_dir("claude")
+
+        assert result is not None
+        assert result.name == "claude"
+
+    def test_find_v1_agent_by_config_name(self, tmp_path: Path):
+        """v1 agent (has 'name' field in config) is found by config name, not folder name."""
+        agents = {
+            "550e8400-CTO": {
+                "configVersion": 1,
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "CTO",
+                "adapter": "claude_local",
+                "adapterConfig": {},
+                "emoji": "🟣",
+                "color": "#a78bfa",
+                "enabled": True,
+                "skills": [],
+            }
+        }
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, agents)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            result = app._find_agent_dir("CTO")
+
+        assert result is not None
+        assert result.name == "550e8400-CTO"
+
+    def test_find_v1_agent_not_found_by_folder_name(self, tmp_path: Path):
+        """v1 agent should NOT be found by its UUID folder name."""
+        agents = {
+            "550e8400-CTO": {
+                "configVersion": 1,
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "CTO",
+                "adapter": "claude_local",
+                "adapterConfig": {},
+                "emoji": "🟣",
+                "color": "#a78bfa",
+                "enabled": True,
+                "skills": [],
+            }
+        }
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, agents)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            result = app._find_agent_dir("550e8400-CTO")
+
+        assert result is None
+
+    def test_not_found_returns_none(self, tmp_path: Path):
+        """Non-existent agent returns None."""
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, {})
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            result = app._find_agent_dir("ghost")
+
+        assert result is None
+
+    def test_skips_default_and_Default_prefix(self, tmp_path: Path):
+        """_default/ and Default_* folders are skipped."""
+        agents = {
+            "Default_Claude": {
+                "emoji": "✺",
+                "model": "claude",
+                "skills": [],
+                "enabled": True,
+            },
+        }
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, agents)
+        # Also create _default
+        default_dir = tmp_path / "agents" / "_default"
+        default_dir.mkdir(exist_ok=True)
+        (default_dir / "config.json").write_text('{"model": "claude"}')
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            assert app._find_agent_dir("Default_Claude") is None
+
+    def test_find_default_returns_default_dir(self, tmp_path: Path):
+        """_find_agent_dir('_default') returns the _default/ folder."""
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, {})
+        default_dir = tmp_path / "agents" / "_default"
+        default_dir.mkdir(exist_ok=True)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            result = app._find_agent_dir("_default")
+
+        assert result is not None
+        assert result.name == "_default"
+
+    def test_mixed_v0_v1_find_both(self, tmp_path: Path):
+        """Can find both v0 and v1 agents by their respective names."""
+        agents = {
+            "claude": {
+                "emoji": "🟣",
+                "model": "claude",
+                "skills": [],
+                "enabled": True,
+            },
+            "abc12345-DevOps": {
+                "configVersion": 1,
+                "id": "abc12345-0000-0000-0000-000000000000",
+                "name": "DevOps",
+                "adapter": "claude_local",
+                "adapterConfig": {},
+                "emoji": "🔧",
+                "color": "#ff0000",
+                "enabled": True,
+                "skills": [],
+            },
+        }
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, agents)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            v0_result = app._find_agent_dir("claude")
+            v1_result = app._find_agent_dir("DevOps")
+
+        assert v0_result is not None
+        assert v0_result.name == "claude"
+        assert v1_result is not None
+        assert v1_result.name == "abc12345-DevOps"
+
+
+# ---------------------------------------------------------------------------
+# Test: _get_installed_agent_names — returns display names
+# ---------------------------------------------------------------------------
+
+
+class TestGetInstalledAgentNames:
+    """_get_installed_agent_names() returns display names for all installed agents."""
+
+    def test_v0_agents_use_folder_name(self, tmp_path: Path):
+        """v0 agents without 'name' field use folder name."""
+        agents = {
+            "claude": {
+                "emoji": "🟣",
+                "model": "claude",
+                "skills": [],
+                "enabled": True,
+            }
+        }
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, agents)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            names = app._get_installed_agent_names()
+
+        assert "claude" in names
+
+    def test_v1_agents_use_config_name(self, tmp_path: Path):
+        """v1 agents use config 'name' field, not folder name."""
+        agents = {
+            "550e8400-CTO": {
+                "configVersion": 1,
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "CTO",
+                "adapter": "claude_local",
+                "adapterConfig": {},
+                "emoji": "🟣",
+                "enabled": True,
+                "skills": [],
+            }
+        }
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, agents)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            names = app._get_installed_agent_names()
+
+        assert "CTO" in names
+        assert "550e8400-CTO" not in names
+
+    def test_mixed_v0_v1(self, tmp_path: Path):
+        """Mixed v0 and v1 agents both appear with correct names."""
+        agents = {
+            "claude": {
+                "emoji": "🟣",
+                "model": "claude",
+                "skills": [],
+                "enabled": True,
+            },
+            "abc12345-DevOps": {
+                "configVersion": 1,
+                "id": "abc12345-0000-0000-0000-000000000000",
+                "name": "DevOps",
+                "adapter": "claude_local",
+                "adapterConfig": {},
+                "emoji": "🔧",
+                "enabled": True,
+                "skills": [],
+            },
+        }
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, agents)
+
+        import app
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            names = app._get_installed_agent_names()
+
+        assert "claude" in names
+        assert "DevOps" in names
+        assert "abc12345-DevOps" not in names
+
+
+# ---------------------------------------------------------------------------
+# Test: POST /agents creates v1 format with UUID folder
+# ---------------------------------------------------------------------------
+
+
+class TestAgentCreateV1:
+    """POST /agents creates agent in UUID-prefixed folder with v1 config."""
+
+    def test_creates_uuid_folder(self, tmp_path: Path):
+        """New agent folder follows {short-uuid}-{name} pattern."""
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, {})
+        # Create _default template
+        default_dir = tmp_path / "agents" / "_default"
+        default_dir.mkdir(exist_ok=True)
+        (default_dir / "AGENT.md").write_text("# Agent\n{name}")
+        (default_dir / "IDENTITY.md").write_text("# Identity\n{name}")
+        (default_dir / "SOUL.md").write_text("# Soul")
+        (default_dir / "MEMORY.md").write_text("# Memory")
+
+        import app
+        with (
+            patch.object(app, "CONFIG_FILE", tmp_path / "config.json"),
+            patch.object(app, "AGENTS_DIR", tmp_path / "agents"),
+            patch.object(app, "PROJECT_DIR", tmp_path),
+        ):
+            from fastapi.testclient import TestClient
+            with TestClient(app.app) as client:
+                r = client.post("/agents", json={
+                    "name": "NewAgent",
+                    "emoji": "🆕",
+                    "color": "#00ff00",
+                    "description": "Test v1",
+                    "adapter": "claude_local",
+                    "skills": [],
+                    "enabled": True,
+                })
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["name"] == "NewAgent"
+        assert "id" in data
+
+        # Verify folder structure
+        with patch.object(app, "AGENTS_DIR", tmp_path / "agents"):
+            agent_dir = app._find_agent_dir("NewAgent")
+        assert agent_dir is not None
+        assert agent_dir.name.endswith("-NewAgent")
+        assert len(agent_dir.name.split("-", 1)[0]) == 8  # UUID prefix is 8 chars
+
+        # Verify v1 config
+        cfg = json.loads((agent_dir / "config.json").read_text())
+        assert cfg["configVersion"] == 1
+        assert cfg["name"] == "NewAgent"
+        assert cfg["id"] == data["id"]
+        assert cfg["adapter"] == "claude_local"
+
+    def test_v1_agent_appears_in_registry(self, tmp_path: Path):
+        """Newly created v1 agent appears in get_agent_registry by display name."""
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, {})
+        default_dir = tmp_path / "agents" / "_default"
+        default_dir.mkdir(exist_ok=True)
+        (default_dir / "AGENT.md").write_text("# Agent\n{name}")
+        (default_dir / "IDENTITY.md").write_text("# Identity\n{name}")
+        (default_dir / "SOUL.md").write_text("# Soul")
+        (default_dir / "MEMORY.md").write_text("# Memory")
+
+        import app
+        with (
+            patch.object(app, "CONFIG_FILE", tmp_path / "config.json"),
+            patch.object(app, "AGENTS_DIR", tmp_path / "agents"),
+            patch.object(app, "PROJECT_DIR", tmp_path),
+        ):
+            from fastapi.testclient import TestClient
+            with TestClient(app.app) as client:
+                client.post("/agents", json={
+                    "name": "RegistryTest",
+                    "emoji": "🧪",
+                    "color": "#aaa",
+                    "adapter": "claude_local",
+                    "skills": [],
+                    "enabled": True,
+                })
+            registry = app.get_agent_registry()
+
+        assert "RegistryTest" in registry
+        assert registry["RegistryTest"]["name"] == "RegistryTest"
+
+    def test_duplicate_name_rejected(self, tmp_path: Path):
+        """Creating agent with same display name as existing v0 agent is rejected."""
+        agents = {
+            "claude": {
+                "emoji": "🟣",
+                "model": "claude",
+                "skills": [],
+                "enabled": True,
+            }
+        }
+        _setup_workspace(tmp_path, V0_GLOBAL_CONFIG, agents)
+        default_dir = tmp_path / "agents" / "_default"
+        default_dir.mkdir(exist_ok=True)
+        (default_dir / "AGENT.md").write_text("# Agent\n{name}")
+
+        import app
+        with (
+            patch.object(app, "CONFIG_FILE", tmp_path / "config.json"),
+            patch.object(app, "AGENTS_DIR", tmp_path / "agents"),
+            patch.object(app, "PROJECT_DIR", tmp_path),
+        ):
+            from fastapi.testclient import TestClient
+            with TestClient(app.app) as client:
+                r = client.post("/agents", json={
+                    "name": "claude",
+                    "emoji": "🟣",
+                    "adapter": "claude_local",
+                })
+
+        assert r.status_code == 409

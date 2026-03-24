@@ -221,7 +221,10 @@ class TestAgents:
 
     def test_add_agent_creates_template_files(self, client, tmp_project):
         self._create_agent(client, "theta")
-        agent_dir = tmp_project / "agents" / "theta"
+        # Agent is now in a UUID-prefixed folder, find it by suffix
+        import app as a
+        agent_dir = a._find_agent_dir("theta")
+        assert agent_dir is not None
         assert (agent_dir / "AGENT.md").exists()
         assert (agent_dir / "MEMORY.md").exists()
         assert (agent_dir / "config.json").exists()
@@ -248,7 +251,8 @@ class TestAgents:
 
         name = "echo-agent"
         self._create_agent(client, name)
-        client.put(f"/agents/{name}", json={"model": "echo-model"})
+        # v1 agent uses 'adapter' field for model lookup in registry
+        client.put(f"/agents/{name}", json={"adapter": "echo-model"})
 
         r = client.post(f"/agents/{name}/test")
         assert r.status_code == 200
@@ -520,15 +524,22 @@ class TestMarketplace:
         r = client.post("/marketplace/agents/fresh-agent/install")
         assert r.status_code == 200
         assert r.json()["ok"] is True
-        assert (tmp_project / "agents" / "fresh-agent" / "AGENT.md").exists()
-        assert (tmp_project / "agents" / "fresh-agent" / "MEMORY.md").exists()
-        assert (tmp_project / "agents" / "fresh-agent" / "memory").is_dir()
+        # Installed agent is now in a UUID-prefixed folder
+        import app as a
+        agent_dir = a._find_agent_dir("fresh-agent")
+        assert agent_dir is not None
+        assert (agent_dir / "AGENT.md").exists()
+        assert (agent_dir / "MEMORY.md").exists()
+        assert (agent_dir / "memory").is_dir()
 
     def test_install_copies_all_files(self, client, tmp_project):
         self._seed_market(tmp_project, "copy-test")
         client.post("/marketplace/agents/copy-test/install")
+        import app as a
+        agent_dir = a._find_agent_dir("copy-test")
+        assert agent_dir is not None
         for fname in ["config.json", "AGENT.md", "IDENTITY.md", "SOUL.md"]:
-            assert (tmp_project / "agents" / "copy-test" / fname).exists()
+            assert (agent_dir / fname).exists()
 
     def test_install_not_found(self, client, tmp_project):
         r = client.post("/marketplace/agents/ghost-agent/install")
@@ -838,14 +849,21 @@ class TestMarketplaceNameOverride:
         r = client.post("/marketplace/agents/base-agent/install",
                         json={"name": "my-custom-agent"})
         assert r.status_code == 200
-        assert (tmp_project / "agents" / "my-custom-agent").is_dir()
-        assert not (tmp_project / "agents" / "base-agent").exists()
+        # Agent is now in a UUID-prefixed folder
+        import app as a
+        agent_dir = a._find_agent_dir("my-custom-agent")
+        assert agent_dir is not None
+        assert agent_dir.is_dir()
+        assert a._find_agent_dir("base-agent") is None  # base-agent not installed under that name
 
     def test_install_custom_name_in_config(self, client, tmp_project):
         self._seed_market(tmp_project, "base-agent2")
         client.post("/marketplace/agents/base-agent2/install",
                     json={"name": "renamed-agent"})
-        cfg = json.loads((tmp_project / "agents" / "renamed-agent" / "config.json").read_text())
+        import app as a
+        agent_dir = a._find_agent_dir("renamed-agent")
+        assert agent_dir is not None
+        cfg = json.loads((agent_dir / "config.json").read_text())
         assert cfg["name"] == "renamed-agent"
 
     def test_install_same_template_twice_different_names(self, client, tmp_project):
@@ -856,8 +874,9 @@ class TestMarketplaceNameOverride:
                          json={"name": "instance-two"})
         assert r1.status_code == 200
         assert r2.status_code == 200
-        assert (tmp_project / "agents" / "instance-one").is_dir()
-        assert (tmp_project / "agents" / "instance-two").is_dir()
+        import app as a
+        assert a._find_agent_dir("instance-one") is not None
+        assert a._find_agent_dir("instance-two") is not None
 
     def test_install_custom_name_duplicate_still_409(self, client, tmp_project):
         self._seed_market(tmp_project, "tmpl")
