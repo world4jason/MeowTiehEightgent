@@ -9,6 +9,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ async def compress_history(
     window_size: int = 30,
     summary_model: str = "haiku",
     trigger_threshold: int = 5,
+    on_progress: Callable[[str], Awaitable[None]] | None = None,
 ) -> tuple[str, list]:
     """Compress history: summarize overflow messages beyond the sliding window.
 
@@ -173,6 +175,8 @@ async def compress_history(
             "workspace": str(session_dir),
             **model_cfg,
         }
+        if on_progress:
+            await on_progress("正在壓縮對話歷史...")
         summary_text = await _call_agent(agent_dict, prompt)
     except Exception as exc:
         logger.warning("Summarization failed for session %s: %s", session_id, exc)
@@ -182,6 +186,9 @@ async def compress_history(
             "failed_at": datetime.now().isoformat(),
         })
         return "", windowed
+
+    if on_progress:
+        await on_progress("歷史壓縮完成")
 
     # Write successful summary cache
     _write_summary_cache(summary_path, {
