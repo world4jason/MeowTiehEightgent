@@ -28,25 +28,23 @@
 - [x] per-agent chat/think mode toggle UI（Members panel、WS set_mode / mode_update、/think /chat TUI 指令）
 - [x] 3-way context mode toggle + scenario picker
 - [x] Skill source namespace（parse_skill frontmatter source:、list_skills / get_skill expose display_name、resolve_human_text 支援 source:slug）
+- [x] Think mode flag 修正（`--effort max` 已正確、`supports_thinking: true` 已在 claude config、Gemini model_tiers 已實作）
+- [x] History 自動壓縮 Phase 1（`apply_sliding_window()` + `truncate_history()` 已實作）
+- [x] Agent 發言傾向 backend fix（`--effort max` 修好、claude config 已有、Gemini model_tiers 已實作）
+- [x] Subprocess 斷線復原（partial_output 暫存已完成，與 line 24 重複）
+- [x] Protected Paths Workspace（validate_filename() 已完成，與 line 26 重複）
+- [x] 圖片 --add-file 相容性（`supports_image` flag 已完成，與 line 25 重複）
 
 ---
 
 ## 待辦
 
-### Bug
-
-- [ ] **Think mode flag 有誤**：`--extended-thinking` 不存在，正確是 `--effort max`（Claude CLI）；且目前無任何 agent config 有 `supports_thinking: true`，toggle 對所有 agent 無效。Gemini 無 CLI thinking flag，靠換 model（`gemini-2.5-pro`）。
-
 ### 中優先
 
-- [ ] **History 自動壓縮（Auto-Condensing）**
-  - Phase 1（Sliding Window）：保留最近 N 輪，超過閾值丟棄舊訊息
-  - Phase 2（Summarization）：超過閾值用輕量 model 壓縮舊段落為摘要
-
-- [ ] **Agent 發言傾向（chat / think）**（UI 已完成，backend fix 待做）
-  - 修 `--extended-thinking` → `--effort max`
-  - Claude-based agent config 加 `supports_thinking: true`
-  - Gemini think mode = 換 model
+- [ ] **History 自動壓縮 Phase 2（Summarization）**（實作中）
+  使用輕量 model 壓縮溢出訊息為摘要，cache 在 summary.json。
+  Spec: `docs/superpowers/specs/2026-03-24-think-mode-history-summarization-design.md`
+  Plan: `docs/superpowers/plans/2026-03-24-think-mode-history-summarization.md`
 
 - [ ] **群組協作模式（Cowork Pattern）**
   集體結構維度，與發言傾向正交可任意組合。調研報告：`docs/analysis/cowork-patterns-research.md`
@@ -85,19 +83,6 @@
   - 停滯偵測：連續多輪只有 Incremental 變動 → 標記 `decision_space_exhausted`，強制終止或路由到 human
   - 每 3-5 步插入 verification checkpoint（不是加更多 agents）
 
-- [ ] **History 自動壓縮（Auto-Condensing）**
-  Session 越長 history_text 線性增長，每輪 `-p` 傳輸量與延遲同步上升。
-  - **Phase 1（Sliding Window）**：保留最近 N 輪完整訊息，超過閾值直接丟棄舊訊息。成本低，先止血。
-  - **Phase 2（Summarization）**：超過閾值時用輕量 model 將舊段落壓縮成摘要快照，插在 history 開頭。
-  閾值與策略可在 session 設定或全域 config 控制。
-  參考：MassGen 的 `ContextCompressor` 在注入前自動縮減，原理相同。
-
-- [ ] **Subprocess 斷線復原（Partial Recovery）**
-  CLI subprocess 可能因 timeout / crash 中途失敗，目前直接丟棄整輪輸出。
-  - 借鑑 MassGen：每個 subprocess 啟動時建 `partial_output` 暫存，crash 後下一輪可從暫存繼續或回報「已收到部分回應」。
-  - 最低限度：失敗時顯示錯誤訊息 + 自動 skip 該 agent，不卡死整輪。
-  - 進階：timeout 後截斷並用 `[truncated]` 標記，保留已輸出的部分。
-
 - [ ] **Quality Gate（Success Contract）**
   Arbiter Pattern 的延伸：為特定 session 設定明確的「完成條件」，而非靠輪次限制。
   - 借鑑 MassGen 的 success contract：agent 在輸出中標記 `STATUS: done | needs_revision | blocked`。
@@ -122,15 +107,6 @@
   - 目前行為：每輪結束後才更新 history，B 要等下輪才看到 A 說了什麼。
   - 改善方向：A 輸出後立即更新 shared history，B 在同輪就能讀到 A，減少「資訊延遲」。
   - 注意：我們的架構是循序的，天然比 MassGen 更新鮮；但若多 agent 同時 streaming，這個機制更關鍵。
-
-- [ ] **Protected Paths（Workspace 寫入保護）**
-  Workspace 的 files/ 目錄目前 agent 可以任意寫入（若有 tool use）。
-  - 借鑑 MassGen：設定 `protected_paths` 清單，agent 無法覆寫特定檔案（如 guide.md、user config）。
-  - 實作簡單：在 workspace file API 加路徑白名單檢查。
-
-- [ ] **圖片 --add-file 相容性**
-  codex 等不支援 --add-file 的 CLI 收到無用 args。
-  agent/model config 加 `supports_image: bool`，只有支援的才傳。
 
 - [ ] **跨 Session 向量記憶（Memory MCP）**
   目前 agent 記憶是每日 markdown log，只能在當次 session 讀取，無法主動召回過去相關對話。
