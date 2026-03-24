@@ -27,6 +27,7 @@ import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup, routineService } from "./services/index.js";
+import { syncAgentFilesToDb } from "./services/agent-file-sync.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
@@ -474,7 +475,29 @@ export async function startServer(): Promise<StartedServer> {
     await initializeBoardClaimChallenge(db as any, { deploymentMode: config.deploymentMode });
     authReady = true;
   }
-  
+
+  // --- Agent file sync: bridge file-managed agents into the DB ---
+  const agentFileSyncProjectRoot = process.env.MTH_PROJECT_ROOT ?? process.cwd();
+  try {
+    const syncResult = await syncAgentFilesToDb(db as any, agentFileSyncProjectRoot, logger);
+    if (syncResult.upserted > 0 || syncResult.unmarked > 0) {
+      logger.info(
+        {
+          upserted: syncResult.upserted,
+          unmarked: syncResult.unmarked,
+          skipped: syncResult.skipped,
+          errors: syncResult.errors.length,
+        },
+        "agent-file-sync completed",
+      );
+    }
+    if (syncResult.errors.length > 0) {
+      logger.warn({ errors: syncResult.errors }, "agent-file-sync encountered errors");
+    }
+  } catch (err) {
+    logger.error({ err }, "agent-file-sync failed — continuing startup without sync");
+  }
+
   const listenPort = await detectPort(config.port);
   const uiMode = config.uiDevMiddleware ? "vite-dev" : config.serveUi ? "static" : "none";
   const storageService = createStorageServiceFromConfig(config);
