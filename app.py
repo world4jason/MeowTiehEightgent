@@ -163,8 +163,8 @@ def save_config(cfg: dict):
 
 def load_models() -> dict:
     """Legacy helper — returns the old-style models dict.
-    Kept for backward compatibility with resolve_thinking_model,
-    _resolve_timeout, _resolve_supports_image, and model CRUD endpoints.
+    Kept for backward compatibility with resolve_thinking_model (v0 path),
+    _resolve_timeout, _resolve_supports_image (v0 path), and model CRUD endpoints.
     """
     cfg = load_config()
     return cfg.get("models", DEFAULT_MODELS)
@@ -794,9 +794,34 @@ def _resolve_timeout(agent: dict, key: str, default: float) -> float:
 
 
 def _resolve_supports_image(agent: dict) -> bool:
-    """Precedence: agent-level > model_config > DEFAULT_MODELS > True (safe default)."""
+    """Precedence: agent-level > adapter preset (v1) > model_config > DEFAULT_MODELS > True.
+
+    For v1 agents (configVersion >= 1):
+      1. Agent-level ``supports_image`` (set by user or copied by _merge_v1_agent)
+      2. Adapter preset ``supports_image``
+      3. Fallback True
+
+    For v0 agents (legacy):
+      1. Agent-level ``supports_image``
+      2. model_config ``supports_image``
+      3. DEFAULT_MODELS lookup by model name
+      4. Fallback True
+    """
+    # Step 1: agent-level override (works for both v0 and v1)
     if "supports_image" in agent:
         return bool(agent["supports_image"])
+
+    # Step 2 (v1): look up adapter preset
+    if agent.get("configVersion", 0) >= 1:
+        adapter_type = agent.get("adapter", "")
+        if adapter_type:
+            presets = load_adapter_presets()
+            preset = presets.get(adapter_type) or {}
+            if "supports_image" in preset:
+                return bool(preset["supports_image"])
+        return True
+
+    # Step 2 (v0): model_config then DEFAULT_MODELS
     model_cfg = agent.get("model_config") or {}
     if "supports_image" in model_cfg:
         return bool(model_cfg["supports_image"])

@@ -511,3 +511,130 @@ class TestLoadModelsBackwardCompat:
 
         # With v1 config that has no 'models' key, should return DEFAULT_MODELS
         assert "claude" in models
+
+
+# ---------------------------------------------------------------------------
+# Test: _resolve_supports_image — v0 and v1 agents
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSupportsImage:
+    """_resolve_supports_image() handles both v0 and v1 agent configs."""
+
+    def test_v0_agent_level_override(self, tmp_path: Path):
+        """v0 agent with explicit supports_image=False uses that value."""
+        import app
+        agent = {"model": "claude", "supports_image": False}
+        assert app._resolve_supports_image(agent) is False
+
+    def test_v0_default_models_lookup(self, tmp_path: Path):
+        """v0 agent without explicit flag falls back to DEFAULT_MODELS."""
+        import app
+        # claude is in DEFAULT_MODELS with supports_image=True
+        agent = {"model": "claude"}
+        assert app._resolve_supports_image(agent) is True
+
+    def test_v0_unknown_model_fallback_true(self, tmp_path: Path):
+        """v0 agent with unknown model falls back to True (safe default)."""
+        import app
+        agent = {"model": "unknown_model_xyz"}
+        assert app._resolve_supports_image(agent) is True
+
+    def test_v1_agent_level_override(self, tmp_path: Path):
+        """v1 agent with explicit supports_image uses that value (no preset lookup)."""
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, {})
+
+        import app
+        with patch.object(app, "CONFIG_FILE", tmp_path / "config.json"):
+            agent = {
+                "configVersion": 1,
+                "adapter": "claude_local",
+                "supports_image": False,
+            }
+            assert app._resolve_supports_image(agent) is False
+
+    def test_v1_adapter_preset_lookup(self, tmp_path: Path):
+        """v1 agent without explicit flag looks up adapter preset."""
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, {})
+
+        import app
+        with patch.object(app, "CONFIG_FILE", tmp_path / "config.json"):
+            # claude_local preset has supports_image=True
+            agent = {
+                "configVersion": 1,
+                "adapter": "claude_local",
+            }
+            assert app._resolve_supports_image(agent) is True
+
+    def test_v1_adapter_preset_no_image_support(self, tmp_path: Path):
+        """v1 agent with adapter that has no supports_image field falls back to True."""
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, {})
+
+        import app
+        with patch.object(app, "CONFIG_FILE", tmp_path / "config.json"):
+            # ollama_api preset does NOT have supports_image
+            agent = {
+                "configVersion": 1,
+                "adapter": "ollama_api",
+            }
+            assert app._resolve_supports_image(agent) is True
+
+    def test_v1_unknown_adapter_fallback_true(self, tmp_path: Path):
+        """v1 agent with unknown adapter falls back to True."""
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, {})
+
+        import app
+        with patch.object(app, "CONFIG_FILE", tmp_path / "config.json"):
+            agent = {
+                "configVersion": 1,
+                "adapter": "nonexistent_adapter",
+            }
+            assert app._resolve_supports_image(agent) is True
+
+    def test_v1_preset_supports_image_false(self, tmp_path: Path):
+        """v1 agent with adapter preset that explicitly sets supports_image=False."""
+        config = {
+            "adapter_presets": {
+                "text_only_adapter": {
+                    "command": "textbot",
+                    "defaultArgs": [],
+                    "supports_image": False,
+                },
+            },
+        }
+        _setup_workspace(tmp_path, config, {})
+
+        import app
+        with patch.object(app, "CONFIG_FILE", tmp_path / "config.json"):
+            agent = {
+                "configVersion": 1,
+                "adapter": "text_only_adapter",
+            }
+            assert app._resolve_supports_image(agent) is False
+
+    def test_v1_merged_agent_from_registry(self, tmp_path: Path):
+        """End-to-end: v1 agent from get_agent_registry() has correct supports_image."""
+        agents = {
+            "550e8400-CTO": {
+                "configVersion": 1,
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "CTO",
+                "adapter": "claude_local",
+                "adapterConfig": {},
+                "emoji": "🟣",
+                "color": "#a78bfa",
+                "enabled": True,
+                "skills": [],
+            },
+        }
+        _setup_workspace(tmp_path, V1_GLOBAL_CONFIG, agents)
+
+        import app
+        with (
+            patch.object(app, "CONFIG_FILE", tmp_path / "config.json"),
+            patch.object(app, "AGENTS_DIR", tmp_path / "agents"),
+        ):
+            registry = app.get_agent_registry()
+            agent = registry["CTO"]
+            # supports_image was set by _merge_v1_agent from preset
+            assert app._resolve_supports_image(agent) is True
