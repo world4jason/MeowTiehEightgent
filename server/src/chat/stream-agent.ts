@@ -46,19 +46,34 @@ export class AgentStreamError extends Error {
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 /**
- * Parse a JSONL line from stream-json output.
+ * Parse a JSONL line from Claude CLI `--output-format stream-json` output.
  * Returns [textChunk | null, usage | null].
+ *
+ * Real Claude CLI stream-json format:
+ *   - {"type":"system","subtype":"init",...}           → ignore
+ *   - {"type":"system","subtype":"hook_started",...}   → ignore
+ *   - {"type":"assistant","message":{"content":[{"type":"text","text":"Hi!"}]}} → extract text
+ *   - {"type":"result","subtype":"success","usage":{...},"result":"full text"}  → extract usage
+ *   - {"type":"rate_limit_event",...}                  → ignore
  */
 function parseJsonLine(line: string): [string | null, TokenUsage | null] {
   if (!line.trim()) return [null, null];
   try {
     const obj = JSON.parse(line);
 
-    // Text content: {"type":"assistant","content":[{"type":"text","text":"..."}]}
-    if (obj.type === "assistant" && Array.isArray(obj.content)) {
+    // Text content: {"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}
+    if (obj.type === "assistant") {
+      const msg = obj.message ?? {};
+      const content = msg.content ?? [];
+      if (!Array.isArray(content)) return [null, null];
       const texts: string[] = [];
-      for (const block of obj.content) {
-        if (block.type === "text" && typeof block.text === "string") {
+      for (const block of content) {
+        if (
+          typeof block === "object" &&
+          block !== null &&
+          block.type === "text" &&
+          typeof block.text === "string"
+        ) {
           texts.push(block.text);
         }
       }
@@ -71,13 +86,14 @@ function parseJsonLine(line: string): [string | null, TokenUsage | null] {
       return [
         null,
         {
-          input: u.input_tokens ?? u.input ?? 0,
-          output: u.output_tokens ?? u.output ?? 0,
-          cached: u.cache_read_input_tokens ?? u.cached ?? 0,
+          input: Number(u.input_tokens ?? 0),
+          output: Number(u.output_tokens ?? 0),
+          cached: Number(u.cache_read_input_tokens ?? 0),
         },
       ];
     }
 
+    // All other types (system, rate_limit_event, etc.) → ignore
     return [null, null];
   } catch {
     return [null, null];

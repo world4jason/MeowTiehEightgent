@@ -166,26 +166,55 @@ describe("streamCliAgent", () => {
     }
   });
 
-  it("parses TokenUsage from JSON output mode", async () => {
+  it("parses TokenUsage from real Claude CLI stream-json format", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
 
+    // Real Claude CLI stream-json output format
     const jsonLines = [
+      // system init — should be ignored
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "abc-123",
+        tools: [],
+        mcp_servers: [],
+      }),
+      // assistant message with nested message.content
       JSON.stringify({
         type: "assistant",
-        content: [{ type: "text", text: "Hello " }],
+        message: {
+          content: [{ type: "text", text: "Hello " }],
+        },
       }),
+      // hook — should be ignored
+      JSON.stringify({
+        type: "system",
+        subtype: "hook_started",
+        hook_name: "pre_tool_use",
+      }),
+      // another assistant message
       JSON.stringify({
         type: "assistant",
-        content: [{ type: "text", text: "world!" }],
+        message: {
+          content: [{ type: "text", text: "world!" }],
+        },
       }),
+      // rate limit event — should be ignored
+      JSON.stringify({
+        type: "rate_limit_event",
+        retry_after: 5,
+      }),
+      // result with usage
       JSON.stringify({
         type: "result",
+        subtype: "success",
         usage: {
           input_tokens: 100,
           output_tokens: 50,
           cache_read_input_tokens: 10,
         },
+        result: "Hello world!",
       }),
     ];
 
