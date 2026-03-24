@@ -1955,6 +1955,102 @@ class TestThinkModeFlag:
         )
 
 
+class TestModelTiers:
+    """model_tiers-based think mode model switching."""
+
+    def test_resolve_thinking_model_with_tiers(self, tmp_project):
+        """model_tiers.thinking exists → return resolved model info."""
+        import app as a
+        config = {
+            "models": {
+                "gemini": {"type": "cli", "cmd": ["gemini", "-p"]},
+                "gemini-2.5-pro": {
+                    "type": "cli",
+                    "cmd": ["gemini", "-p"],
+                    "extra_flags": ["--model", "gemini-2.5-pro"],
+                    "idle_timeout_seconds": 600,
+                    "startup_timeout_seconds": 120,
+                },
+            }
+        }
+        (tmp_project / "config.json").write_text(json.dumps(config))
+        agent = {
+            "name": "gemini",
+            "model_tiers": {"default": "gemini", "thinking": "gemini-2.5-pro"},
+            "cmd": ["gemini", "-p"],
+            "type": "cli",
+            "workspace": tmp_project,
+        }
+        result = a.resolve_thinking_model(agent)
+        assert result is not None
+        assert result["cmd"] != agent["cmd"]
+        assert "--model" in result["cmd"]
+
+    def test_resolve_thinking_model_no_tiers(self, tmp_project):
+        """No model_tiers → return None."""
+        import app as a
+        agent = {"name": "claude", "cmd": ["claude", "--print"], "workspace": tmp_project}
+        result = a.resolve_thinking_model(agent)
+        assert result is None
+
+    def test_resolve_thinking_model_missing_key(self, tmp_project):
+        """model_tiers.thinking references non-existent model → return None + warning."""
+        import app as a
+        config = {"models": {"gemini": {"type": "cli", "cmd": ["gemini", "-p"]}}}
+        (tmp_project / "config.json").write_text(json.dumps(config))
+        agent = {
+            "name": "gemini",
+            "model_tiers": {"default": "gemini", "thinking": "nonexistent"},
+            "workspace": tmp_project,
+        }
+        with patch.object(a.logger, "warning") as mock_warn:
+            result = a.resolve_thinking_model(agent)
+        assert result is None
+        mock_warn.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_agent_uses_thinking_model_cmd(self, tmp_project):
+        """stream_agent with model_tiers.thinking → uses resolved model cmd."""
+        import app as a
+        config = {
+            "models": {
+                "gemini": {"type": "cli", "cmd": ["gemini", "-p"]},
+                "gemini-2.5-pro": {
+                    "type": "cli",
+                    "cmd": ["gemini", "-p"],
+                    "extra_flags": ["--model", "gemini-2.5-pro"],
+                },
+            }
+        }
+        (tmp_project / "config.json").write_text(json.dumps(config))
+        captured = {}
+
+        async def mock_create_subprocess(*args, **kwargs):
+            captured["args"] = list(args)
+            raise FileNotFoundError("mock")
+
+        agent = {
+            "name": "gemini",
+            "cmd": ["gemini", "-p"],
+            "type": "cli",
+            "workspace": tmp_project,
+            "supports_thinking": True,
+            "model_tiers": {"default": "gemini", "thinking": "gemini-2.5-pro"},
+            "idle_timeout_seconds": 5,
+            "startup_timeout_seconds": 3,
+        }
+        with patch("asyncio.create_subprocess_exec", mock_create_subprocess):
+            try:
+                async for _ in a.stream_agent(agent, "prompt", mode="think"):
+                    pass
+            except Exception:
+                pass
+        args = captured.get("args", [])
+        assert "--model" in args, f"Expected --model in args: {args}"
+        assert "gemini-2.5-pro" in args
+        assert "--effort" not in args
+
+
 class TestTokenTracking:
     """Task 5 — per-agent cumulative token tracking."""
 

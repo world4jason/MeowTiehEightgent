@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 import tempfile
 import os
 from conversation_engine import ConversationEngine
@@ -18,6 +19,8 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -1006,13 +1009,53 @@ async def stream_api_agent(agent: dict, prompt: str):
                         pass
 
 
+def resolve_thinking_model(agent: dict) -> dict | None:
+    """Resolve model_tiers.thinking to a full model config dict.
+    Returns a shallow copy of agent with thinking model's cmd/timeouts merged,
+    or None if no thinking tier is configured or the model key is missing.
+    """
+    tiers = agent.get("model_tiers")
+    if not tiers or "thinking" not in tiers:
+        return None
+    thinking_key = tiers["thinking"]
+    models = load_models()
+    if thinking_key not in models:
+        logger.warning("model_tiers.thinking=%r not found in models config", thinking_key)
+        return None
+    m = models[thinking_key]
+    resolved = dict(agent)
+    if "cmd" in m:
+        base_cmd = list(m["cmd"])
+        for flag in m.get("extra_flags", []):
+            if flag not in base_cmd:
+                base_cmd.append(flag)
+        resolved["cmd"] = base_cmd
+    resolved["type"] = m.get("type", "cli")
+    if "baseUrl" in m:
+        resolved["baseUrl"] = m["baseUrl"]
+    if "apiModel" in m:
+        resolved["model"] = m["apiModel"]
+    for tk in ("idle_timeout_seconds", "startup_timeout_seconds"):
+        if tk in m:
+            resolved[tk] = m[tk]
+    return resolved
+
+
 async def stream_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
-    """Dispatch to streaming implementation."""
-    if agent.get("type") == "api":
-        async for chunk in stream_api_agent(agent, prompt):
+    """Dispatch to streaming implementation, with model_tiers resolution."""
+    effective_agent = agent
+    subprocess_mode = mode
+    if mode == "think":
+        resolved = resolve_thinking_model(agent)
+        if resolved is not None:
+            effective_agent = resolved
+            subprocess_mode = "chat"  # only affects subprocess, caller keeps mode="think" for badge
+
+    if effective_agent.get("type") == "api":
+        async for chunk in stream_api_agent(effective_agent, prompt):
             yield chunk
     else:
-        async for chunk in stream_cli_agent(agent, prompt, images=images, mode=mode):
+        async for chunk in stream_cli_agent(effective_agent, prompt, images=images, mode=subprocess_mode):
             yield chunk
 
 
