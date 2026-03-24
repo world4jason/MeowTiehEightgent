@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { ModelsTab } from "./ModelsTab";
+import { AdaptersTab } from "./AdaptersTab";
 import { AgentsTab } from "./AgentsTab";
 import { AgentMarketTab } from "./AgentMarketTab";
 import { SkillsTab } from "./SkillsTab";
@@ -9,10 +10,11 @@ import { SoulTab } from "./SoulTab";
 import { AboutTab } from "./AboutTab";
 import { ScenariosTab } from "./ScenariosTab";
 
-type SettingsTab = "models" | "agents" | "market" | "skills" | "scenarios" | "workspaces" | "soul" | "about";
+type SettingsTab = "models" | "adapters" | "agents" | "market" | "skills" | "scenarios" | "workspaces" | "soul" | "about";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "models", label: "模型" },
+  { id: "adapters", label: "Adapters" },
   { id: "agents", label: "代理人" },
   { id: "market", label: "代理人市場" },
   { id: "skills", label: "技能" },
@@ -56,6 +58,7 @@ export function SettingsShell({ coworkOnline }: Props) {
       {/* Each tab handles its own overflow-y-auto */}
       <div className="flex-1 overflow-hidden">
         {activeTab === "models" && <ModelsTab />}
+        {activeTab === "adapters" && <AdaptersTab />}
         {activeTab === "agents" && (
           <AgentsTab initialAgent={navigateToAgent} onClearInitial={() => setNavigateToAgent(null)} />
         )}

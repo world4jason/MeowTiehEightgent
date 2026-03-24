@@ -7,6 +7,7 @@ import {
   useCreateAgent,
   useUpdateAgent,
   useModels,
+  useAdapterPresets,
   useAgentMd,
   useUpdateAgentMd,
   useAgentIdentity,
@@ -18,8 +19,23 @@ import {
   type CoworkAgent,
 } from "./useSettingsApi";
 import { useAgentsList, useSkillsList } from "../hooks/useChatApi";
-import type { AgentInfo, ModelInfo, SkillInfo } from "../types";
+import type { AgentInfo, AdapterPresetInfo, ModelInfo, SkillInfo } from "../types";
 import { isValidName } from "./utils";
+
+const AGENT_ROLES = [
+  { value: "", label: "-- 選擇角色 --" },
+  { value: "general", label: "通用 (General)" },
+  { value: "engineer", label: "工程師 (Engineer)" },
+  { value: "designer", label: "設計師 (Designer)" },
+  { value: "pm", label: "產品經理 (PM)" },
+  { value: "qa", label: "品管 (QA)" },
+  { value: "ceo", label: "CEO" },
+  { value: "cto", label: "CTO" },
+  { value: "cmo", label: "CMO" },
+  { value: "cfo", label: "CFO" },
+  { value: "researcher", label: "研究員 (Researcher)" },
+  { value: "devops", label: "DevOps" },
+];
 
 // ─── Left-column agent item ──────────────────────────────────
 
@@ -138,9 +154,10 @@ interface DetailProps {
   agentName: string;
   models: ModelInfo[];
   skills: SkillInfo[];
+  adapterPresets: Record<string, AdapterPresetInfo>;
 }
 
-function AgentDetailView({ agentName, models, skills }: DetailProps) {
+function AgentDetailView({ agentName, models, skills, adapterPresets }: DetailProps) {
   const { data: detail, isLoading: detailLoading } = useAgentDetail(agentName);
   const { data: agentMdData } = useAgentMd(agentName);
   const { data: identityData } = useAgentIdentity(agentName);
@@ -159,6 +176,10 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [supportsThinking, setSupportsThinking] = useState(false);
   const [thinkingModel, setThinkingModel] = useState("");
+  // v1 fields
+  const [role, setRole] = useState("");
+  const [title, setTitle] = useState("");
+  const [adapter, setAdapter] = useState("");
 
   const [agentMd, setAgentMd] = useState("");
   const [identity, setIdentity] = useState("");
@@ -190,6 +211,10 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
       setSelectedSkills(detail.skills ?? []);
       setSupportsThinking(detail.supports_thinking ?? false);
       setThinkingModel(detail.model_tiers?.thinking ?? "");
+      // v1 fields
+      setRole(detail.role ?? "");
+      setTitle(detail.title ?? "");
+      setAdapter(detail.adapter ?? "");
     }
   }, [agentName, detail]);
 
@@ -243,6 +268,10 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
         model_tiers: thinkingModel
           ? { default: model, thinking: thinkingModel }
           : undefined,
+        // v1 fields
+        role: role || undefined,
+        title: title || undefined,
+        adapter: adapter || undefined,
       });
 
       // Save MD files only if changed
@@ -270,6 +299,7 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
   }, [
     agentName, description, color, model, selectedSkills,
     supportsThinking, thinkingModel,
+    role, title, adapter,
     agentMd, identity, soul,
     updateAgent, updateAgentMd, updateIdentity, updateSoul,
   ]);
@@ -376,6 +406,55 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
               onChange={(e) => setColor(e.target.value)}
             />
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            角色
+          </label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            {AGENT_ROLES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            職稱
+          </label>
+          <Input
+            placeholder="例：資深前端工程師"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Adapter
+          </label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            value={adapter}
+            onChange={(e) => setAdapter(e.target.value)}
+          >
+            <option value="">-- 選擇 Adapter --</option>
+            {Object.keys(adapterPresets).sort().map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-muted-foreground">
+            選擇 Adapter 或使用下方模型欄位（向下相容）
+          </p>
         </div>
 
         <div className="space-y-1">
@@ -550,18 +629,22 @@ function AgentDetailView({ agentName, models, skills }: DetailProps) {
 
 interface NewFormProps {
   models: ModelInfo[];
+  adapterPresets: Record<string, AdapterPresetInfo>;
   onCreated: (name: string) => void;
   onCancel: () => void;
 }
 
 type CreateStep = "choose" | "form";
 
-function NewAgentForm({ models, onCreated, onCancel }: NewFormProps) {
+function NewAgentForm({ models, adapterPresets, onCreated, onCancel }: NewFormProps) {
   const createAgent = useCreateAgent();
   const [step, setStep] = useState<CreateStep>("choose");
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("🤖");
   const [model, setModel] = useState("");
+  const [role, setRole] = useState("");
+  const [title, setTitle] = useState("");
+  const [adapter, setAdapter] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
 
   const handleNameChange = (v: string) => {
@@ -576,7 +659,14 @@ function NewAgentForm({ models, onCreated, onCancel }: NewFormProps) {
   const handleCreate = () => {
     if (!name.trim() || !isValidName(name.trim())) return;
     createAgent.mutate(
-      { name: name.trim(), emoji: emoji || undefined, model: model || undefined },
+      {
+        name: name.trim(),
+        emoji: emoji || undefined,
+        model: model || undefined,
+        role: role || undefined,
+        title: title || undefined,
+        adapter: adapter || undefined,
+      },
       { onSuccess: () => onCreated(name.trim()) }
     );
   };
@@ -652,6 +742,52 @@ function NewAgentForm({ models, onCreated, onCancel }: NewFormProps) {
 
         <div className="space-y-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            角色
+          </label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            {AGENT_ROLES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            職稱
+          </label>
+          <Input
+            placeholder="例：資深前端工程師"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Adapter
+          </label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            value={adapter}
+            onChange={(e) => setAdapter(e.target.value)}
+          >
+            <option value="">-- 選擇 Adapter --</option>
+            {Object.keys(adapterPresets).sort().map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             模型
           </label>
           <select
@@ -700,6 +836,7 @@ export function AgentsTab({ initialAgent, onClearInitial }: Props) {
   const { data: models = [] } = useModels();
   const { data: skills = [] } = useSkillsList();
   const { data: coworkAgents = [] } = useCoworkAgents();
+  const { data: adapterPresetsMap = {} } = useAdapterPresets();
 
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [selectedCoworkId, setSelectedCoworkId] = useState<string | null>(null);
@@ -800,6 +937,7 @@ export function AgentsTab({ initialAgent, onClearInitial }: Props) {
         {isCreating ? (
           <NewAgentForm
             models={models}
+            adapterPresets={adapterPresetsMap}
             onCreated={handleCreated}
             onCancel={() => setIsCreating(false)}
           />
@@ -809,6 +947,7 @@ export function AgentsTab({ initialAgent, onClearInitial }: Props) {
             agentName={selectedAgent}
             models={models}
             skills={skills}
+            adapterPresets={adapterPresetsMap}
           />
         ) : selectedCoworkId ? (
           (() => {

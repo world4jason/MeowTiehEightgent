@@ -33,6 +33,12 @@ export interface AgentInfo {
   messageCount?: number;
   supportsImage?: boolean;
   modelTiers?: { default?: string; thinking?: string };
+  // v1 fields
+  id?: string;         // UUID
+  role?: string;
+  title?: string;
+  adapter?: string;    // adapter type (e.g. "claude_local")
+  adapterConfig?: Record<string, unknown>;
 }
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -74,6 +80,18 @@ export interface SessionPage {
   limit: number;
 }
 
+// ─── Adapter Preset types ────────────────────────────────────
+export interface AdapterPresetInfo {
+  adapterType: string;
+  command?: string;
+  defaultArgs?: string[];
+  defaultModel?: string;
+  baseUrl?: string;
+  timeoutSec?: number;
+  startupTimeoutSec?: number;
+  supports_image?: boolean;
+}
+
 // ─── Settings types ──────────────────────────────────────────
 export interface ModelInfo {
   id: string;
@@ -100,6 +118,12 @@ export interface AgentDetail {
   enabled: boolean;
   supports_thinking?: boolean;
   model_tiers?: { default?: string; thinking?: string };
+  // v1 fields
+  id?: string;         // UUID
+  role?: string;
+  title?: string;
+  adapter?: string;    // adapter type
+  adapterConfig?: Record<string, unknown>;
 }
 
 export interface MarketplaceAgent {

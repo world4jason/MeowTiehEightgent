@@ -3,6 +3,7 @@ import { chatClient } from "../chatClient";
 import { chatKeys } from "../hooks/useChatApi";
 import type {
   ModelInfo,
+  AdapterPresetInfo,
   AgentDetail,
   MarketplaceAgent,
   MarketplaceAgentDetail,
@@ -15,6 +16,7 @@ const BASE_URL = (import.meta.env.VITE_CHAT_URL ?? "http://localhost:8000") as s
 // ─── Query keys ───────────────────────────────────────────────
 export const settingsKeys = {
   models: ["settings", "models"] as const,
+  adapterPresets: ["settings", "adapter-presets"] as const,
   ollamaModels: (baseUrl: string) => ["settings", "ollama", "models", baseUrl] as const,
   agentDetail: (name: string) => ["settings", "agent", name] as const,
   agentMd: (name: string) => ["settings", "agent", name, "agent-md"] as const,
@@ -89,6 +91,48 @@ export function usePullOllamaModel() {
   });
 }
 
+// ─── Adapter Presets ──────────────────────────────────────────
+export function useAdapterPresets() {
+  return useQuery({
+    queryKey: settingsKeys.adapterPresets,
+    queryFn: async () => {
+      try {
+        return await chatClient.get<Record<string, AdapterPresetInfo>>("/adapter-presets");
+      } catch {
+        // Graceful fallback if endpoint not available yet
+        return {} as Record<string, AdapterPresetInfo>;
+      }
+    },
+  });
+}
+
+export function useCreateAdapterPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AdapterPresetInfo) =>
+      chatClient.post<{ ok: boolean }>("/adapter-presets", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: settingsKeys.adapterPresets }),
+  });
+}
+
+export function useUpdateAdapterPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ adapterType, ...body }: AdapterPresetInfo) =>
+      chatClient.put<{ ok: boolean }>(`/adapter-presets/${adapterType}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: settingsKeys.adapterPresets }),
+  });
+}
+
+export function useDeleteAdapterPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (adapterType: string) =>
+      chatClient.delete<{ ok: boolean }>(`/adapter-presets/${adapterType}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: settingsKeys.adapterPresets }),
+  });
+}
+
 // ─── Agents ───────────────────────────────────────────────────
 export function useAgentDetail(name: string) {
   return useQuery({
@@ -109,6 +153,10 @@ export function useCreateAgent() {
       model?: string;
       skills?: string[];
       enabled?: boolean;
+      role?: string;
+      title?: string;
+      adapter?: string;
+      adapterConfig?: Record<string, unknown>;
     }) => chatClient.post<{ ok: boolean; name: string }>("/agents", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatKeys.agents }),
   });
