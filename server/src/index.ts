@@ -544,6 +544,10 @@ export async function startServer(): Promise<StartedServer> {
     });
   });
 
+  // ── Chat REST API routes (/chat/api/*) ────────────────────────────────────
+  const { createChatAgentRoutes } = await import("./chat/routes/agents.js");
+  app.use("/chat/api", createChatAgentRoutes(chatProjectRoot));
+
   setupLiveEventsWebSocketServer(server, db as any, {
     deploymentMode: config.deploymentMode,
     resolveSessionFromHeaders,
