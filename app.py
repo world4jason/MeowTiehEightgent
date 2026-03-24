@@ -648,7 +648,7 @@ def _parse_jsonl_line(line: str, model_id: str) -> tuple[str | None, dict | None
     return (None, None)
 
 
-from history_manager import truncate_history, apply_sliding_window, TRUNCATION_MARKER
+from history_manager import truncate_history, apply_sliding_window, TRUNCATION_MARKER, compress_history, load_session_config, _format_history_text
 
 
 def accumulate_token_usage(totals: dict, agent_name: str, input_tokens: int, output_tokens: int) -> None:
@@ -2122,21 +2122,28 @@ async def websocket_endpoint(ws: WebSocket):
             # scenario_id given but file not found or parse failed → blank mode
             blank_mode = True
 
-    # Build history_text
+    # Build history_text (with optional summarization)
+    _cfg = load_config()
+    _max_rounds = _cfg.get("max_history_rounds", 30)
+    _summ_model = _cfg.get("summarization_model", "")
+    _summ_threshold = _cfg.get("summary_trigger_threshold", 10)
+
+    # Per-session overrides
+    _session_cfg = load_session_config(session_id)
+    _max_rounds = _session_cfg.get("max_history_rounds", _max_rounds)
+    _summ_threshold = _session_cfg.get("summary_trigger_threshold", _summ_threshold)
+
     if resume_id:
-        f = session_messages_path(resume_id)
-        if f.exists():
-            past = json.loads(f.read_text())
-            _cfg = await get_config()
-            _max_rounds = _cfg.get("max_history_rounds", 30)
-            past = apply_sliding_window(past, max_rounds=_max_rounds)
-            lines = [f"Topic: {topic}"]
-            for m in past:
-                if m.get("type") == "message":
-                    lines.append(f"\n[{m['agent']}]: {m['text']}")
-            history_text = "\n".join(lines) + "\n"
+        if _summ_model and messages:
+            _summary_prefix, _windowed = await compress_history(
+                session_id, messages, window_size=_max_rounds,
+                summary_model=_summ_model, trigger_threshold=_summ_threshold,
+            )
         else:
-            history_text = f"Topic: {topic}\n"
+            _summary_prefix = ""
+            _windowed = apply_sliding_window(messages, max_rounds=_max_rounds)
+
+        history_text = _format_history_text(topic, _summary_prefix, _windowed)
     else:
         # First message from welcome screen: treat as the opening human turn,
         # not just a session label, so agents see [Human]: from the start.
@@ -2254,8 +2261,18 @@ async def websocket_endpoint(ws: WebSocket):
             turn_images = current_images[:]
             current_images = []  # consume once
 
+            # Rebuild history from in-memory messages with summarization
+            if _summ_model and messages:
+                _summary_prefix, _windowed = await compress_history(
+                    session_id, messages, window_size=_max_rounds,
+                    summary_model=_summ_model, trigger_threshold=_summ_threshold,
+                )
+                _rebuilt_history = _format_history_text(topic, _summary_prefix, _windowed)
+            else:
+                _rebuilt_history = history_text
+
             _max_hist = load_config().get("max_history_chars", 80000)
-            _trimmed_history = truncate_history(history_text, _max_hist)
+            _trimmed_history = truncate_history(_rebuilt_history, _max_hist)
             _turn_usage: list[TokenUsage] = []
 
             async def _produce():
