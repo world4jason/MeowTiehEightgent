@@ -34,6 +34,7 @@ import type {
   WsSessionControl,
 } from "./types.js";
 import { logger } from "../middleware/logger.js";
+import { handleIntent } from "./intent-router.js";
 
 // ── WS import (same pattern as live-events-ws.ts) ───────────────────────────
 
@@ -904,6 +905,12 @@ export function handleChatWebSocket(
                 handleSetMode(evt);
               } else if (evt.type === "human") {
                 pendingHumans.push(evt);
+              } else if (evt.type === "agent:intent") {
+                const result = await handleIntent({ ...evt, sessionId });
+                send(ws, result.success
+                  ? { type: "cowork:update", event: "issue_created", issueId: result.data!.issueId, title: result.data!.title }
+                  : { type: "system", text: `Issue 建立失敗: ${result.error}` }
+                );
               } else if (evt.type === "session:control") {
                 const ctrl = evt as import("./types.js").WsSessionControl;
                 if (ctrl.action === "set_goal" && ctrl.goal !== undefined) {
@@ -1063,6 +1070,14 @@ export function handleChatWebSocket(
                 break;
               case "next":
                 break;
+              case "agent:intent": {
+                const result = await handleIntent({ ...evt, sessionId });
+                send(ws, result.success
+                  ? { type: "cowork:update", event: "issue_created", issueId: result.data!.issueId, title: result.data!.title }
+                  : { type: "system", text: `Issue 建立失敗: ${result.error}` }
+                );
+                break;
+              }
               case "session:control": {
                 const ctrl = evt as import("./types.js").WsSessionControl;
                 if (ctrl.action === "set_goal" && ctrl.goal !== undefined) {
@@ -1101,6 +1116,14 @@ export function handleChatWebSocket(
                 await processHumanMessage(evt);
                 waiting = false;
                 break;
+              case "agent:intent": {
+                const result = await handleIntent({ ...evt, sessionId });
+                send(ws, result.success
+                  ? { type: "cowork:update", event: "issue_created", issueId: result.data!.issueId, title: result.data!.title }
+                  : { type: "system", text: `Issue 建立失敗: ${result.error}` }
+                );
+                break;
+              }
               case "session:control": {
                 const ctrl = evt as import("./types.js").WsSessionControl;
                 if (ctrl.action === "set_goal" && ctrl.goal !== undefined) {
