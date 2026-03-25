@@ -31,6 +31,7 @@ import type {
   WsInitMessage,
   WsServerMessage,
   WsClientMessage,
+  WsSessionControl,
 } from "./types.js";
 import { logger } from "../middleware/logger.js";
 
@@ -515,6 +516,9 @@ export function handleChatWebSocket(
     let eventResolve: ((msg: WsClientMessage) => void) | null = null;
     let wsOpen = true;
 
+    // Agent abort controllers for pause/resume — keyed by agent name
+    const agentControllers = new Map<string, { controller: AbortController; status: "active" | "paused" }>();
+
     ws.on("message", (data) => {
       let parsed: WsClientMessage;
       try {
@@ -522,6 +526,42 @@ export function handleChatWebSocket(
         parsed = JSON.parse(str) as WsClientMessage;
       } catch {
         return; // ignore malformed
+      }
+
+      // SYNCHRONOUS pause/resume/redirect — must NOT go through eventQueue
+      if (parsed.type === "session:control") {
+        const ctrl = parsed as WsSessionControl;
+        if (ctrl.action === "pause" && ctrl.agentId) {
+          const entry = agentControllers.get(ctrl.agentId);
+          if (entry) {
+            entry.controller.abort();
+            entry.status = "paused";
+          }
+          send(ws, { type: "agent:status", agentId: ctrl.agentId, status: "idle", detail: "paused" });
+          return; // Don't push to eventQueue
+        }
+        if (ctrl.action === "resume" && ctrl.agentId) {
+          agentControllers.delete(ctrl.agentId);
+          engine.onMention(ctrl.agentId); // Push agent to front of turn queue
+          send(ws, { type: "agent:status", agentId: ctrl.agentId, status: "chatting" });
+          return;
+        }
+        if (ctrl.action === "redirect" && ctrl.agentId && ctrl.instruction) {
+          agentControllers.delete(ctrl.agentId);
+          // Inject redirect as human message in history
+          const redirectMsg: ChatMessage = {
+            type: "message",
+            agent: "Human",
+            text: `[對 ${ctrl.agentId} 的指示] ${ctrl.instruction}`,
+            timestamp: new Date().toISOString(),
+          };
+          messages.push(redirectMsg);
+          void saveMessage(historyDir, sessionId, redirectMsg);
+          engine.onMention(ctrl.agentId);
+          send(ws, { type: "agent:status", agentId: ctrl.agentId, status: "chatting" });
+          return;
+        }
+        // set_goal falls through to eventQueue (not time-critical)
       }
 
       if (eventResolve) {
@@ -788,6 +828,9 @@ export function handleChatWebSocket(
             const cmdRest = effectiveAgent.cmd.slice(1);
             const fullCmd = [...cmdBinary, ...jsonFlags, ...cmdRest];
 
+            const ac = new AbortController();
+            agentControllers.set(agent.name, { controller: ac, status: "active" });
+
             for await (const chunk of streamCliAgent(
               fullCmd,
               prompt,
@@ -796,6 +839,7 @@ export function handleChatWebSocket(
                 startupTimeoutMs,
                 jsonOutput: useJson,
                 cwd: projectRoot,
+                signal: ac.signal,
               },
             )) {
               if (!wsOpen) {
@@ -823,6 +867,27 @@ export function handleChatWebSocket(
                 turnUsage = chunk;
               }
             }
+
+            // Handle pause-abort: save partial output with [TRUNCATED]
+            if (ac.signal.aborted && chunkParts.length > 0) {
+              const partialText = chunkParts.join("") + " [TRUNCATED]";
+              const _currentMode = agentModes[agent.name] ?? "chat";
+              const msg: ChatMessage = {
+                type: "message",
+                agent: agent.name,
+                text: partialText,
+                mode: _currentMode,
+                timestamp: new Date().toISOString(),
+              };
+              messages.push(msg);
+              await saveMessage(historyDir, sessionId, msg);
+              historyText += `\n[${agent.name}]: ${partialText}\n`;
+              send(ws, { type: "message_end", agent: agent.name, truncated: true });
+              agent.pending_continuation = true;
+              agentControllers.delete(agent.name);
+              continue; // Skip normal message handling, move to next turn
+            }
+            agentControllers.delete(agent.name);
 
             // Drain any pending events that arrived during streaming
             while (true) {

@@ -45,9 +45,10 @@ export type WsServerMessage =
   | {
       type: "message_end";
       agent: string;
-      text: string;
+      text?: string;
       duration_ms?: number;
       usage?: ChatMessage["usage"];
+      truncated?: boolean;
     }
   | { type: "token_update"; agent: string; turn?: object; cumulative?: object }
   | { type: "ready"; auto?: boolean; pause?: boolean }
