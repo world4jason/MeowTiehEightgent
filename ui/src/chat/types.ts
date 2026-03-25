@@ -43,6 +43,13 @@ export interface AgentInfo {
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
+export interface AgentControl {
+  agentId: string;
+  name: string;
+  emoji: string;
+  status: "active" | "paused" | "idle";
+}
+
 export type ChatMode = "chat" | "cowork" | "settings";
 
 export interface WorkspaceInfo {
