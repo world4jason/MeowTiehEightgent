@@ -27,6 +27,7 @@ export interface StreamAgentOptions {
   startupTimeoutMs?: number;
   jsonOutput?: boolean;
   cwd?: string;
+  signal?: AbortSignal;
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -193,6 +194,8 @@ export async function* streamCliAgent(
   prompt: string,
   options?: StreamAgentOptions,
 ): AsyncGenerator<string | TokenUsage> {
+  if (options?.signal?.aborted) return;
+
   const idleTimeoutMs = options?.idleTimeoutMs ?? 120_000;
   const startupTimeoutMs = options?.startupTimeoutMs ?? 120_000;
   const jsonOutput = options?.jsonOutput ?? false;
@@ -214,6 +217,13 @@ export async function* streamCliAgent(
     stdio: ["ignore", "pipe", "pipe"],
     cwd: options?.cwd,
   });
+
+  // Abort signal: kill proc if signal fires
+  if (options?.signal) {
+    const onAbort = () => { proc.kill(); };
+    options.signal.addEventListener("abort", onAbort, { once: true });
+    proc.on("exit", () => { options.signal?.removeEventListener("abort", onAbort); });
+  }
 
   // Collect stderr for error reporting
   const stderrChunks: Buffer[] = [];

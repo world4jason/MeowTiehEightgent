@@ -272,6 +272,42 @@ describe("streamCliAgent", () => {
   });
 });
 
+// ── streamCliAgent abort ─────────────────────────────────────────────────────
+
+describe("streamCliAgent abort", () => {
+  afterEach(() => {
+    mockSpawn.mockReset();
+  });
+
+  it("yields zero chunks when signal is pre-aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(); // pre-abort before starting
+    const chunks: string[] = [];
+    for await (const chunk of streamCliAgent(["echo", "hello world"], "test prompt", { signal: controller.signal })) {
+      if (typeof chunk === "string") chunks.push(chunk);
+    }
+    expect(chunks.length).toBe(0);
+  });
+
+  it("accepts signal as undefined for backward compat", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+
+    setTimeout(() => {
+      proc.stdout.push("hello");
+      proc.stdout.push(null);
+      proc.stderr.push(null);
+      proc.emit("close", 0);
+    }, 10);
+
+    const chunks: string[] = [];
+    for await (const chunk of streamCliAgent(["echo", "hello"], "test", { signal: undefined })) {
+      if (typeof chunk === "string") chunks.push(chunk);
+    }
+    expect(chunks.length).toBeGreaterThan(0);
+  });
+});
+
 // ── streamApiAgent ──────────────────────────────────────────────────────────
 
 describe("streamApiAgent", () => {
