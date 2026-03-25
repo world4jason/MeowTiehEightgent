@@ -1,4 +1,4 @@
-import { Users, Activity } from "lucide-react";
+import { Users, Activity, Radio } from "lucide-react";
 import { AgentInfo } from "./types";
 import { cn } from "@/lib/utils";
 
@@ -6,12 +6,14 @@ interface Props {
   agents: AgentInfo[];
   membersOpen: boolean;
   runsOpen: boolean;
+  activityOpen?: boolean;
   onToggleMembers: () => void;
   onToggleRuns: () => void;
+  onToggleActivity?: () => void;
   topic?: string;
 }
 
-export function ChatHeader({ agents, membersOpen, runsOpen, onToggleMembers, onToggleRuns, topic }: Props) {
+export function ChatHeader({ agents, membersOpen, runsOpen, activityOpen, onToggleMembers, onToggleRuns, onToggleActivity, topic }: Props) {
   return (
     <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
       {/* Agent pills */}
@@ -37,6 +39,20 @@ export function ChatHeader({ agents, membersOpen, runsOpen, onToggleMembers, onT
 
       {/* Panel toggles */}
       <div className="flex items-center gap-1 shrink-0">
+        {onToggleActivity && (
+          <button
+            aria-pressed={!!activityOpen}
+            aria-label="Toggle activity feed"
+            onClick={onToggleActivity}
+            className={cn(
+              "rounded-md p-1.5 text-muted-foreground transition-colors",
+              activityOpen ? "bg-muted text-foreground" : "hover:bg-muted hover:text-foreground",
+            )}
+            title="Agent 動態"
+          >
+            <Radio className="h-4 w-4" />
+          </button>
+        )}
         <button
           aria-pressed={runsOpen}
           aria-label="Toggle runs panel"

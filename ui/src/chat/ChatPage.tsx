@@ -9,13 +9,17 @@ import { MembersPanel } from "./MembersPanel";
 import { RunsPanel } from "./RunsPanel";
 import { WelcomeScreen } from "./WelcomeScreen";
 import { ChatInputArea, SendPayload } from "./ChatInputArea";
+import { AgentControlBar } from "./AgentControlBar";
+import { RoomGoalBar } from "./RoomGoalBar";
+import { IssueCard } from "./IssueCard";
+import { ActivityFeed } from "./ActivityFeed";
 import {
   useAgentsList, useWorkspaces, useSessions,
   useCreateSession, useRenameSession, useDeleteSession, useMoveSession,
   useSkillsList, useScenarios, useSessionSummary, useRecompressSession,
 } from "./hooks/useChatApi";
 import { SummaryCard } from "./SummaryCard";
-import { ChatMessage, AgentInfo } from "./types";
+import { ChatMessage, AgentInfo, AgentControl } from "./types";
 import { applyTokenMessage, applyDoneMessage, applyStreamStart, applyChunkMessage, applyMessageEnd, applyThinking, toHistoryChatMessage, applyTokenUpdate, applyReadyMessage, TokenUsageMap } from "./utils";
 
 const CHAT_URL = import.meta.env.VITE_CHAT_URL ?? "/chat/api";
@@ -39,6 +43,11 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const [paused, setPaused] = useState(false);
   const [topic, setTopic] = useState("");
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
+  const [agentControls, setAgentControls] = useState<AgentControl[]>([]);
+  const [roomGoal, setRoomGoal] = useState("");
+  const [showActivity, setShowActivity] = useState(false);
+  const [issueCard, setIssueCard] = useState<{ defaultTitle: string; defaultDescription: string } | null>(null);
+  const [createdIssue, setCreatedIssue] = useState<{ issueId: string; title: string; assignee?: string } | null>(null);
 
   // Refs to avoid stale closures in useCallback
   const autoModeRef = useRef(autoMode);
@@ -120,6 +129,17 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     } else if (msg.type === "ready") {
       const { paused: nextPaused } = applyReadyMessage(msg);
       setPaused(nextPaused);
+    } else if (msg.type === "agent:status") {
+      const { agentId, status } = msg as { agentId: string; status: string };
+      setAgentControls(prev => prev.map(a => a.agentId === agentId ? { ...a, status: status as AgentControl["status"] } : a));
+    } else if (msg.type === "session:goal_changed") {
+      setRoomGoal(String(msg.goal ?? ""));
+    } else if (msg.type === "cowork:update") {
+      if (msg.event === "issue_created") {
+        setIssueCard(null);
+        setCreatedIssue({ issueId: String(msg.issueId), title: String(msg.title), assignee: msg.agentId ? String(msg.agentId) : undefined });
+        setTimeout(() => setCreatedIssue(null), 10000);
+      }
     }
   }, [isVisible, setHasUnreadChat, setMessages, setAgents]);
 
@@ -146,6 +166,24 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   }, [activeSessionId, wsRef]);
 
   useWebSocket(wsUrl, wsRef, handleMessage, handleOpen);
+
+  // Initialize agentControls from session agents
+  useEffect(() => {
+    if (agents.length > 0) {
+      setAgentControls(agents.map(a => ({
+        agentId: a.name, name: a.name, emoji: a.emoji || "🤖", status: "idle" as const,
+      })));
+    }
+  }, [agents]);
+
+  // WS send helpers
+  const sendWs = (data: unknown) => wsRef.current?.send(JSON.stringify(data));
+  const sendPause = (agentId: string) => sendWs({ type: "session:control", action: "pause", agentId });
+  const sendResume = (agentId: string) => sendWs({ type: "session:control", action: "resume", agentId });
+  const sendRedirect = (agentId: string, instruction: string) => sendWs({ type: "session:control", action: "redirect", agentId, instruction });
+  const sendSetGoal = (goal: string) => sendWs({ type: "session:control", action: "set_goal", goal });
+  const sendCreateIssue = (data: { title: string; description: string; assignee?: string }) =>
+    sendWs({ type: "agent:intent", intent: "create_issue", payload: data });
 
   // Load messages when session changes
   useEffect(() => {
@@ -260,8 +298,10 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
             agents={agents}
             membersOpen={membersOpen}
             runsOpen={runsOpen}
+            activityOpen={showActivity}
             onToggleMembers={() => setMembersOpen((o) => !o)}
             onToggleRuns={() => setRunsOpen((o) => !o)}
+            onToggleActivity={() => setShowActivity((o) => !o)}
             topic={topic}
           />
         )}
@@ -282,6 +322,7 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
               />
             ) : (
               <>
+                <RoomGoalBar goal={roomGoal} onSetGoal={(g) => { setRoomGoal(g); sendSetGoal(g); }} />
                 {summaryData?.exists && activeSessionId && (
                   <SummaryCard
                     sessionId={activeSessionId}
@@ -292,10 +333,45 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
                     isRecompressing={recompress.isPending}
                   />
                 )}
-                <MessageList messages={messages} />
+                <div className="flex flex-1 min-h-0 overflow-hidden">
+                  <div className="flex flex-1 flex-col overflow-hidden">
+                    <MessageList messages={messages} onCreateIssue={(title, desc) => setIssueCard({ defaultTitle: title ?? "", defaultDescription: desc ?? "" })} />
+                  </div>
+                  <ActivityFeed agents={agentControls} open={showActivity} />
+                </div>
               </>
             )}
 
+            {!showWelcome && issueCard && (
+              <div className="px-4 pb-2">
+                <IssueCard
+                  mode="create"
+                  defaultTitle={issueCard.defaultTitle}
+                  defaultDescription={issueCard.defaultDescription}
+                  agents={agents.map(a => ({ id: a.name, name: a.name, emoji: a.emoji }))}
+                  onConfirm={(data) => { sendCreateIssue({ title: data.title, description: data.description, assignee: data.assigneeId || undefined }); setIssueCard(null); }}
+                  onCancel={() => setIssueCard(null)}
+                />
+              </div>
+            )}
+            {!showWelcome && createdIssue && (
+              <div className="px-4 pb-2">
+                <IssueCard
+                  mode="created"
+                  issueId={createdIssue.issueId}
+                  title={createdIssue.title}
+                  assignee={createdIssue.assignee}
+                />
+              </div>
+            )}
+            {!showWelcome && agentControls.length > 0 && (
+              <AgentControlBar
+                agents={agentControls}
+                onPause={sendPause}
+                onResume={sendResume}
+                onRedirect={sendRedirect}
+              />
+            )}
             {!showWelcome && (
               <ChatInputArea
                 skills={skills}
