@@ -74,6 +74,7 @@ export async function createApp(
     localPluginDir?: string;
     betterAuthHandler?: express.RequestHandler;
     resolveSession?: (req: ExpressRequest) => Promise<BetterAuthSessionResult | null>;
+    chatProjectRoot?: string;
   },
 ) {
   const app = express();
@@ -231,6 +232,27 @@ export async function createApp(
   app.use(pluginUiStaticRoutes(db, {
     localPluginDir: opts.localPluginDir ?? DEFAULT_LOCAL_PLUGIN_DIR,
   }));
+
+  // ── Chat REST API routes (must come BEFORE SPA fallback) ───────────────────
+  if (opts.chatProjectRoot) {
+    const pr = opts.chatProjectRoot;
+    const { createSessionRoutes } = await import("./chat/routes/sessions.js");
+    const { createChatAgentRoutes } = await import("./chat/routes/agents.js");
+    const { createAdapterPresetRoutes } = await import("./chat/routes/adapter-presets.js");
+    const { createSkillRoutes } = await import("./chat/routes/skills.js");
+    const { createWorkspaceRoutes } = await import("./chat/routes/workspaces.js");
+    const { createScenarioRoutes } = await import("./chat/routes/scenarios.js");
+    const { createMarketplaceRoutes } = await import("./chat/routes/marketplace.js");
+
+    app.get("/chat/api/health", (_req, res) => res.json({ status: "ok" }));
+    app.use("/chat/api", createSessionRoutes(pr));
+    app.use("/chat/api", createChatAgentRoutes(pr));
+    app.use("/chat/api", createAdapterPresetRoutes(pr));
+    app.use("/chat/api", createSkillRoutes(pr));
+    app.use("/chat/api", createWorkspaceRoutes(pr));
+    app.use("/chat/api", createScenarioRoutes(pr));
+    app.use("/chat/api", createMarketplaceRoutes(pr));
+  }
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   if (opts.uiMode === "static") {
