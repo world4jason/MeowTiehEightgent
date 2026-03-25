@@ -2,19 +2,17 @@
 
 ## Architecture
 
-Two-backend architecture with shared React UI:
+Single Node.js backend with shared React UI:
 
 | Service | Stack | Port | Role |
 |---------|-------|------|------|
-| Chat | Python FastAPI | 8000 | Multi-agent chat, session management, settings API |
-| Cowork | Node.js (Mth fork) | 3100 | Project management, issues, agents (future integration) |
+| Cowork | Node.js (Mth fork) | 3100 | Chat, project management, issues, agents |
 | Frontend | React + Vite | 5173 | Shared UI, ModeToggle: Chat / Cowork / Settings |
 
 ### Starting Services
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8000   # Chat server
-pnpm dev:server                                # Cowork server
+pnpm dev:server                                # Cowork server (Node.js, port 3100)
 cd ui && pnpm dev                              # Frontend
 ```
 
@@ -88,14 +86,14 @@ Two paths to create:
 ### Cross-Mode Integration
 
 - Settings affects **both** Chat and Cowork modes
-- Chat mode agents come from `agents/` (Python backend)
+- Chat mode agents come from `agents/` (Node.js backend)
 - Cowork agents (from Mth/Node.js) will be visible in Settings (future)
 - Goal: Chat mode can invoke Cowork agents for conversation (future)
 
 ## UI Patterns
 
 - Framework: shadcn/ui + Tailwind CSS + react-query
-- Chat API client: `chatClient` (ui/src/chat/chatClient.ts) → Python backend :8000
+- Chat API client: `chatClient` (ui/src/chat/chatClient.ts) → Node.js backend `/chat/api`
 - Cowork API client: `api` (ui/src/api/client.ts) → Vite proxy `/api` → Node.js :3100
 - State: `useState` for forms, `useQuery`/`useMutation` for API
 - Icons: lucide-react
@@ -103,7 +101,7 @@ Two paths to create:
 
 ## Key File Locations
 
-- Backend: `app.py` (Python FastAPI, all Chat + Settings API)
+- Backend: `server/src/` (Node.js, all Chat + Cowork API)
 - Frontend entry: `ui/src/App.tsx` (ModeToggle, routing)
 - Chat module: `ui/src/chat/` (ChatPage, hooks, settings)
 - Chat API hooks: `ui/src/chat/hooks/useChatApi.ts`
