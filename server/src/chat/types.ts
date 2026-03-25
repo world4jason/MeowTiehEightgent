@@ -58,7 +58,30 @@ export type WsServerMessage =
       error_type: string;
       message: string;
     }
-  | { type: "message"; agent: string; text: string; color?: string };
+  | { type: "message"; agent: string; text: string; color?: string }
+  | WsAgentStatus
+  | WsCoworkUpdate
+  | WsGoalChanged;
+
+export interface WsAgentStatus {
+  type: "agent:status";
+  agentId: string;
+  status: "idle" | "chatting" | "working";
+  detail?: string;
+}
+
+export interface WsCoworkUpdate {
+  type: "cowork:update";
+  event: "issue_created" | "issue_completed" | "issue_updated";
+  issueId: string;
+  title: string;
+  agentId?: string;
+}
+
+export interface WsGoalChanged {
+  type: "session:goal_changed";
+  goal: string;
+}
 
 // WS message types from client to server
 export type WsClientMessage =
@@ -67,4 +90,25 @@ export type WsClientMessage =
   | { type: "add_agent"; agent: string }
   | { type: "remove_agent"; agent: string }
   | { type: "stop" }
-  | { type: "next" };
+  | { type: "next" }
+  | WsSessionControl
+  | WsAgentIntent;
+
+export interface WsSessionControl {
+  type: "session:control";
+  action: "pause" | "resume" | "redirect" | "set_goal";
+  agentId?: string;
+  instruction?: string;
+  goal?: string;
+}
+
+export interface WsAgentIntent {
+  type: "agent:intent";
+  intent: "create_issue";
+  payload: {
+    title: string;
+    description: string;
+    assignee?: string;
+    projectId?: string;
+  };
+}
