@@ -799,7 +799,7 @@ class TestSessionFolders:
         a.save_history("folder-session", [{"role": "human", "content": "test"}])
         r = client.get("/sessions")
         assert r.status_code == 200
-        assert any(s["id"] == "folder-session" for s in r.json())
+        assert any(s["id"] == "folder-session" for s in r.json()["sessions"])
 
     def test_migrate_flat_json_to_folder(self, tmp_project):
         import app as a
@@ -969,7 +969,7 @@ class TestWorkspaces:
         sess_dir.mkdir()
         msgs = [{"type": "system", "text": "Topic: t", "workspace_id": ws_id, "timestamp": "2026-01-01"}]
         (sess_dir / "messages.json").write_text(json.dumps(msgs))
-        sessions = client.get("/sessions").json()
+        sessions = client.get("/sessions").json()["sessions"]
         found = next((s for s in sessions if s["id"] == "2026-test"), None)
         assert found is not None
         assert found["workspace_id"] == ws_id
