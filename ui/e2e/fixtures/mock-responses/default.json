@@ -1,0 +1,3 @@
+{
+  "chunks": ["This is a mock response ", "from the test agent. ", "It simulates a real LLM reply."]
+}

@@ -226,6 +226,12 @@ export async function createApp(
     }),
   );
   app.use("/api", api);
+
+  if (process.env.TEST_MODE === "true" || process.env.NODE_ENV === "test") {
+    const { createTestCleanupRoutes } = await import("./routes/test-cleanup.js");
+    app.use("/api", createTestCleanupRoutes());
+  }
+
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "API route not found" });
   });
