@@ -35,6 +35,7 @@ import type {
 } from "./types.js";
 import { logger } from "../middleware/logger.js";
 import { handleIntent } from "./intent-router.js";
+import { chatEventBus, type CoworkUpdateEvent } from "./event-bus.js";
 
 // ── WS import (same pattern as live-events-ws.ts) ───────────────────────────
 
@@ -574,8 +575,22 @@ export function handleChatWebSocket(
       }
     });
 
+    const onCoworkUpdate = (data: CoworkUpdateEvent) => {
+      // Session scoping: only forward if broadcast ("") or matching session
+      if (data.sessionId && data.sessionId !== sessionId) return;
+      if (ws.readyState === WebSocket.OPEN) {
+        const { sessionId: _sid, ...eventPayload } = data;
+        send(ws, { type: "cowork:update", ...eventPayload });
+        if (data.event === "issue_completed") {
+          send(ws, { type: "system", text: `${data.agentId ?? "Agent"} 完成了 Issue #${data.issueId}: ${data.title}` });
+        }
+      }
+    };
+    chatEventBus.on("cowork:update", onCoworkUpdate);
+
     ws.on("close", () => {
       wsOpen = false;
+      chatEventBus.off("cowork:update", onCoworkUpdate);
       // Unblock any pending wait
       if (eventResolve) {
         const resolve = eventResolve;

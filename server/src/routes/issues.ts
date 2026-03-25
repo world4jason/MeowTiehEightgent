@@ -36,6 +36,7 @@ import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { shouldWakeAssigneeOnCheckout } from "./issues-checkout-wakeup.js";
 import { isAllowedContentType, MAX_ATTACHMENT_BYTES } from "../attachment-types.js";
 import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
+import { chatEventBus } from "../chat/event-bus.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 
@@ -1002,6 +1003,16 @@ export function issueRoutes(db: Db, storage: StorageService) {
           .catch((err) => logger.warn({ err, issueId: issue.id, agentId }, "failed to wake agent on issue update"));
       }
     })();
+
+    if (issue.status === "done" || issue.status === "cancelled") {
+      chatEventBus.emit("cowork:update", {
+        event: "issue_completed",
+        issueId: issue.id,
+        title: issue.title,
+        agentId: issue.assigneeAgentId ?? undefined,
+        sessionId: "", // broadcast to all sessions
+      });
+    }
 
     res.json({ ...issue, comment });
   });

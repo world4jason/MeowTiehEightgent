@@ -38,3 +38,40 @@ describe("chatEventBus", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 });
+
+describe("cowork → chat bridge", () => {
+  afterEach(() => { chatEventBus.removeAllListeners(); });
+
+  it("emits cowork:update on issue completion", () => {
+    const handler = vi.fn();
+    chatEventBus.on("cowork:update", handler);
+    chatEventBus.emit("cowork:update", {
+      event: "issue_completed", issueId: "42", title: "Fix login", sessionId: "",
+    });
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ event: "issue_completed", issueId: "42" }));
+    chatEventBus.off("cowork:update", handler);
+  });
+
+  it("session-scoped listener ignores events for other sessions", () => {
+    const handler = vi.fn();
+    const mySessionId = "session-A";
+    const filteredHandler = (data: Parameters<typeof handler>[0]) => {
+      if (data.sessionId && data.sessionId !== mySessionId) return;
+      handler(data);
+    };
+    chatEventBus.on("cowork:update", filteredHandler);
+    chatEventBus.emit("cowork:update", {
+      event: "issue_completed", issueId: "99", title: "Other", sessionId: "session-B",
+    });
+    expect(handler).not.toHaveBeenCalled();
+    chatEventBus.emit("cowork:update", {
+      event: "issue_completed", issueId: "42", title: "Mine", sessionId: "session-A",
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    chatEventBus.emit("cowork:update", {
+      event: "issue_completed", issueId: "50", title: "Broadcast", sessionId: "",
+    });
+    expect(handler).toHaveBeenCalledTimes(2);
+    chatEventBus.off("cowork:update", filteredHandler);
+  });
+});
