@@ -25,6 +25,7 @@ export interface BuildPromptOptions {
   scenarioSystemPrompt?: string | null;
   blankMode?: boolean;
   projectRoot: string; // absolute path to project root
+  sessionId?: string;
 }
 
 // ── Skill helpers ────────────────────────────────────────────────────────────
@@ -119,6 +120,7 @@ export async function buildPrompt(options: BuildPromptOptions): Promise<string> 
     scenarioSystemPrompt = null,
     blankMode = false,
     projectRoot,
+    sessionId,
   } = options;
 
   const ws = agent.workspace; // path to agent folder
@@ -226,6 +228,18 @@ export async function buildPrompt(options: BuildPromptOptions): Promise<string> 
       }
     }
   }
+
+  // Room Goal injection
+  if (sessionId) {
+    const { loadSessionConfig } = await import("./routes/sessions.js");
+    const sessionConfig = await loadSessionConfig(path.join(projectRoot, "history"), sessionId);
+    if (sessionConfig.goal) {
+      parts.push(`\n[當前目標] ${sessionConfig.goal}\n請圍繞這個目標回應。`);
+    }
+  }
+
+  // SUGGEST_ISSUE instruction — enables agent-initiated issue creation
+  parts.push(`\n[工具提示] 當對話中出現明確的待辦事項、bug 或需要追蹤的任務時，建議用戶建立 issue，格式為 [SUGGEST_ISSUE: 標題]。用戶會看到一個確認卡片來建立。`);
 
   // ── Assemble ─────────────────────────────────────────────────────────────
 

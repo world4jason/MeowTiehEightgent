@@ -415,6 +415,27 @@ describe("missing files handled gracefully", () => {
   });
 });
 
+// ── 11. Room goal + SUGGEST_ISSUE injection ───────────────────────────────────
+
+describe("room goal + suggest_issue injection", () => {
+  it("injects goal into prompt when session config has goal", async () => {
+    const sessionId = "test-goal-session";
+    const configDir = path.join(tmpDir, "history", sessionId);
+    await fs.mkdir(configDir, { recursive: true });
+    await fs.writeFile(
+      path.join(configDir, "session_config.json"),
+      JSON.stringify({ goal: "討論 API 設計" }),
+    );
+    const result = await buildPrompt(makeOptions({ sessionId }));
+    expect(result).toContain("討論 API 設計");
+  });
+
+  it("includes SUGGEST_ISSUE instruction in prompt", async () => {
+    const result = await buildPrompt(makeOptions());
+    expect(result).toContain("SUGGEST_ISSUE");
+  });
+});
+
 // ── Final prompt structure ───────────────────────────────────────────────────
 
 describe("final prompt structure", () => {

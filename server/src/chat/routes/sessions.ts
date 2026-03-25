@@ -44,12 +44,13 @@ async function saveHidden(
 
 // ── Session config helpers ──────────────────────────────────────────────────
 
-interface SessionConfig {
+export interface SessionConfig {
   topic?: string;
   workspace_id?: string | null;
+  goal?: string;
 }
 
-async function loadSessionConfig(
+export async function loadSessionConfig(
   historyDir: string,
   sessionId: string,
 ): Promise<SessionConfig> {
@@ -62,7 +63,7 @@ async function loadSessionConfig(
   }
 }
 
-async function saveSessionConfig(
+export async function saveSessionConfig(
   historyDir: string,
   sessionId: string,
   config: SessionConfig,

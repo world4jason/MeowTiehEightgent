@@ -904,6 +904,14 @@ export function handleChatWebSocket(
                 handleSetMode(evt);
               } else if (evt.type === "human") {
                 pendingHumans.push(evt);
+              } else if (evt.type === "session:control") {
+                const ctrl = evt as import("./types.js").WsSessionControl;
+                if (ctrl.action === "set_goal" && ctrl.goal !== undefined) {
+                  const { loadSessionConfig, saveSessionConfig } = await import("./routes/sessions.js");
+                  const existing = await loadSessionConfig(historyDir, sessionId);
+                  await saveSessionConfig(historyDir, sessionId, { ...existing, goal: ctrl.goal });
+                  send(ws, { type: "session:goal_changed", goal: ctrl.goal });
+                }
               }
             }
           } else {
@@ -1055,6 +1063,16 @@ export function handleChatWebSocket(
                 break;
               case "next":
                 break;
+              case "session:control": {
+                const ctrl = evt as import("./types.js").WsSessionControl;
+                if (ctrl.action === "set_goal" && ctrl.goal !== undefined) {
+                  const { loadSessionConfig, saveSessionConfig } = await import("./routes/sessions.js");
+                  const existing = await loadSessionConfig(historyDir, sessionId);
+                  await saveSessionConfig(historyDir, sessionId, { ...existing, goal: ctrl.goal });
+                  send(ws, { type: "session:goal_changed", goal: ctrl.goal });
+                }
+                break;
+              }
             }
           }
         } else {
@@ -1083,6 +1101,16 @@ export function handleChatWebSocket(
                 await processHumanMessage(evt);
                 waiting = false;
                 break;
+              case "session:control": {
+                const ctrl = evt as import("./types.js").WsSessionControl;
+                if (ctrl.action === "set_goal" && ctrl.goal !== undefined) {
+                  const { loadSessionConfig, saveSessionConfig } = await import("./routes/sessions.js");
+                  const existing = await loadSessionConfig(historyDir, sessionId);
+                  await saveSessionConfig(historyDir, sessionId, { ...existing, goal: ctrl.goal });
+                  send(ws, { type: "session:goal_changed", goal: ctrl.goal });
+                }
+                break;
+              }
             }
           }
         }
