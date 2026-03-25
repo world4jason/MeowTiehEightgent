@@ -8,7 +8,8 @@
     "typecheck": "pnpm -r typecheck",
     "test:run": "pnpm -r test:run",
     "db:generate": "pnpm --filter @meowtieheightgent/db generate",
-    "db:migrate": "pnpm --filter @meowtieheightgent/db migrate"
+    "db:migrate": "pnpm --filter @meowtieheightgent/db migrate",
+    "test:e2e": "pnpm --filter ui test:e2e"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

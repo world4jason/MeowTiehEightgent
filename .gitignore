@@ -12,3 +12,7 @@ dist/
 .worktrees/
 .gstack/
 *.v0.bak
+
+ui/e2e/.auth/
+ui/e2e/test-results/
+ui/e2e/.features-gen/
