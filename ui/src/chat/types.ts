@@ -50,7 +50,7 @@ export interface AgentControl {
   status: "active" | "paused" | "idle";
 }
 
-export type ChatMode = "chat" | "cowork" | "settings";
+export type ChatMode = "chat" | "cowork" | "settings" | "space";
 
 export interface WorkspaceInfo {
   id: string;

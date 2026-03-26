@@ -8,10 +8,11 @@ interface ModeToggleProps {
   coworkOnline: boolean;
   settingsOnline: boolean;
   hasUnreadChat?: boolean;
+  spaceOnline?: boolean;
 }
 
 export function ModeToggle({
-  mode, onModeChange, chatOnline, coworkOnline, settingsOnline, hasUnreadChat,
+  mode, onModeChange, chatOnline, coworkOnline, settingsOnline, hasUnreadChat, spaceOnline = true,
 }: ModeToggleProps) {
   const btn = (m: ChatMode, label: string, offline: boolean, extra?: ReactNode) => (
     <button
@@ -47,6 +48,7 @@ export function ModeToggle({
       )}
       {btn("cowork", "Cowork", coworkOnline)}
       {btn("settings", "Settings", settingsOnline)}
+      {btn("space", "Space", spaceOnline)}
     </div>
   );
 }

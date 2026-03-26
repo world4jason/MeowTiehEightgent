@@ -310,7 +310,7 @@ function NoCompaniesStartPage() {
 function AppShell({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<ChatMode>(() => {
     const stored = localStorage.getItem("preferred-mode");
-    return stored === "chat" || stored === "cowork" || stored === "settings"
+    return stored === "chat" || stored === "cowork" || stored === "settings" || stored === "space"
       ? stored : "chat";
   });
   const { hasUnreadChat, setHasUnreadChat } = useChatContext();
@@ -330,6 +330,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       if ((e.metaKey || e.ctrlKey) && e.key === "1") { e.preventDefault(); setMode("chat"); }
       if ((e.metaKey || e.ctrlKey) && e.key === "2") { e.preventDefault(); setMode("cowork"); }
       if ((e.metaKey || e.ctrlKey) && e.key === "3") { e.preventDefault(); setMode("settings"); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "4") { e.preventDefault(); setMode("space"); }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -359,6 +360,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex h-full flex-1">
             <SettingsShell coworkOnline={coworkOnline} />
           </div>
+        )}
+        {mode === "space" && (
+          <div className="flex flex-1 items-center justify-center text-muted-foreground">Space mode coming soon...</div>
         )}
       </main>
     </div>
