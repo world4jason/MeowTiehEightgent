@@ -37,24 +37,20 @@ export class SpaceEngine {
   }
 
   async init(container: HTMLElement): Promise<void> {
-    try {
-      await this.app.init({
-        preference: "webgl",
-        resizeTo: container,
-        backgroundColor: 0x1a1a2e,
-        antialias: false,
-        resolution: 1,
-      });
-    } catch {
-      // WebGL failed, try webgpu or canvas fallback
-      await this.app.init({
-        resizeTo: container,
-        backgroundColor: 0x1a1a2e,
-        antialias: false,
-        resolution: 1,
-      });
-    }
+    const width = container.clientWidth || 640;
+    const height = container.clientHeight || 480;
+
+    await this.app.init({
+      width,
+      height,
+      backgroundColor: 0x1a1a2e,
+      antialias: false,
+      resolution: window.devicePixelRatio || 1,
+      autoDensity: true,
+    });
     container.appendChild(this.app.canvas);
+    this.app.canvas.style.width = "100%";
+    this.app.canvas.style.height = "100%";
 
     const mapData = await loadMapData("/maps/default/map.json");
     this.tileMap = new TileMap(mapData);
@@ -173,8 +169,13 @@ export class SpaceEngine {
 
   destroy() {
     if (this.moveInterval) clearInterval(this.moveInterval);
+    this.moveInterval = null;
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
-    this.app.destroy(true);
+    try {
+      this.app.destroy(true);
+    } catch {
+      // PixiJS v8 destroy can throw if init was incomplete
+    }
   }
 }

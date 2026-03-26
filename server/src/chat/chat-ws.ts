@@ -803,7 +803,26 @@ export function handleChatWebSocket(
         let streamStarted = false;
 
         try {
-          if (effectiveAgent.type === "api" && effectiveAgent.baseUrl) {
+          if (process.env.TEST_MODE === "true") {
+            // Mock agent for E2E tests — no real LLM calls
+            const { MockAgent } = await import("./mock-agent.js");
+            const mock = new MockAgent();
+            send(ws, {
+              type: "stream_start",
+              agent: agent.name,
+              color: agent.color,
+            });
+            streamStarted = true;
+
+            for await (const chunk of mock.stream(prompt)) {
+              if (!wsOpen) {
+                cancelled = true;
+                break;
+              }
+              chunkParts.push(chunk);
+              send(ws, { type: "chunk", agent: agent.name, text: chunk });
+            }
+          } else if (effectiveAgent.type === "api" && effectiveAgent.baseUrl) {
             // API agent (Ollama)
             send(ws, {
               type: "stream_start",

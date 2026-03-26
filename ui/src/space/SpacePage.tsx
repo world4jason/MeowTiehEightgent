@@ -72,6 +72,7 @@ function SpaceContent() {
   // Initialize engine
   useEffect(() => {
     if (!canvasRef.current) return;
+    let cancelled = false;
 
     const engine = new SpaceEngine({
       onPlayerMove: (x, y, dir) => movePlayer(x, y, dir),
@@ -80,12 +81,22 @@ function SpaceContent() {
       onProximityChange: (names) => setProximityAgents(names),
     });
 
-    engineRef.current = engine;
-    engine.init(canvasRef.current);
+    engine.init(canvasRef.current).then(() => {
+      if (cancelled) {
+        engine.destroy();
+        return;
+      }
+      engineRef.current = engine;
+    }).catch((err) => {
+      console.error("SpaceEngine init failed:", err);
+    });
 
     return () => {
-      engine.destroy();
-      engineRef.current = null;
+      cancelled = true;
+      if (engineRef.current) {
+        engineRef.current.destroy();
+        engineRef.current = null;
+      }
     };
   }, [movePlayer, setProximityAgents]);
 
