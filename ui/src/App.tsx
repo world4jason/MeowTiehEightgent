@@ -50,6 +50,7 @@ import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-rou
 import { ChatProvider, useChatContext } from "./context/ChatContext";
 import { ChatPage } from "./chat";
 import { SettingsShell } from "./chat/settings/SettingsShell";
+import { SpacePage } from "./space/SpacePage";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useState, useEffect } from "react";
 import type { ChatMode } from "./chat/types";
@@ -361,9 +362,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <SettingsShell coworkOnline={coworkOnline} />
           </div>
         )}
-        {mode === "space" && (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">Space mode coming soon...</div>
-        )}
+        <div className={mode === "space" ? "flex flex-1 overflow-hidden" : "hidden"}>
+          <SpacePage />
+        </div>
       </main>
     </div>
   );
