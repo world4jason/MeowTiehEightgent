@@ -16,3 +16,4 @@ dist/
 ui/e2e/.auth/
 ui/e2e/test-results/
 ui/e2e/.features-gen/
+ui/test-results/
