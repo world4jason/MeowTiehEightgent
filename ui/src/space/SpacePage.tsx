@@ -37,10 +37,10 @@ class SpaceErrorBoundary extends Component<
   }
 }
 
-function SpaceContent() {
+function SpaceContent({ isVisible }: { isVisible: boolean }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<SpaceEngine | null>(null);
-  const { movePlayer, setProximityAgents, setAgentPositions, agentPositions } = useSpace();
+  const { movePlayer, setProximityAgents, setAgentPositions } = useSpace();
 
   const { data: agents = [] } = useAgentsList();
   const enabledAgents = agents.filter((a) => a.enabled);
@@ -58,7 +58,6 @@ function SpaceContent() {
     endInteraction,
   } = useProximity(enabledAgents);
 
-  // Adapt SpaceChatPanel's onCoworkUpdate(event, data) → useSpaceWs's handleCoworkUpdate(event, issueId, title, agentName)
   const handleCoworkUpdateBridge = useCallback(
     (event: string, data: Record<string, unknown>) => {
       const issueId = String(data.issueId ?? data.issue_id ?? "");
@@ -69,9 +68,9 @@ function SpaceContent() {
     [handleCoworkUpdate],
   );
 
-  // Initialize engine
+  // Initialize engine only when visible + not yet initialized
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!isVisible || !canvasRef.current || engineRef.current) return;
     let cancelled = false;
 
     const engine = new SpaceEngine({
@@ -87,20 +86,42 @@ function SpaceContent() {
         return;
       }
       engineRef.current = engine;
+      // Sync agents after engine is ready
+      const positions: AgentPosition[] = enabledAgents.map((agent, i) => {
+        const col = (i % 4) * 4 + 3;
+        const row = Math.floor(i / 4) * 3 + 3;
+        return {
+          agentId: agent.name,
+          name: agent.name,
+          emoji: agent.emoji,
+          color: agent.color,
+          x: col,
+          y: row,
+          status: "idle" as const,
+        };
+      });
+      setAgentPositions(positions);
+      engine.setAgents(positions);
     }).catch((err) => {
       console.error("SpaceEngine init failed:", err);
     });
 
     return () => {
       cancelled = true;
+    };
+  }, [isVisible, movePlayer, setProximityAgents, enabledAgents, setAgentPositions]);
+
+  // Cleanup engine on unmount only
+  useEffect(() => {
+    return () => {
       if (engineRef.current) {
         engineRef.current.destroy();
         engineRef.current = null;
       }
     };
-  }, [movePlayer, setProximityAgents]);
+  }, []);
 
-  // Sync agents to engine
+  // Sync agents when they change (and engine already exists)
   useEffect(() => {
     if (!engineRef.current || enabledAgents.length === 0) return;
 
@@ -122,8 +143,9 @@ function SpaceContent() {
     engineRef.current.setAgents(positions);
   }, [enabledAgents, setAgentPositions]);
 
-  // Handle Enter key for interaction, Escape to close
+  // Handle Enter key for interaction, Escape to close (only when visible)
   useEffect(() => {
+    if (!isVisible) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Enter" && isShowingPreview && !isShowingChat) {
         e.preventDefault();
@@ -136,7 +158,7 @@ function SpaceContent() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isShowingPreview, isShowingChat, startInteraction, endInteraction]);
+  }, [isVisible, isShowingPreview, isShowingChat, startInteraction, endInteraction]);
 
   const { activeSessionId } = useSpace();
 
@@ -145,12 +167,12 @@ function SpaceContent() {
       <div className="relative flex-1">
         <div ref={canvasRef} className="h-full w-full" />
 
-        {isShowingPreview && closestAgent && (
+        {isVisible && isShowingPreview && closestAgent && (
           <AgentPreview agent={closestAgent} onInteract={startInteraction} />
         )}
       </div>
 
-      {isShowingChat && activeSessionId && (
+      {isVisible && isShowingChat && activeSessionId && (
         <SpaceChatPanel
           sessionId={activeSessionId}
           agents={interactingAgents}
@@ -163,11 +185,11 @@ function SpaceContent() {
   );
 }
 
-export function SpacePage() {
+export function SpacePage({ isVisible = true }: { isVisible?: boolean }) {
   return (
     <SpaceErrorBoundary>
       <SpaceProvider>
-        <SpaceContent />
+        <SpaceContent isVisible={isVisible} />
       </SpaceProvider>
     </SpaceErrorBoundary>
   );

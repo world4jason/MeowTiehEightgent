@@ -100,8 +100,8 @@ export function SpaceChatPanel({
         topic: "",
         agents: agentsRef.current.map((a) => a.name),
         resume_from: sessionId,
-        auto: true,
-        rounds: 2,
+        auto: false,
+        rounds: 1,
       }),
     );
   }, [sessionId]);

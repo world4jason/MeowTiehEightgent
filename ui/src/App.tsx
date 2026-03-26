@@ -362,11 +362,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <SettingsShell coworkOnline={coworkOnline} />
           </div>
         )}
-        {mode === "space" && (
-          <div className="flex flex-1 overflow-hidden">
-            <SpacePage />
-          </div>
-        )}
+        <div className={mode === "space" ? "flex flex-1 overflow-hidden" : "hidden"}>
+          <SpacePage isVisible={mode === "space"} />
+        </div>
       </main>
     </div>
   );
