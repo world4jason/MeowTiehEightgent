@@ -7,9 +7,9 @@ const { Given, When, Then } = createBdd(test);
 
 Given("the agent is streaming a response", async ({ page }) => {
   // Trigger a message to start streaming
-  const chatInput = page.getByRole("textbox");
+  const chatInput = page.getByLabel("Message input");
   await chatInput.fill("Please write a long response");
-  await chatInput.press("Enter");
+  await chatInput.press("Shift+Enter");
   // Wait for streaming to begin
   await expect(
     page.locator("[data-testid='streaming-indicator'], .streaming, [data-testid='agent-message']").first()
@@ -18,9 +18,9 @@ Given("the agent is streaming a response", async ({ page }) => {
 
 Given("the agent is paused", async ({ page }) => {
   // Start streaming then pause
-  const chatInput = page.getByRole("textbox");
+  const chatInput = page.getByLabel("Message input");
   await chatInput.fill("Please write a long response");
-  await chatInput.press("Enter");
+  await chatInput.press("Shift+Enter");
   const bar = new AgentControlBar(page);
   await expect(bar.pauseButton).toBeVisible({ timeout: 10000 });
   await bar.pauseButton.click();

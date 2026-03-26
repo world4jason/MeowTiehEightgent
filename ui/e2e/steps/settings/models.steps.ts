@@ -28,7 +28,7 @@ When(
 );
 
 When("I submit the model form", async ({ page }) => {
-  await page.getByRole("button", { name: /submit|create|save/i }).click();
+  await page.getByRole("button", { name: /建立|儲存|submit|create|save/i }).first().click();
   await page.waitForLoadState("networkidle");
 });
 

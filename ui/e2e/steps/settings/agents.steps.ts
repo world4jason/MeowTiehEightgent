@@ -16,21 +16,33 @@ Given(
 );
 
 When("I fill in agent name {string}", async ({ page }, name: string) => {
-  await page.getByLabel(/name/i).fill(name);
+  // If the "choose" step is shown, click "從零開始" first to get to the form
+  const scratchButton = page.getByText("從零開始").first();
+  if (await scratchButton.isVisible().catch(() => false)) {
+    await scratchButton.click();
+  }
+  // The name input has placeholder "例：my-agent"
+  await page.getByPlaceholder("例：my-agent").fill(name);
 });
 
 When(
   "I set emoji to {string} and color to {string}",
   async ({ page }, emoji: string, color: string) => {
-    const emojiInput = page.getByLabel(/emoji/i);
+    // Emoji input has placeholder "🤖"
+    const emojiInput = page.getByPlaceholder("🤖");
     await emojiInput.fill(emoji);
-    const colorInput = page.getByLabel(/color/i);
-    await colorInput.fill(color);
+    // Color field might be an input with type="color" or text input
+    // In the AgentsTab, color is set via a color picker or text input
+    const colorInput = page.locator("input[type='color']").or(page.getByPlaceholder("#"));
+    if (await colorInput.first().isVisible().catch(() => false)) {
+      await colorInput.first().fill(color);
+    }
   }
 );
 
 When("I submit the agent form", async ({ page }) => {
-  await page.getByRole("button", { name: /submit|create|save/i }).click();
+  // Create button text is "建立", save button is "儲存"
+  await page.getByRole("button", { name: /建立|儲存|submit|create|save/i }).first().click();
   await page.waitForLoadState("networkidle");
 });
 

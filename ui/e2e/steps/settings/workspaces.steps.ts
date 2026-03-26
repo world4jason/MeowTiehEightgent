@@ -3,6 +3,10 @@ import { test } from "../../support/fixtures";
 import { expect } from "@playwright/test";
 import { SettingsPage } from "../../support/pages/SettingsPage";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const { Given, When, Then } = createBdd(test);
 

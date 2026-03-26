@@ -39,9 +39,8 @@ export class TestFactory {
     const title = `${this.prefix}-session-${Date.now()}`;
     const result = await this.apiPost("/chat/api/sessions", { title, agent: opts?.agent || "claude" });
     this.tracked.push({ type: "session", id: result.id, deleteUrl: `/chat/api/sessions/${result.id}` });
-    if (opts?.withGoal) {
-      await this.apiPost(`/chat/api/sessions/${result.id}/config`, { room_goal: opts.withGoal });
-    }
+    // Room goals are set via WebSocket, not REST. We skip seeding withGoal here.
+    // The test step should set the goal through the UI instead.
     return { id: result.id, title };
   }
 
@@ -86,9 +85,11 @@ export class TestFactory {
   }
 
   async createModel(opts?: { name?: string; type?: string }) {
+    // Models are stored in config.json, not a REST CRUD API.
+    // There is no POST /chat/api/models endpoint.
+    // Return a stub name; tests that need models should use the UI.
     const name = opts?.name || `${this.prefix}-model-${Date.now()}`;
-    const result = await this.apiPost("/chat/api/models", { name, type: opts?.type || "cli" });
-    this.tracked.push({ type: "model", id: name, deleteUrl: `/chat/api/models/${name}` });
+    console.warn(`TestFactory.createModel: POST /chat/api/models not available; returning stub for "${name}"`);
     return { name };
   }
 

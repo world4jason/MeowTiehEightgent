@@ -3,6 +3,10 @@ import { test } from "../../support/fixtures";
 import { expect } from "@playwright/test";
 import * as path from "path";
 import * as fs from "fs";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const { Given, When, Then } = createBdd(test);
 
@@ -24,9 +28,9 @@ Given("the agent response contains a SUGGEST_ISSUE marker", async ({ page }) => 
   });
 
   // Send a message to trigger the mocked response
-  const chatInput = page.getByRole("textbox");
+  const chatInput = page.getByLabel("Message input");
   await chatInput.fill("Can you help me track this work?");
-  await chatInput.press("Enter");
+  await chatInput.press("Shift+Enter");
 });
 
 Given("an Issue Card is visible", async ({ page }) => {

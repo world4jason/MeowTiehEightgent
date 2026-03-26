@@ -5,7 +5,9 @@ const { Given } = createBdd(test);
 
 Given("I am logged in", async ({ page }) => {
   // Auth is handled via storageState in playwright config.
-  // This step verifies the app is accessible.
+  // Navigate to the app and wait for it to load.
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("domcontentloaded");
+  // Wait for the mode toggle to be visible (app is ready)
+  await page.getByTestId("mode-toggle").waitFor({ state: "visible", timeout: 15000 });
 });

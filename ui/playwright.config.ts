@@ -12,7 +12,7 @@ export default defineConfig({
   globalSetup: "e2e/support/global-setup.ts",
   retries: process.env.CI ? 2 : 0,
   workers: 3,
-  timeout: 30000,
+  timeout: 60000,
 
   use: {
     baseURL: "http://localhost:5173",

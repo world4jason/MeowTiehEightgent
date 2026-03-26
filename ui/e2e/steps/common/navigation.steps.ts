@@ -6,9 +6,13 @@ import { ChatPage } from "../../support/pages/ChatPage";
 const { Given, When, Then } = createBdd(test);
 
 Given("I am on the Chat page", async ({ page }) => {
-  const chatPage = new ChatPage(page);
-  await chatPage.goto();
-  await chatPage.waitForReady();
+  // "I am logged in" already navigated to "/".
+  // Just ensure we're on the Chat page (default mode).
+  // Only navigate again if not already on the page.
+  if (page.url() === "about:blank") {
+    await page.goto("/");
+  }
+  await page.waitForLoadState("domcontentloaded");
 });
 
 Given("I am on the Cowork page", async ({ page }) => {

@@ -5,9 +5,32 @@ import AxeBuilder from "@axe-core/playwright";
 
 const { When, Then } = createBdd(test);
 
+// Map English labels (from feature files) to Chinese button text
+const LABEL_MAP: Record<string, string> = {
+  "Create Agent": "新增代理人",
+  "Add Model": "新增模型",
+  "New Issue": "建立 Issue",
+  "New Project": "新增專案",
+  "Save": "儲存",
+  "Submit": "送出",
+  "Confirm": "確認",
+  "Cancel": "取消",
+  "Delete": "刪除",
+  "Edit": "編輯",
+};
+
 // Shared generic click step — used across all modes
 When("I click {string}", async ({ page }, label: string) => {
-  await page.getByRole("button", { name: label }).click();
+  const mapped = LABEL_MAP[label];
+  if (mapped) {
+    // Try mapped Chinese label first, fall back to original
+    const btn = page.getByRole("button", { name: mapped }).or(
+      page.getByRole("button", { name: new RegExp(label, "i") })
+    );
+    await btn.first().click();
+  } else {
+    await page.getByRole("button", { name: new RegExp(label, "i") }).first().click();
+  }
 });
 
 Then("I should see {string}", async ({ page }, text: string) => {

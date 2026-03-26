@@ -8,12 +8,13 @@ import { IssueDetail } from "../../support/pages/IssueDetail";
 
 const { Given, When, Then } = createBdd(test);
 
-Given("I am on the Chat page with an active session", async ({ page, factory }) => {
-  const session = await factory.createSession({ agent: "claude" });
+Given("I am on the Chat page with an active session", async ({ page }) => {
   const chatPage = new ChatPage(page);
   await chatPage.goto();
   await chatPage.waitForReady();
-  await chatPage.sessionItem(session.title).click();
+  // Create and activate a session via UI
+  await page.getByRole("button", { name: /new chat/i }).click();
+  await page.getByLabel("Message input").waitFor({ state: "visible", timeout: 15000 });
 });
 
 When("the agent creates an issue via intent router", async ({ page }) => {

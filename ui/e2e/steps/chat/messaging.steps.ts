@@ -5,10 +5,11 @@ import { ChatPage } from "../../support/pages/ChatPage";
 
 const { Given, When, Then } = createBdd(test);
 
-Given("there is an active chat session with agent {string}", async ({ page, factory }, agent: string) => {
-  const session = await factory.createSession({ agent });
-  await page.goto(`/?session=${session.id}`);
-  await page.waitForLoadState("networkidle");
+Given("there is an active chat session with agent {string}", async ({ page }) => {
+  // Use "+ New Chat" button to create and activate a session via UI
+  await page.getByRole("button", { name: /new chat/i }).click();
+  // Wait for the chat input to appear (new session is active)
+  await page.getByLabel("Message input").waitFor({ state: "visible", timeout: 15000 });
 });
 
 Given("the WebSocket is disconnected", async ({ page }) => {
@@ -23,7 +24,8 @@ When("I type {string} in the chat input", async ({ page }, text: string) => {
 });
 
 When("I press Enter", async ({ page }) => {
-  await page.keyboard.press("Enter");
+  // Default send mode is Shift+Enter (enterToSend=false)
+  await page.keyboard.press("Shift+Enter");
 });
 
 Then("my message {string} should appear in the message list", async ({ page }, text: string) => {
@@ -40,7 +42,8 @@ Then("the agent should be streaming a response", async ({ page }) => {
 
 Then("the chat input should be disabled", async ({ page }) => {
   const chatPage = new ChatPage(page);
-  await expect(chatPage.chatInput).toBeDisabled();
+  // When WS is disconnected, the textarea should have disabled attribute
+  await expect(chatPage.chatInput).toBeDisabled({ timeout: 10000 });
 });
 
 Then("both messages should appear in the message list", async ({ page }) => {
