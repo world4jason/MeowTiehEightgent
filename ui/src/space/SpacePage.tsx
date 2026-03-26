@@ -163,9 +163,9 @@ function SpaceContent({ isVisible }: { isVisible: boolean }) {
   const { activeSessionId } = useSpace();
 
   return (
-    <div className="flex h-full w-full">
-      <div className="relative flex-1">
-        <div ref={canvasRef} className="h-full w-full" />
+    <div className="flex h-full w-full bg-[#1a1a2e]">
+      <div className="relative flex-1 flex items-center justify-center overflow-hidden">
+        <div ref={canvasRef} />
 
         {isVisible && isShowingPreview && closestAgent && (
           <AgentPreview agent={closestAgent} onInteract={startInteraction} />

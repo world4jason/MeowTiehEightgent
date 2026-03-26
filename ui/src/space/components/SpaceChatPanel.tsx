@@ -97,11 +97,11 @@ export function SpaceChatPanel({
     if (!wsRef.current) return;
     wsRef.current.send(
       JSON.stringify({
-        topic: "",
         agents: agentsRef.current.map((a) => a.name),
         resume_from: sessionId,
         auto: false,
         rounds: 1,
+        silence: true,
       }),
     );
   }, [sessionId]);

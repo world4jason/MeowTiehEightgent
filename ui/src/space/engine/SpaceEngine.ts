@@ -37,23 +37,26 @@ export class SpaceEngine {
   }
 
   async init(container: HTMLElement): Promise<void> {
-    const width = container.clientWidth || 640;
-    const height = container.clientHeight || 480;
+    const mapData = await loadMapData("/maps/default/map.json");
+    this.tileMap = new TileMap(mapData);
+
+    // Size canvas to map dimensions, capped by container
+    const mapPxW = this.tileMap.pixelWidth;
+    const mapPxH = this.tileMap.pixelHeight;
+    const cw = container.clientWidth || mapPxW;
+    const ch = container.clientHeight || mapPxH;
+    const canvasW = Math.min(mapPxW, cw);
+    const canvasH = Math.min(mapPxH, ch);
 
     await this.app.init({
-      width,
-      height,
+      width: canvasW,
+      height: canvasH,
       backgroundColor: 0x1a1a2e,
       antialias: false,
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
     });
     container.appendChild(this.app.canvas);
-    this.app.canvas.style.width = "100%";
-    this.app.canvas.style.height = "100%";
-
-    const mapData = await loadMapData("/maps/default/map.json");
-    this.tileMap = new TileMap(mapData);
 
     this.drawTiles();
 
