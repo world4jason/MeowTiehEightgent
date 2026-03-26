@@ -1,4 +1,14 @@
 import { execSync } from "child_process";
+import { createConnection } from "net";
+
+async function checkPostgres(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "localhost", port: 5432 });
+    socket.on("connect", () => { socket.destroy(); resolve(true); });
+    socket.on("error", () => { socket.destroy(); resolve(false); });
+    socket.setTimeout(3000, () => { socket.destroy(); resolve(false); });
+  });
+}
 
 export default async function globalSetup() {
   // 1. Check TEST_MODE
@@ -9,19 +19,18 @@ export default async function globalSetup() {
     );
   }
 
-  // 2. Check PostgreSQL
-  try {
-    execSync("pg_isready -h localhost -p 5432", { timeout: 5000 });
-  } catch {
+  // 2. Check PostgreSQL (TCP connect, no pg_isready binary needed)
+  const pgReady = await checkPostgres();
+  if (!pgReady) {
     throw new Error(
-      "PostgreSQL is not running.\n" +
+      "PostgreSQL is not running on localhost:5432.\n" +
       "Start with: docker compose -f ui/e2e/docker-compose.e2e.yml up -d"
     );
   }
 
   // 3. Run migrations
   try {
-    execSync("cd server && pnpm drizzle-kit push", {
+    execSync("cd ../packages/db && pnpm drizzle-kit push", {
       timeout: 30000,
       env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
     });
@@ -30,7 +39,7 @@ export default async function globalSetup() {
   }
 
   // 4. Create auth storageState
-  const { chromium } = await import("playwright");
+  const { chromium } = await import("@playwright/test");
   const browser = await chromium.launch();
   const context = await browser.newContext();
   const page = await context.newPage();

@@ -1,0 +1,212 @@
+<h2>Issue 1 Deep Dive — Global Models 怎麼整合</h2>
+<p class="subtitle">現狀分析 → 問題核心 → 解法細節</p>
+
+<!-- CURRENT STATE -->
+<div class="section">
+  <h3>現狀：Chat 的 Model 解析流程</h3>
+  <div style="background:#1a1a2e; padding:20px; border-radius:8px;">
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.6; margin:0; white-space:pre-wrap;">config.json                          agents/claude/config.json
+┌──────────────────────────┐         ┌──────────────────────┐
+│ models: {                │         │ model: "claude"  ◄───┼── soft ref
+│   "claude": {            │         │ emoji: "🟣"          │
+│     cmd: ["claude",      │         │ color: "#a78bfa"     │
+│           "--print"],    │         │ skills: [...]        │
+│     idle_timeout: 120,   │         │ model_tiers: {       │
+│     supports_image: true │         │   default: "claude"  │
+│   },                     │         │   thinking:          │
+│   "claude-opus": {       │         │     "claude-opus"◄───┼── 也是 soft ref
+│     cmd: ["claude",      │         │ }                    │
+│           "--print"],    │         └──────────────────────┘
+│     extra_flags:         │
+│       ["--model","opus"] │
+│   },                     │
+│   "gemini": { ... },     │
+│   "ollama": {            │              get_agent_registry()
+│     type: "api",         │         ┌──────────────────────────┐
+│     baseUrl: "...:11434",│         │ 1. 讀 agent config.json  │
+│     apiModel: "llama3.2" │    ──►  │ 2. 用 model 查 global    │
+│   }                      │         │ 3. 複製 cmd/baseUrl/     │
+│ }                        │         │    timeout 到 agent dict  │
+└──────────────────────────┘         │ 4. agent 設定可 override  │
+                                     └──────────────────────────┘</pre>
+  </div>
+  <p style="color:#aaa; font-size:13px; margin-top:8px;">
+    <strong>核心洞察：</strong>global models 本質上是<strong>「adapter 連線預設」</strong>— 告訴系統怎麼連到 Claude/Gemini/Ollama。
+    Agent config 只說「我用 claude」，連線細節由 global 提供。
+  </p>
+</div>
+
+<!-- PROBLEM -->
+<div class="section">
+  <h3>問題核心：兩層概念混在一起</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+    <div style="background:#2a1a1a; padding:16px; border-radius:8px; border:1px solid #ff6b6b33;">
+      <p style="color:#ff6b6b; font-weight:600; margin:0 0 8px;">Chat 的 "model"</p>
+      <p style="color:#c0c0d0; margin:0; font-size:13px; line-height:1.6;">
+        混合了兩個東西：<br>
+        ① <strong>Adapter type</strong>（怎麼連：CLI subprocess? HTTP API?）<br>
+        ② <strong>Model variant</strong>（用哪個 model：sonnet? opus? llama3.2?）<br><br>
+        例：<code>"claude"</code> 和 <code>"claude-opus"</code> 是同一個 adapter（claude CLI），只是 model 不同。<br>
+        但在 global models table 裡它們是兩筆獨立 entry。
+      </p>
+    </div>
+    <div style="background:#1a2a1a; padding:16px; border-radius:8px; border:1px solid #4ecdc433;">
+      <p style="color:#4ecdc4; font-weight:600; margin:0 0 8px;">Mth 的 "adapter"</p>
+      <p style="color:#c0c0d0; margin:0; font-size:13px; line-height:1.6;">
+        乾淨分離：<br>
+        ① <strong>adapterType</strong> = <code>"claude_local"</code>（怎麼連）<br>
+        ② <strong>adapterConfig.model</strong> = <code>"claude-sonnet-4-6"</code>（用哪個 model）<br><br>
+        同一個 adapter 可以跑不同 model。<br>
+        不需要為每個 model variant 建一筆 entry。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- SOLUTION -->
+<div class="section">
+  <h3>解法：重構 Global Models → Adapter Presets</h3>
+
+  <div style="background:#0a2a1a; padding:20px; border-radius:8px; border-left:4px solid #4ecdc4; margin-bottom:16px;">
+    <p style="color:#4ecdc4; font-weight:600; margin:0 0 12px;">核心改動：拆分「怎麼連」和「用什麼 model」</p>
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.6; margin:0; white-space:pre-wrap;">// config.json — 改名 models → adapter_presets
+{
+  "adapter_presets": {
+    "claude_local": {
+      "command": "claude",
+      "defaultArgs": ["--print"],
+      "defaultModel": "claude-sonnet-4-6",
+      "timeoutSec": 120,
+      "startupTimeoutSec": 120,
+      "supports_image": true
+    },
+    "gemini_local": {
+      "command": "gemini",
+      "defaultArgs": ["-p"],
+      "defaultModel": "gemini-2.5-flash",
+      "timeoutSec": 600,
+      "startupTimeoutSec": 120,
+      "supports_image": true
+    },
+    "ollama_api": {
+      "baseUrl": "http://127.0.0.1:11434",
+      "defaultModel": "llama3.2",
+      "timeoutSec": 120
+    }
+  }
+}</pre>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+    <div style="background:#1a1a2e; padding:16px; border-radius:8px;">
+      <p style="color:#6c63ff; font-weight:600; margin:0 0 8px; font-size:13px;">BEFORE: agents/claude/config.json</p>
+      <pre style="color:#888; font-size:11px; line-height:1.5; margin:0; white-space:pre-wrap; text-decoration: line-through;">{
+  "model": "claude",
+  "emoji": "🟣",
+  "supports_thinking": true,
+  "model_tiers": {
+    "default": "claude",
+    "thinking": "claude-opus"
+  }
+}</pre>
+    </div>
+    <div style="background:#1a1a2e; padding:16px; border-radius:8px;">
+      <p style="color:#4ecdc4; font-weight:600; margin:0 0 8px; font-size:13px;">AFTER: agents/claude/config.json</p>
+      <pre style="color:#c0c0d0; font-size:11px; line-height:1.5; margin:0; white-space:pre-wrap;">{
+  "adapter": "claude_local",
+
+  "adapterConfig": {
+    "model": "claude-sonnet-4-6"
+  },
+
+  "model_tiers": {
+    "default": "claude-sonnet-4-6",
+    "thinking": "claude-opus-4-6"
+  },
+
+  "emoji": "🟣",
+  "role": "engineer",
+  "title": "Senior AI Developer"
+}</pre>
+    </div>
+  </div>
+
+  <div style="background:#1a1a2e; padding:20px; border-radius:8px;">
+    <p style="color:#fff; font-weight:600; margin:0 0 12px;">解析流程（新）</p>
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.6; margin:0; white-space:pre-wrap;">get_agent_registry():
+  1. 讀 agents/claude/config.json
+     → adapter = "claude_local"
+
+  2. 讀 config.json → adapter_presets["claude_local"]
+     → command = "claude", defaultArgs = ["--print"], timeoutSec = 120
+
+  3. Merge: preset + agent.adapterConfig
+     → model = agent.adapterConfig.model ?? preset.defaultModel
+     → timeout = agent.adapterConfig.timeoutSec ?? preset.timeoutSec
+     → command = agent.adapterConfig.command ?? preset.command
+
+  4. model_tiers 解析：
+     → thinking model = "claude-opus-4-6"
+     → 同一個 adapter，只換 model 參數
+     → 不需要在 global table 另建一筆 "claude-opus" entry！
+
+stream_cli_agent(agent):
+  cmd = [command, ...defaultArgs, "--model", model, prompt]
+  timeout = resolved timeout</pre>
+  </div>
+</div>
+
+<!-- KEY CHANGES -->
+<div class="section">
+  <h3>這個改動解決了什麼</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <tr style="border-bottom:2px solid #444;">
+      <th style="padding:8px; text-align:left; color:#888;">問題</th>
+      <th style="padding:8px; text-align:left; color:#888;">Before</th>
+      <th style="padding:8px; text-align:left; color:#888;">After</th>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">Model variant 膨脹</td>
+      <td style="padding:8px; color:#ff6b6b;">claude, claude-opus, claude-haiku 各一筆 entry</td>
+      <td style="padding:8px; color:#4ecdc4;">一個 claude_local preset，model 是參數</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">model_tiers 查找</td>
+      <td style="padding:8px; color:#ff6b6b;">thinking model 必須在 global table 有 entry</td>
+      <td style="padding:8px; color:#4ecdc4;">同 adapter，只換 model 參數，不查 global</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">改 timeout</td>
+      <td style="padding:8px; color:#ff6b6b;">改 global → 所有 agent 變。無法 per-agent</td>
+      <td style="padding:8px; color:#4ecdc4;">preset = default。agent.adapterConfig = override</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">跟 Mth 對齊</td>
+      <td style="padding:8px; color:#ff6b6b;">Chat 用 "model" soft ref，Mth 用 "adapterType"</td>
+      <td style="padding:8px; color:#4ecdc4;">都用 adapter type，語意一致</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">Settings Models Tab</td>
+      <td style="padding:8px; color:#ff6b6b;">CRUD models entries</td>
+      <td style="padding:8px; color:#4ecdc4;">改成 CRUD adapter_presets（UI 調整小）</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">Ollama endpoints</td>
+      <td style="padding:8px; color:#ff6b6b;">讀 models.ollama.baseUrl</td>
+      <td style="padding:8px; color:#4ecdc4;">讀 adapter_presets.ollama_api.baseUrl ✅</td>
+    </tr>
+  </table>
+</div>
+
+<!-- MIGRATION -->
+<div style="background:#1a1a2e; padding:20px; border-radius:8px; margin-top:16px;">
+  <h3 style="margin-top:0;">Migration 步驟</h3>
+  <ol style="color:#c0c0d0; line-height:2; margin:0; padding-left:20px;">
+    <li>寫 migration script：<code>config.json.models</code> → <code>config.json.adapter_presets</code>（重新歸類）</li>
+    <li>更新每個 <code>agents/{name}/config.json</code>：<code>model: "claude"</code> → <code>adapter: "claude_local"</code></li>
+    <li>更新 <code>app.py get_agent_registry()</code>：新的 merge 邏輯</li>
+    <li>更新 <code>stream_cli_agent()</code>：從 merged config 拿 command + model</li>
+    <li>更新 Settings Models Tab → Adapter Presets Tab</li>
+    <li>更新 model_tiers 解析：不查 global，直接換 model 參數</li>
+  </ol>
+</div>

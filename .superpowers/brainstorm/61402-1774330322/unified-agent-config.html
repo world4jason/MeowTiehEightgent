@@ -1,0 +1,253 @@
+<h2>Unified Agent Config — 合併方案</h2>
+<p class="subtitle">agents/{name}/config.json — 一個檔案，兩個世界都用</p>
+
+<div class="section">
+  <h3>欄位對照 & 合併結果</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:14px;">
+    <thead>
+      <tr style="border-bottom:2px solid #444; text-align:left;">
+        <th style="padding:8px; color:#888;">統一欄位</th>
+        <th style="padding:8px; color:#6c63ff;">Chat 來源</th>
+        <th style="padding:8px; color:#4ecdc4;">Mth 來源</th>
+        <th style="padding:8px; color:#888;">說明</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid #333;">
+        <td colspan="4" style="padding:12px 8px 4px; color:#ff6b6b; font-weight:600; font-size:13px;">IDENTITY — 兩邊共用</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>role</code></td>
+        <td style="padding:6px 8px; color:#666;">—（新增）</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">role</td>
+        <td style="padding:6px 8px; color:#aaa;">engineer, designer, pm, qa, ceo... Chat 可用來塑造對話人格</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>title</code></td>
+        <td style="padding:6px 8px; color:#666;">—（新增）</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">title</td>
+        <td style="padding:6px 8px; color:#aaa;">自由文字職稱，Chat UI 可顯示在名字下方</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>emoji</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">emoji</td>
+        <td style="padding:6px 8px; color:#666;">—（icon 改用 emoji）</td>
+        <td style="padding:6px 8px; color:#aaa;">視覺識別。Mth 原用 lucide icon name，統一改 emoji 更直覺</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>color</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">color</td>
+        <td style="padding:6px 8px; color:#666;">—（新增）</td>
+        <td style="padding:6px 8px; color:#aaa;">Hex 色碼，Chat 氣泡/標記用，Cowork 也可用</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>description</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">description</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">capabilities</td>
+        <td style="padding:6px 8px; color:#aaa;">合併為一個欄位，描述 agent 能做什麼</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>enabled</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">enabled</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">status → bool</td>
+        <td style="padding:6px 8px; color:#aaa;">Mth 的 active/paused/idle 簡化為 bool。runtime status 另外追蹤</td>
+      </tr>
+
+      <tr style="border-bottom:1px solid #333;">
+        <td colspan="4" style="padding:16px 8px 4px; color:#ff6b6b; font-weight:600; font-size:13px;">MODEL / ADAPTER — 統一抽象</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>adapter</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">model (soft ref) + type</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">adapterType</td>
+        <td style="padding:6px 8px; color:#aaa;">統一用 Mth 的 adapter 概念：claude_local, gemini_local, ollama_api, ...</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>adapterConfig</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">cmd, baseUrl, timeouts</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">adapterConfig</td>
+        <td style="padding:6px 8px; color:#aaa;">adapter 專屬設定。Chat 的 cmd/baseUrl/timeout 收進這裡</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>model_tiers</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">model_tiers</td>
+        <td style="padding:6px 8px; color:#666;">—（新增）</td>
+        <td style="padding:6px 8px; color:#aaa;">{ default, thinking, arbiter }。Mth 也能受益於 task-tiered model</td>
+      </tr>
+
+      <tr style="border-bottom:1px solid #333;">
+        <td colspan="4" style="padding:16px 8px 4px; color:#ff6b6b; font-weight:600; font-size:13px;">SKILLS — 統一</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>skills</code></td>
+        <td style="padding:6px 8px; color:#6c63ff;">skills[]</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">runtimeConfig.desiredSkills</td>
+        <td style="padding:6px 8px; color:#aaa;">統一為 top-level skills[]，soft ref 到 skills/{slug}/</td>
+      </tr>
+
+      <tr style="border-bottom:1px solid #333;">
+        <td colspan="4" style="padding:16px 8px 4px; color:#ff6b6b; font-weight:600; font-size:13px;">COWORK 擴充 — Mth 專用但 file-based</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>reportsTo</code></td>
+        <td style="padding:6px 8px; color:#666;">—</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">reportsTo</td>
+        <td style="padding:6px 8px; color:#aaa;">Agent 階層。Chat 暫不用，但留著不礙事</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>permissions</code></td>
+        <td style="padding:6px 8px; color:#666;">—</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">permissions</td>
+        <td style="padding:6px 8px; color:#aaa;">{ canCreateAgents, ... }。Cowork 用，Chat 可忽略</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>budget</code></td>
+        <td style="padding:6px 8px; color:#666;">—</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">budgetMonthlyCents</td>
+        <td style="padding:6px 8px; color:#aaa;">月預算（cents）。Chat 端看 token 統計也能受益</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#fff;"><code>heartbeat</code></td>
+        <td style="padding:6px 8px; color:#666;">—</td>
+        <td style="padding:6px 8px; color:#4ecdc4;">runtimeConfig.heartbeat</td>
+        <td style="padding:6px 8px; color:#aaa;">cooldown、interval、wake triggers。Cowork job scheduler 用</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h3>合併後 config.json 範例</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+    <div style="background:#1a1a2e; padding:16px; border-radius:8px; border-left:4px solid #6c63ff;">
+      <p style="color:#6c63ff; font-weight:600; margin:0 0 8px;">agents/claude/config.json</p>
+      <pre style="color:#c0c0d0; font-size:12px; line-height:1.5; margin:0; white-space:pre-wrap;">{
+  "role": "engineer",
+  "title": "Senior AI Developer",
+  "emoji": "🟣",
+  "color": "#a78bfa",
+  "description": "Full-stack developer with deep reasoning",
+  "enabled": true,
+
+  "adapter": "claude_local",
+  "adapterConfig": {
+    "model": "claude-sonnet-4-6",
+    "command": "claude",
+    "maxTurnsPerRun": 10,
+    "timeoutSec": 120,
+    "graceSec": 20
+  },
+  "model_tiers": {
+    "default": "claude-sonnet-4-6",
+    "thinking": "claude-opus-4-6"
+  },
+
+  "skills": ["brainstorming"],
+
+  "permissions": {},
+  "budget": 5000,
+  "heartbeat": {
+    "cooldownSec": 10,
+    "intervalSec": 3600
+  }
+}</pre>
+    </div>
+    <div style="background:#1a1a2e; padding:16px; border-radius:8px; border-left:4px solid #4ecdc4;">
+      <p style="color:#4ecdc4; font-weight:600; margin:0 0 8px;">agents/gemini/config.json</p>
+      <pre style="color:#c0c0d0; font-size:12px; line-height:1.5; margin:0; white-space:pre-wrap;">{
+  "role": "researcher",
+  "title": "Research Analyst",
+  "emoji": "🟢",
+  "color": "#34d399",
+  "description": "Broad knowledge, strong at analysis",
+  "enabled": true,
+
+  "adapter": "gemini_local",
+  "adapterConfig": {
+    "command": "gemini",
+    "timeoutSec": 600
+  },
+  "model_tiers": {
+    "default": "gemini-2.5-flash",
+    "thinking": "gemini-2.5-pro"
+  },
+
+  "skills": ["brainstorming"],
+
+  "permissions": {},
+  "budget": 3000,
+  "heartbeat": {
+    "cooldownSec": 10,
+    "intervalSec": 3600
+  }
+}</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>被刪掉/移走的欄位</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:14px;">
+    <thead>
+      <tr style="border-bottom:2px solid #444; text-align:left;">
+        <th style="padding:8px; color:#888;">舊欄位</th>
+        <th style="padding:8px; color:#888;">去向</th>
+        <th style="padding:8px; color:#888;">原因</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Chat: model</code> (soft ref)</td>
+        <td style="padding:6px 8px; color:#aaa;">→ <code>adapter</code> + <code>adapterConfig.model</code></td>
+        <td style="padding:6px 8px; color:#888;">不再需要 config.json 裡的全局 models 表。adapter 自帶 model info</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Chat: type</code> (cli|api)</td>
+        <td style="padding:6px 8px; color:#aaa;">→ <code>adapter</code> 隱含</td>
+        <td style="padding:6px 8px; color:#888;">claude_local = CLI, ollama_api = API。adapter name 自帶 type</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Chat: supports_thinking</code></td>
+        <td style="padding:6px 8px; color:#aaa;">→ adapter 自知 or <code>model_tiers</code> 存在即支持</td>
+        <td style="padding:6px 8px; color:#888;">有 model_tiers.thinking = 支持 thinking</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Chat: mode</code> (chat|think)</td>
+        <td style="padding:6px 8px; color:#aaa;">→ runtime state（不存 config）</td>
+        <td style="padding:6px 8px; color:#888;">session 級別的狀態，不應該寫死在 agent config</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Mth: icon</code> (lucide name)</td>
+        <td style="padding:6px 8px; color:#aaa;">→ <code>emoji</code> 取代</td>
+        <td style="padding:6px 8px; color:#888;">emoji 更直覺、更 universal、不依賴 icon library</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Mth: status</code></td>
+        <td style="padding:6px 8px; color:#aaa;">→ <code>enabled</code> + runtime state</td>
+        <td style="padding:6px 8px; color:#888;">config 只管 enabled/disabled。running/idle/error 是 runtime state</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Mth: capabilities</code></td>
+        <td style="padding:6px 8px; color:#aaa;">→ <code>description</code> 合併</td>
+        <td style="padding:6px 8px; color:#888;">兩個自由文字欄位沒必要分開</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px 8px; color:#ff6b6b;"><code>Mth: metadata</code></td>
+        <td style="padding:6px 8px; color:#aaa;">→ 保留但不放 config.json</td>
+        <td style="padding:6px 8px; color:#888;">runtime metadata 由 Mth DB 自行管理</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div style="background:#1a1a2e; padding:20px; border-radius:8px; margin-top:24px;">
+  <h3 style="margin-top:0;">File Structure（不變）</h3>
+  <pre style="color:#c0c0d0; font-size:13px; line-height:1.6; margin:0;">agents/{name}/
+├── config.json          ← 統一規格（上面這個）
+├── AGENT.md             ← 指令（Chat 用，Mth 的 instructionsFilePath 指向這裡）
+├── IDENTITY.md          ← 人格
+├── SOUL.md              ← 驅動力
+├── MEMORY.md            ← 長期記憶
+└── memory/
+    └── YYYY-MM-DD.md    ← 每日記憶</pre>
+</div>

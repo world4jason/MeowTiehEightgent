@@ -1,0 +1,125 @@
+<h2>Design Section 1 — E2E Test Architecture</h2>
+<p class="subtitle">整體目錄結構 + 技術棧 + 執行流程</p>
+
+<div class="section">
+<h3>目錄結構</h3>
+<div class="mockup">
+<div class="mockup-header">ui/e2e/</div>
+<div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.8;white-space:pre">
+e2e/
+├── features/                    # Gherkin .feature 檔
+│   ├── chat/
+│   │   ├── session.feature          # Session CRUD（建立/切換/刪除/搜尋）
+│   │   ├── messaging.feature        # 發訊息、streaming、agent 回覆
+│   │   ├── agent-control.feature    # pause / resume / redirect
+│   │   ├── room-goal.feature        # 設定目標、sticky bar 顯示
+│   │   ├── intent-router.feature    # Chat→Cowork issue 建立
+│   │   └── panels.feature           # members panel、runs panel
+│   ├── cowork/
+│   │   ├── issues.feature           # Issue CRUD + 狀態流轉
+│   │   ├── projects.feature         # Project CRUD + budget
+│   │   ├── agents.feature           # Agent 管理（啟動/暫停/錯誤）
+│   │   ├── goals.feature            # Goal CRUD
+│   │   ├── approvals.feature        # Approval workflow
+│   │   ├── routines.feature         # Routine CRUD + triggers
+│   │   ├── dashboard.feature        # Dashboard 資料顯示
+│   │   ├── activity.feature         # Activity feed
+│   │   ├── inbox.feature            # Inbox 通知
+│   │   └── costs.feature            # Cost tracking
+│   ├── settings/
+│   │   ├── models.feature           # Model CRUD（CLI / API / Ollama）
+│   │   ├── agents.feature           # Agent CRUD（emoji/color/skills/model）
+│   │   ├── marketplace.feature      # Browse + Fork agent templates
+│   │   ├── skills.feature           # Skill CRUD
+│   │   ├── workspaces.feature       # Workspace CRUD + file upload
+│   │   └── soul.feature             # Default template 編輯
+│   └── cross-mode/
+│       ├── chat-to-cowork.feature   # intent router → issue 出現在 Cowork
+│       └── mode-navigation.feature  # ModeToggle、⌘1/⌘2/⌘3
+├── steps/                       # Step definitions
+│   ├── chat/
+│   │   ├── session.steps.ts
+│   │   ├── messaging.steps.ts
+│   │   ├── agent-control.steps.ts
+│   │   ├── room-goal.steps.ts
+│   │   ├── intent-router.steps.ts
+│   │   └── panels.steps.ts
+│   ├── cowork/
+│   │   ├── issues.steps.ts
+│   │   ├── projects.steps.ts
+│   │   └── ...
+│   ├── settings/
+│   │   ├── models.steps.ts
+│   │   ├── agents.steps.ts
+│   │   └── ...
+│   └── common/
+│       ├── navigation.steps.ts      # Given I am on the {mode} page
+│       ├── auth.steps.ts            # Given I am logged in
+│       └── assertions.steps.ts      # Then I should see {text}
+├── support/
+│   ├── fixtures.ts              # API seed/teardown helpers
+│   ├── world.ts                 # Playwright BDD World（page, apiContext）
+│   └── pages/                   # Page Object Model
+│       ├── ChatPage.ts
+│       ├── SessionSidebar.ts
+│       ├── SettingsPage.ts
+│       ├── CoworkLayout.ts
+│       └── ...
+└── playwright.config.ts         # 擴充：雙 webServer + BDD plugin
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>技術棧</h3>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+  <div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px">
+    <div style="color:#7c3aed;font-weight:600;margin-bottom:8px">Runner</div>
+    <div style="color:#ccc;font-size:14px">
+      <strong>playwright-bdd</strong><br>
+      Gherkin → Playwright test<br>
+      自動產生 test files<br>
+      原生 Playwright reporter
+    </div>
+  </div>
+  <div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px">
+    <div style="color:#7c3aed;font-weight:600;margin-bottom:8px">Page Objects</div>
+    <div style="color:#ccc;font-size:14px">
+      <strong>POM pattern</strong><br>
+      每個主要頁面一個 class<br>
+      封裝 locator + actions<br>
+      Steps 呼叫 POM methods
+    </div>
+  </div>
+  <div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px">
+    <div style="color:#7c3aed;font-weight:600;margin-bottom:8px">Test Data</div>
+    <div style="color:#ccc;font-size:14px">
+      <strong>API Seed</strong><br>
+      beforeAll: POST /chat/api/*<br>
+      afterAll: DELETE cleanup<br>
+      fixtures.ts 統一管理
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h3>執行流程</h3>
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 0">
+  <div style="background:#7c3aed;color:white;padding:8px 16px;border-radius:20px;font-size:13px">pnpm test:e2e</div>
+  <span style="color:#666">→</span>
+  <div style="background:#1a1a2e;border:1px solid #444;padding:8px 16px;border-radius:20px;font-size:13px;color:#ccc">Playwright 啟動 server:3100</div>
+  <span style="color:#666">→</span>
+  <div style="background:#1a1a2e;border:1px solid #444;padding:8px 16px;border-radius:20px;font-size:13px;color:#ccc">Playwright 啟動 UI:5173</div>
+  <span style="color:#666">→</span>
+  <div style="background:#1a1a2e;border:1px solid #444;padding:8px 16px;border-radius:20px;font-size:13px;color:#ccc">playwright-bdd 解析 .feature</div>
+  <span style="color:#666">→</span>
+  <div style="background:#1a1a2e;border:1px solid #444;padding:8px 16px;border-radius:20px;font-size:13px;color:#ccc">產生 .spec.ts</div>
+  <span style="color:#666">→</span>
+  <div style="background:#1a1a2e;border:1px solid #444;padding:8px 16px;border-radius:20px;font-size:13px;color:#ccc">Seed data via API</div>
+  <span style="color:#666">→</span>
+  <div style="background:#1a1a2e;border:1px solid #444;padding:8px 16px;border-radius:20px;font-size:13px;color:#ccc">Browser 跑 scenarios</div>
+  <span style="color:#666">→</span>
+  <div style="background:#059669;color:white;padding:8px 16px;border-radius:20px;font-size:13px">HTML Report</div>
+</div>
+</div>

@@ -1,0 +1,17 @@
+{
+  "emoji": "🏛️",
+  "color": "#8b5cf6",
+  "description": "蘇格拉底式對話、倫理學、存在主義。幫你把問題想得更透徹，而不是給你答案。",
+  "model": "",
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
+  "enabled": true
+}

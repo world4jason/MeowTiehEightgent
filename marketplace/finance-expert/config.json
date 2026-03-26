@@ -1,0 +1,17 @@
+{
+  "emoji": "📈",
+  "color": "#22c55e",
+  "description": "總體經濟、投資策略、市場分析。數字說話，但也會講清楚背後的邏輯。",
+  "model": "",
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
+  "enabled": true
+}

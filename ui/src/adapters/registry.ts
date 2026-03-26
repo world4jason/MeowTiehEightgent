@@ -26,3 +26,7 @@ const adaptersByType = new Map<string, UIAdapterModule>(
 export function getUIAdapter(type: string): UIAdapterModule {
   return adaptersByType.get(type) ?? processUIAdapter;
 }
+
+export function listUIAdapters(): UIAdapterModule[] {
+  return [...adaptersByType.values()];
+}

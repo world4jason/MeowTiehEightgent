@@ -16,9 +16,7 @@ Given("there is a model {string}", async ({ factory }, name: string) => {
   await factory.createModel({ name });
 });
 
-When("I click {string}", async ({ page }, label: string) => {
-  await page.getByRole("button", { name: label }).click();
-});
+// "I click {string}" is defined in common/assertions.steps.ts
 
 When(
   "I fill in model name {string} with type {string}",

@@ -72,3 +72,10 @@ export interface AdapterEnvironmentTestResult {
   checks: AdapterEnvironmentCheck[];
   testedAt: string;
 }
+
+export interface AgentSkillEntry {
+  slug: string;
+  name: string;
+  source: string | null;
+  managed: boolean;
+}

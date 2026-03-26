@@ -3,7 +3,12 @@ import { test } from "../../support/fixtures";
 import { expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-const { Then } = createBdd(test);
+const { When, Then } = createBdd(test);
+
+// Shared generic click step — used across all modes
+When("I click {string}", async ({ page }, label: string) => {
+  await page.getByRole("button", { name: label }).click();
+});
 
 Then("I should see {string}", async ({ page }, text: string) => {
   await expect(page.getByText(text)).toBeVisible();

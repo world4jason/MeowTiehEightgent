@@ -1,0 +1,3 @@
+{"type":"server-started","port":64640,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:64640","screen_dir":"/Users/jasonyeh/code_ground/agent-cli-converation/.superpowers/brainstorm/82526-1774438385"}
+{"type":"screen-added","file":"/Users/jasonyeh/code_ground/agent-cli-converation/.superpowers/brainstorm/82526-1774438385/architecture.html"}
+{"type":"server-stopped","reason":"idle timeout"}

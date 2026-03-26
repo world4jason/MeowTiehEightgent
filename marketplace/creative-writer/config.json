@@ -1,0 +1,17 @@
+{
+  "emoji": "✍️",
+  "color": "#ec4899",
+  "description": "故事、散文、詩。幫你找到聲音，打磨語言，讓文字有重量。",
+  "model": "",
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
+  "enabled": true
+}

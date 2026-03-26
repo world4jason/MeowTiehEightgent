@@ -1,9 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 import { defineBddConfig } from "playwright-bdd";
+import { existsSync } from "fs";
 
 const testDir = defineBddConfig({
   features: "e2e/features/**/*.feature",
-  steps: ["e2e/steps/**/*.steps.ts", "e2e/support/hooks.ts"],
+  steps: ["e2e/steps/**/*.steps.ts", "e2e/support/fixtures.ts"],
 });
 
 export default defineConfig({
@@ -17,7 +18,7 @@ export default defineConfig({
     baseURL: "http://localhost:5173",
     screenshot: "only-on-failure",
     trace: "on-first-retry",
-    storageState: "e2e/.auth/user.json",
+    ...(existsSync("e2e/.auth/user.json") ? { storageState: "e2e/.auth/user.json" } : {}),
   },
 
   projects: [

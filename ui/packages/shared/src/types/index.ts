@@ -1,5 +1,7 @@
 export type { Company } from "./company.js";
-export type { InstanceExperimentalSettings, InstanceSettings } from "./instance.js";
+export type { InstanceExperimentalSettings, InstanceSettings, InstanceGeneralSettings, PatchInstanceGeneralSettings } from "./instance.js";
+export type { CompanySkill, CompanySkillListItem, CompanySkillDetail, CompanySkillFileDetail, CompanySkillCreateRequest, CompanySkillUpdateStatus, CompanySkillProjectScanRequest, CompanySkillProjectScanResult, CompanySkillImportResult } from "./company-skills.js";
+export type { Routine, RoutineListItem, RoutineDetail, RoutineRun, RoutineRunSummary, RoutineTrigger, RoutineTriggerSecretMaterial, RoutineTriggerKind } from "./routines.js";
 export type {
   Agent,
   AgentPermissions,
@@ -9,6 +11,7 @@ export type {
   AdapterEnvironmentTestStatus,
   AdapterEnvironmentCheck,
   AdapterEnvironmentTestResult,
+  AgentSkillEntry,
 } from "./agent.js";
 export type { AssetImage } from "./asset.js";
 export type { Project, ProjectCodebase, ProjectCodebaseOrigin, ProjectGoalRef, ProjectWorkspace } from "./project.js";

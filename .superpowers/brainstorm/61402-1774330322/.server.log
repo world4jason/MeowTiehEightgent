@@ -1,0 +1,3 @@
+{"type":"server-started","port":60650,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:60650","screen_dir":"/Users/jasonyeh/code_ground/agent-cli-converation/.superpowers/brainstorm/61402-1774330322"}
+{"type":"screen-added","file":"/Users/jasonyeh/code_ground/agent-cli-converation/.superpowers/brainstorm/61402-1774330322/stakeholder-perspectives.html"}
+{"type":"server-stopped","reason":"idle timeout"}

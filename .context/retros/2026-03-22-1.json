@@ -1,0 +1,41 @@
+{
+  "date": "2026-03-22",
+  "window": "7d",
+  "metrics": {
+    "commits": 136,
+    "contributors": 1,
+    "prs_merged": 1,
+    "insertions": 3103473,
+    "deletions": 2625211,
+    "net_loc": 478262,
+    "test_loc": null,
+    "test_ratio": null,
+    "active_days": 6,
+    "sessions": 19,
+    "deep_sessions": 5,
+    "avg_session_minutes": 27,
+    "loc_per_session_hour": 6400,
+    "feat_pct": 0.38,
+    "fix_pct": 0.21,
+    "docs_pct": 0.10,
+    "peak_hour": 13,
+    "ai_assisted_commits": 112
+  },
+  "authors": {
+    "Jason Yeh": {
+      "commits": 136,
+      "insertions": 3103473,
+      "deletions": 2625211,
+      "top_area": "ui/src/chat/"
+    }
+  },
+  "version_range": [],
+  "streak_days": 6,
+  "tweetable": "Week of Mar 17: 136 commits, 6 days straight, 82% AI-assisted | MeowTiehEightgent shipped from init to Phase 4 — Chat UI, cowork sync, token tracking, docker-compose",
+  "test_health": {
+    "total_test_files": 155,
+    "tests_added_this_period": 590,
+    "regression_test_commits": 3,
+    "test_files_changed": 590
+  }
+}

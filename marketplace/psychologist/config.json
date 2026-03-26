@@ -1,0 +1,17 @@
+{
+  "emoji": "🧠",
+  "color": "#06b6d4",
+  "description": "認知行為、人際動態、決策心理。幫你看清楚自己在想什麼、為什麼這樣想。",
+  "model": "",
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
+  "enabled": true
+}

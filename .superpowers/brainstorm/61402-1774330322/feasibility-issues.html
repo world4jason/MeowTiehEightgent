@@ -1,0 +1,185 @@
+<h2>Feasibility Check — 3 個需要解決的坑</h2>
+<p class="subtitle">統一 agent config 前必須面對的架構衝突</p>
+
+<!-- ISSUE 1 -->
+<div class="section">
+  <h3 style="color:#ff6b6b;">Issue 1: Global Models Table 不能直接刪掉</h3>
+
+  <div style="background:#1a1a2e; padding:16px 20px; border-radius:8px; margin-bottom:12px; border-left:4px solid #ff6b6b;">
+    <p style="color:#fff; margin:0 0 8px; font-weight:600;">問題</p>
+    <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+      我原本提議用 <code>adapter</code> + <code>adapterConfig</code> 完全取代 Chat 的 global models table（<code>config.json → models</code>）。
+      但調查發現：
+    </p>
+    <ul style="color:#c0c0d0; line-height:1.8;">
+      <li><strong>10 個 agent 用 claude</strong> = 10 份重複的 <code>cmd</code>/<code>baseUrl</code>/<code>timeout</code> → 改一個要改十個</li>
+      <li><strong>model_tiers.thinking</strong> 目前靠 global models 查找 thinking model 的連線資訊</li>
+      <li><strong>Ollama endpoints</strong>（<code>/providers/ollama/models</code>）讀 global config 的 baseUrl</li>
+      <li><strong>Settings Models Tab</strong> 整個 UI 假設 global models 存在</li>
+    </ul>
+  </div>
+
+  <div style="background:#0a2a1a; padding:16px 20px; border-radius:8px; border-left:4px solid #4ecdc4;">
+    <p style="color:#4ecdc4; margin:0 0 8px; font-weight:600;">建議方案：Hybrid（保留 global + 允許 per-agent override）</p>
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.5; margin:0; white-space:pre-wrap;">// agents/claude/config.json
+{
+  "adapter": "claude_local",      // 指向 adapter type
+  "model": "claude",              // soft ref → global models（連線資訊）
+
+  "adapterConfig": {              // 可選：override global model 設定
+    "timeoutSec": 180,            // 這個 agent 特別慢，給多一點
+    "maxTurnsPerRun": 20          // Cowork 專用設定
+  },
+
+  "model_tiers": {
+    "default": "claude",          // ref → global
+    "thinking": "claude-opus"     // ref → global
+  }
+}
+
+// config.json → models（保留，作為 adapter 連線資訊的共用 defaults）
+{
+  "models": {
+    "claude": { "cmd": ["claude", "--print"], "idle_timeout_seconds": 120, ... },
+    "claude-opus": { "cmd": ["claude", "--print", "--model", "opus"], ... }
+  }
+}</pre>
+    <p style="color:#aaa; margin:8px 0 0; font-size:13px;">
+      <strong>Merge 優先級：</strong> agent.adapterConfig > global models > hardcoded defaults<br>
+      全局改一次，所有 agent 都生效。個別 agent 可以 override。
+    </p>
+  </div>
+</div>
+
+<!-- ISSUE 2 -->
+<div class="section">
+  <h3 style="color:#ff6b6b;">Issue 2: Mth 的 companyId + UUID — 最大的架構衝突</h3>
+
+  <div style="background:#1a1a2e; padding:16px 20px; border-radius:8px; margin-bottom:12px; border-left:4px solid #ff6b6b;">
+    <p style="color:#fff; margin:0 0 8px; font-weight:600;">問題</p>
+    <p style="color:#c0c0d0; margin:0 0 12px; line-height:1.6;">
+      Mth 的整個架構都假設：
+    </p>
+    <ul style="color:#c0c0d0; line-height:1.8;">
+      <li><strong>每個 agent 有 UUID</strong>（不是名字），所有 FK、路徑、API 都用 UUID</li>
+      <li><strong>每個 agent 屬於一個 company</strong>（companyId FK 必填）</li>
+      <li><strong>指令路徑</strong> = <code>companies/{companyId}/agents/{agentId}/instructions/</code></li>
+      <li><strong>所有 route</strong> = <code>/companies/:companyId/agents</code>（company-scoped）</li>
+      <li><strong>沒有 file → DB sync 機制</strong></li>
+    </ul>
+    <p style="color:#c0c0d0; margin:12px 0 0; line-height:1.6;">
+      我們要的：<code>agents/{name}/</code> file-based，用名字不用 UUID，全局不分 company。
+    </p>
+  </div>
+
+  <div style="background:#0a2a1a; padding:16px 20px; border-radius:8px; border-left:4px solid #4ecdc4;">
+    <p style="color:#4ecdc4; margin:0 0 8px; font-weight:600;">建議方案：File-first + DB sync bridge</p>
+    <ul style="color:#c0c0d0; line-height:1.8;">
+      <li><strong>Source of truth = <code>agents/{name}/config.json</code></strong>（file-based）</li>
+      <li><strong>Sync service</strong>：啟動時 + file change 時，掃描 <code>agents/</code> → upsert 到 Mth DB</li>
+      <li><strong>Name → UUID mapping</strong>：DB record 加一個 <code>fileKey</code> 欄位 = folder name，用這個做雙向對應</li>
+      <li><strong>Single company</strong>：你目前是 local_trusted 單人用，用一個 default company 就好。未來 multi-tenant 再拆</li>
+      <li><strong>指令路徑</strong>：Mth 的 <code>instructionsFilePath</code> 直接指向 <code>agents/{name}/AGENT.md</code></li>
+    </ul>
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.5; margin:12px 0 0; white-space:pre-wrap;">// Sync 流程
+agents/claude/config.json  →  DB agents table
+  ├── fileKey: "claude"         (新欄位，name-based lookup)
+  ├── companyId: DEFAULT_CO     (固定 default company)
+  ├── id: auto-gen UUID         (Mth 內部用)
+  ├── adapterType: from config
+  ├── adapterConfig: { instructionsFilePath: "agents/claude/AGENT.md", ...merge from config }
+  └── runtimeConfig: { heartbeat: from config }</pre>
+  </div>
+</div>
+
+<!-- ISSUE 3 -->
+<div class="section">
+  <h3 style="color:#ff6b6b;">Issue 3: 兩邊的 Agent 概念不同 — Runtime Context 設計</h3>
+
+  <div style="background:#1a1a2e; padding:16px 20px; border-radius:8px; margin-bottom:12px; border-left:4px solid #ff6b6b;">
+    <p style="color:#fff; margin:0 0 8px; font-weight:600;">問題</p>
+    <table style="width:100%; border-collapse:collapse; font-size:13px; margin:8px 0;">
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:6px; color:#888;"></td>
+        <td style="padding:6px; color:#6c63ff; font-weight:600;">Chat Agent</td>
+        <td style="padding:6px; color:#4ecdc4; font-weight:600;">Mth Agent</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px; color:#aaa;">執行方式</td>
+        <td style="padding:6px; color:#c0c0d0;">WS 連線中 real-time streaming</td>
+        <td style="padding:6px; color:#c0c0d0;">Heartbeat job，背景執行</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px; color:#aaa;">生命週期</td>
+        <td style="padding:6px; color:#c0c0d0;">session 期間存活</td>
+        <td style="padding:6px; color:#c0c0d0;">run 結束就結束</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px; color:#aaa;">Context</td>
+        <td style="padding:6px; color:#c0c0d0;">multi-agent 對話歷史</td>
+        <td style="padding:6px; color:#c0c0d0;">issue + workspace + instructions</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px; color:#aaa;">輸出</td>
+        <td style="padding:6px; color:#c0c0d0;">text chunks via WS</td>
+        <td style="padding:6px; color:#c0c0d0;">code changes + run logs</td>
+      </tr>
+      <tr style="border-bottom:1px solid #222;">
+        <td style="padding:6px; color:#aaa;">與人互動</td>
+        <td style="padding:6px; color:#c0c0d0;">即時對話</td>
+        <td style="padding:6px; color:#c0c0d0;">非同步（assign → run → review）</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="background:#0a2a1a; padding:16px 20px; border-radius:8px; border-left:4px solid #4ecdc4;">
+    <p style="color:#4ecdc4; margin:0 0 8px; font-weight:600;">建議方案：一個身份，兩個 runtime context</p>
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.5; margin:0; white-space:pre-wrap;">agents/claude/
+├── config.json       ← 統一 config（身份 + adapter + skills + cowork settings）
+├── AGENT.md          ← 共用指令（Chat & Cowork 都讀）
+├── IDENTITY.md       ← 人格
+├── SOUL.md           ← 驅動力
+├── MEMORY.md         ← 長期記憶
+└── memory/           ← 每日記憶
+
+Runtime state（不在 file 裡）:
+├── Chat context      ← Python 管理（session WS、對話歷史、mode toggle）
+└── Cowork context    ← Mth DB 管理（heartbeat runs、task sessions、budget spent）</pre>
+    <p style="color:#aaa; margin:12px 0 0; font-size:13px;">
+      Config = 靜態身份（file）。Runtime = 動態狀態（各自管理）。<br>
+      Chat 不需要知道 agent 在 Cowork 花了多少錢。Cowork 不需要知道 agent 在 Chat 說了什麼。<br>
+      但兩邊讀同一份 AGENT.md、同一份 config.json。
+    </p>
+  </div>
+</div>
+
+<!-- SUMMARY -->
+<div style="background:#1a1a2e; padding:20px; border-radius:8px; margin-top:24px;">
+  <h3 style="margin-top:0; color:#fff;">總結：3 個坑的解法</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:14px;">
+    <tr style="border-bottom:2px solid #444;">
+      <th style="padding:8px; text-align:left; color:#888;">Issue</th>
+      <th style="padding:8px; text-align:left; color:#888;">風險</th>
+      <th style="padding:8px; text-align:left; color:#888;">解法</th>
+      <th style="padding:8px; text-align:left; color:#888;">可行?</th>
+    </tr>
+    <tr style="border-bottom:1px solid #333;">
+      <td style="padding:8px; color:#fff;">Global models</td>
+      <td style="padding:8px; color:#ff6b6b;">刪掉會破壞 UI + model_tiers + Ollama</td>
+      <td style="padding:8px; color:#4ecdc4;">保留 global models 做 defaults + per-agent override</td>
+      <td style="padding:8px; color:#4ecdc4;">✅ 低風險</td>
+    </tr>
+    <tr style="border-bottom:1px solid #333;">
+      <td style="padding:8px; color:#fff;">companyId + UUID</td>
+      <td style="padding:8px; color:#ff6b6b;">Mth 全架構假設 UUID + company-scoped</td>
+      <td style="padding:8px; color:#ffcc00;">File-first + sync bridge + fileKey 欄位</td>
+      <td style="padding:8px; color:#ffcc00;">⚠️ 中風險，需要寫 sync service</td>
+    </tr>
+    <tr style="border-bottom:1px solid #333;">
+      <td style="padding:8px; color:#fff;">Runtime context</td>
+      <td style="padding:8px; color:#ff6b6b;">Chat streaming vs Mth job 是完全不同的執行模型</td>
+      <td style="padding:8px; color:#4ecdc4;">一個身份 file，兩個 runtime context 各自管理</td>
+      <td style="padding:8px; color:#4ecdc4;">✅ 自然分離</td>
+    </tr>
+  </table>
+</div>

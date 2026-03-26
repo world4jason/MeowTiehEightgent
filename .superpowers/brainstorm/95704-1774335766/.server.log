@@ -1,0 +1,4 @@
+{"type":"server-started","port":63808,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:63808","screen_dir":"/Users/jasonyeh/code_ground/agent-cli-converation/.superpowers/brainstorm/95704-1774335766"}
+{"type":"screen-added","file":"/Users/jasonyeh/code_ground/agent-cli-converation/.superpowers/brainstorm/95704-1774335766/issue2-sync-bridge-deep-dive.html"}
+{"type":"screen-added","file":"/Users/jasonyeh/code_ground/agent-cli-converation/.superpowers/brainstorm/95704-1774335766/stakeholder-review.html"}
+{"type":"server-stopped","reason":"idle timeout"}

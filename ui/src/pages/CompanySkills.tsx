@@ -46,7 +46,7 @@ import {
   Github,
   Link2,
   ExternalLink,
-  Mth,
+  Hexagon,
   Pencil,
   Plus,
   RefreshCw,
@@ -159,7 +159,7 @@ function sourceMeta(sourceBadge: CompanySkillSourceBadge, sourceLabel: string | 
     case "local":
       return { icon: Folder, label: sourceLabel ?? "Folder", managedLabel: "Folder managed" };
     case "mth":
-      return { icon: Mth, label: sourceLabel ?? "Mth", managedLabel: "Mth managed" };
+      return { icon: Hexagon, label: sourceLabel ?? "Mth", managedLabel: "Mth managed" };
     default:
       return { icon: Boxes, label: sourceLabel ?? "Catalog", managedLabel: "Catalog managed" };
   }

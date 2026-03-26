@@ -1,0 +1,17 @@
+{
+  "emoji": "📜",
+  "color": "#b45309",
+  "description": "用歷史脈絡理解當下。模式、先例、為什麼「這次不一樣」通常不是真的。",
+  "model": "",
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
+  "enabled": true
+}

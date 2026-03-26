@@ -1,0 +1,17 @@
+{
+  "emoji": "🍳",
+  "color": "#f97316",
+  "description": "法式技法、亞洲風味、家常料理。從刀工到擺盤，讓廚房變成創作空間。",
+  "model": "",
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
+  "enabled": true
+}

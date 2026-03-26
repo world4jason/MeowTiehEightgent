@@ -1,0 +1,279 @@
+<h2>Issue 2 Deep Dive — File ↔ DB Sync Bridge</h2>
+<p class="subtitle">最大的工程挑戰：讓 agents/{name}/ 成為 source of truth，同時餵飽 Mth 的 DB</p>
+
+<!-- THE GAP -->
+<div class="section">
+  <h3>兩個世界的鴻溝</h3>
+  <div style="display:grid; grid-template-columns:1fr 60px 1fr; gap:0; align-items:center;">
+    <div style="background:#1a1a2e; padding:16px; border-radius:8px;">
+      <p style="color:#6c63ff; font-weight:600; margin:0 0 8px;">我們要的（File World）</p>
+      <pre style="color:#c0c0d0; font-size:11px; line-height:1.5; margin:0; white-space:pre-wrap;">agents/
+├── claude/
+│   ├── config.json    ← source of truth
+│   ├── AGENT.md
+│   └── memory/
+├── gemini/
+│   └── config.json
+└── ollama/
+    └── config.json
+
+特性：
+• 用名字（folder name）
+• 全局（無 company 概念）
+• Git-friendly
+• 人可以直接編輯</pre>
+    </div>
+    <div style="text-align:center; color:#ff6b6b; font-size:24px;">⟷</div>
+    <div style="background:#1a1a2e; padding:16px; border-radius:8px;">
+      <p style="color:#4ecdc4; font-weight:600; margin:0 0 8px;">Mth 要的（DB World）</p>
+      <pre style="color:#c0c0d0; font-size:11px; line-height:1.5; margin:0; white-space:pre-wrap;">DB: agents table
+┌────────────────────────────────┐
+│ id: UUID (PK)                  │
+│ companyId: UUID (FK, NOT NULL) │
+│ name: "Claude"                 │
+│ adapterType: "claude_local"    │
+│ adapterConfig: { ... }  (JSONB)│
+│ runtimeConfig: { ... }  (JSONB)│
+│ permissions: { ... }    (JSONB)│
+│ budgetMonthlyCents: 5000       │
+│ status: "idle"                 │
+└────────────────────────────────┘
+特性：
+• 用 UUID
+• company-scoped
+• 所有 FK/路徑都依賴 UUID
+• API 操作</pre>
+    </div>
+  </div>
+</div>
+
+<!-- BRIDGE DESIGN -->
+<div class="section">
+  <h3>Sync Bridge 架構</h3>
+
+  <div style="background:#1a1a2e; padding:20px; border-radius:8px; margin-bottom:16px;">
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.7; margin:0; white-space:pre-wrap;">                    ┌─────────────────────────────────┐
+                    │        Agent Sync Service        │
+                    │   (Node.js，跑在 Mth server 裡)   │
+                    └─────────┬───────────┬────────────┘
+                              │           │
+              ┌───────────────▼──┐   ┌────▼──────────────┐
+              │   File Scanner   │   │   DB Writer        │
+              │                  │   │                    │
+              │ • 啟動時全掃      │   │ • upsert by fileKey │
+              │ • chokidar watch │   │ • 建立 UUID mapping │
+              │ • 偵測 CRUD      │   │ • 寫入 default co.  │
+              └────────┬─────────┘   └────────▲───────────┘
+                       │                      │
+          ┌────────────▼──────────────────────┐│
+          │                                    ││
+     agents/claude/config.json                 ││
+          │                                    ││
+          │  讀取 → 轉換 → ────────────────────┘│
+          │                                     │
+          │  ┌──────────────────────────────┐    │
+          │  │ Field Mapping                │    │
+          │  │                              │    │
+          │  │ file.adapter    → db.adapterType   │
+          │  │ file.adapterConfig → db.adapterConfig + instructionsFilePath │
+          │  │ file.role       → db.role           │
+          │  │ file.title      → db.title          │
+          │  │ file.emoji      → db.icon (轉換)    │
+          │  │ file.enabled    → db.status         │
+          │  │ file.permissions→ db.permissions     │
+          │  │ file.budget     → db.budgetMonthlyCents │
+          │  │ file.heartbeat  → db.runtimeConfig.heartbeat │
+          │  │ file.skills     → db.runtimeConfig.desiredSkills │
+          │  │                              │    │
+          │  │ 自動注入：                    │    │
+          │  │ • instructionsFilePath = agents/{name}/AGENT.md │
+          │  │ • companyId = DEFAULT_COMPANY │    │
+          │  │ • fileKey = folder name       │    │
+          │  └──────────────────────────────┘    │
+          │                                     │
+          └─────────────────────────────────────┘</pre>
+  </div>
+</div>
+
+<!-- SYNC TRIGGERS -->
+<div class="section">
+  <h3>什麼時候 Sync？</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <tr style="border-bottom:2px solid #444;">
+      <th style="padding:8px; text-align:left; color:#888;">觸發點</th>
+      <th style="padding:8px; text-align:left; color:#888;">行為</th>
+      <th style="padding:8px; text-align:left; color:#888;">說明</th>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">🚀 Server 啟動</td>
+      <td style="padding:8px; color:#c0c0d0;">全量掃描 agents/ → upsert DB</td>
+      <td style="padding:8px; color:#aaa;">確保 DB 跟 file 一致。新 folder → 建 DB record。folder 消失 → soft-delete DB</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">📝 File 修改</td>
+      <td style="padding:8px; color:#c0c0d0;">chokidar watch agents/*/config.json → 更新 DB</td>
+      <td style="padding:8px; color:#aaa;">你手動改 config.json，DB 自動同步。可選功能，v1 可以不做</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">🖱 Chat Settings UI 改 agent</td>
+      <td style="padding:8px; color:#c0c0d0;">寫 agents/{name}/config.json → 觸發 DB sync</td>
+      <td style="padding:8px; color:#aaa;">UI 操作先寫 file，file 是 source of truth</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">🖱 Cowork UI 改 agent</td>
+      <td style="padding:8px; color:#c0c0d0;">寫 DB → 也寫回 agents/{name}/config.json</td>
+      <td style="padding:8px; color:#aaa;">Cowork UI 的改動也要寫回 file，保持雙向一致</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">📂 新增 agent folder</td>
+      <td style="padding:8px; color:#c0c0d0;">偵測新 folder → 生成 UUID → 建 DB record</td>
+      <td style="padding:8px; color:#aaa;">auto-assign default company</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">🗑 刪除 agent folder</td>
+      <td style="padding:8px; color:#c0c0d0;">偵測 folder 消失 → DB soft-delete (enabled=false)</td>
+      <td style="padding:8px; color:#aaa;">不硬刪 DB，保留 heartbeat runs 等歷史資料</td>
+    </tr>
+  </table>
+</div>
+
+<!-- IDENTITY PROBLEM -->
+<div class="section">
+  <h3>身份識別：rename 怎麼辦？</h3>
+
+  <div style="background:#2a1a1a; padding:16px; border-radius:8px; border:1px solid #ff6b6b33; margin-bottom:12px;">
+    <p style="color:#ff6b6b; font-weight:600; margin:0 0 8px;">問題</p>
+    <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+      如果只用 folder name（fileKey）做對應：<br>
+      <code>mv agents/claude agents/claude-dev</code> → sync 會以為「claude 被刪了」+「claude-dev 是新的」<br>
+      → 舊的 heartbeat runs、task sessions、budget 歷史全部斷裂
+    </p>
+  </div>
+
+  <div style="background:#0a2a1a; padding:16px; border-radius:8px; border-left:4px solid #4ecdc4;">
+    <p style="color:#4ecdc4; font-weight:600; margin:0 0 8px;">解法：config.json 裡放穩定 ID</p>
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.5; margin:0; white-space:pre-wrap;">// agents/claude/config.json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",  // 穩定 UUID
+  "adapter": "claude_local",
+  "role": "engineer",
+  ...
+}
+
+Sync 邏輯：
+1. 有 id → 用 id 查 DB（rename folder 不影響）
+2. 沒有 id → 新 agent → 生成 UUID → 寫回 config.json
+3. fileKey 同步更新為當前 folder name</pre>
+    <p style="color:#aaa; margin:8px 0 0; font-size:13px;">
+      UUID 在 config.json 裡 = 穩定身份。<br>
+      folder name = 人類可讀的 key，可以改。<br>
+      兩者都存在 DB 裡：<code>id</code>（PK）+ <code>fileKey</code>（display/lookup）。
+    </p>
+  </div>
+</div>
+
+<!-- DEFAULT COMPANY -->
+<div class="section">
+  <h3>Default Company 策略</h3>
+
+  <div style="background:#1a1a2e; padding:20px; border-radius:8px;">
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.7; margin:0; white-space:pre-wrap;">Mth local_trusted 模式啟動流程：
+
+1. 檢查 DB 有沒有 company
+   └── 沒有 → 建立 DEFAULT_COMPANY
+       {
+         id: auto-gen UUID,
+         name: "MeowTiehEightgent",  // 或讀 project name
+         createdAt: now
+       }
+
+2. 所有 file-based agents → companyId = DEFAULT_COMPANY.id
+
+3. Mth UI 的 company picker → 只有一個 company（隱藏 picker）
+
+4. 未來要 multi-tenant？
+   └── config.json 加 company mapping：
+       {
+         "companies": {
+           "team-a": { "agents": ["claude", "gemini"] },
+           "team-b": { "agents": ["ollama"] }
+         }
+       }
+   └── 但現在不需要。YAGNI。</pre>
+  </div>
+</div>
+
+<!-- DB SCHEMA CHANGES -->
+<div class="section">
+  <h3>DB Schema 需要的改動</h3>
+
+  <div style="background:#1a1a2e; padding:16px; border-radius:8px;">
+    <pre style="color:#c0c0d0; font-size:12px; line-height:1.5; margin:0; white-space:pre-wrap;">-- agents table 新增欄位
+ALTER TABLE agents ADD COLUMN file_key TEXT;
+ALTER TABLE agents ADD COLUMN file_managed BOOLEAN DEFAULT true;
+
+-- file_key = folder name（例："claude"）
+-- 同一 company 內唯一
+CREATE UNIQUE INDEX agents_company_file_key_idx
+  ON agents (company_id, file_key)
+  WHERE file_key IS NOT NULL;
+
+-- file_managed = true 表示由 sync service 管理
+-- false = 純 DB agent（Mth UI 建的、沒有對應 folder）</pre>
+  </div>
+  <p style="color:#aaa; font-size:13px; margin-top:8px;">
+    只加 2 個欄位 + 1 個 index。不動現有 schema。向下相容。
+  </p>
+</div>
+
+<!-- CONFLICT RESOLUTION -->
+<div class="section">
+  <h3>衝突解決策略</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <tr style="border-bottom:2px solid #444;">
+      <th style="padding:8px; text-align:left; color:#888;">衝突情境</th>
+      <th style="padding:8px; text-align:left; color:#888;">誰贏</th>
+      <th style="padding:8px; text-align:left; color:#888;">原因</th>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">File 改了，DB 沒變</td>
+      <td style="padding:8px; color:#6c63ff;">File 贏</td>
+      <td style="padding:8px; color:#aaa;">File 是 source of truth</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">Cowork UI 改了 DB</td>
+      <td style="padding:8px; color:#4ecdc4;">DB 寫回 File</td>
+      <td style="padding:8px; color:#aaa;">Cowork 改動反映到 file，維持一致</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">File 和 DB 同時改</td>
+      <td style="padding:8px; color:#6c63ff;">File 贏</td>
+      <td style="padding:8px; color:#aaa;">本地開發用，不太會發生。File 優先最安全</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">DB 有 agent，file 沒有</td>
+      <td style="padding:8px; color:#888;">保留 DB，標記 file_managed=false</td>
+      <td style="padding:8px; color:#aaa;">可能是 Mth UI 建的純 DB agent</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#fff;">File 有 agent，DB 沒有</td>
+      <td style="padding:8px; color:#6c63ff;">File 贏 → 建 DB record</td>
+      <td style="padding:8px; color:#aaa;">新 agent 或 DB 被清掉了</td>
+    </tr>
+  </table>
+</div>
+
+<!-- IMPLEMENTATION PHASES -->
+<div style="background:#1a1a2e; padding:20px; border-radius:8px; margin-top:16px;">
+  <h3 style="margin-top:0;">Implementation 分階段</h3>
+  <ol style="color:#c0c0d0; line-height:2.2; margin:0; padding-left:20px;">
+    <li><strong>Phase 0（前置）：</strong>DB migration — 加 <code>file_key</code>、<code>file_managed</code> 欄位</li>
+    <li><strong>Phase 1（核心）：</strong>startup sync — server 啟動時掃描 agents/ → upsert DB</li>
+    <li><strong>Phase 2（雙向）：</strong>Cowork UI 改 agent → 寫回 agents/{name}/config.json</li>
+    <li><strong>Phase 3（即時）：</strong>chokidar file watcher — file 改動即時 sync 到 DB</li>
+    <li><strong>Phase 4（穩定 ID）：</strong>config.json 加 UUID，rename folder 不斷裂</li>
+  </ol>
+  <p style="color:#aaa; font-size:13px; margin:12px 0 0;">
+    Phase 1 就能用。Phase 2-4 是增強。可以一個 chunk 一個 chunk 做。
+  </p>
+</div>

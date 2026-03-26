@@ -9,6 +9,7 @@ export function useWebSocket(
   url: string | null,
   wsRef: React.MutableRefObject<WebSocket | null>,
   onMessage?: (data: unknown) => void,
+  onOpen?: () => void,
 ) {
   const urlRef = useRef<string | null>(null);
 
@@ -33,6 +34,10 @@ export function useWebSocket(
     urlRef.current = url;
     const ws = new WebSocket(url);
     wsRef.current = ws;
+
+    if (onOpen) {
+      ws.onopen = onOpen;
+    }
 
     if (onMessage) {
       ws.onmessage = (e) => {

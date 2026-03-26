@@ -1,0 +1,129 @@
+<h2>Backend Merge: Stakeholder Perspectives</h2>
+<p class="subtitle">PM / CEO / CTO — each role weighs in on the merge direction</p>
+
+<div class="section">
+  <h3>PM — Product Manager</h3>
+  <div style="background: #1a1a2e; border-left: 4px solid #6c63ff; padding: 16px 20px; border-radius: 8px; margin-bottom: 12px;">
+    <p style="color: #a0a0c0; margin: 0 0 8px; font-size: 13px;">RECOMMENDATION</p>
+    <p style="color: #fff; font-size: 18px; margin: 0 0 12px; font-weight: 600;">A) Node eats Python — but phased, not big bang</p>
+    <p style="color: #c0c0d0; margin: 0 0 12px; line-height: 1.6;">
+      Users don't care which runtime serves their chat. They care that <strong>Chat agents can work on Cowork issues</strong> and that <strong>Settings is one unified place</strong>, not a Frankenstein of two backends.
+    </p>
+    <p style="color: #c0c0d0; margin: 0 0 12px; line-height: 1.6;">
+      Right now the biggest product gap is: a Chat agent can't check out an issue, can't read project context, can't file a bug. That's the killer feature — <strong>conversational project management</strong>. Merging backends is the prerequisite.
+    </p>
+    <p style="color: #c0c0d0; margin: 0; line-height: 1.6;">
+      <strong>Risk I worry about:</strong> 6-week merge project where nothing ships. Need to keep shipping features during the merge. Phase it so each chunk delivers user-visible value.
+    </p>
+  </div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Key Priorities</h4>
+      <ul>
+        <li>Chat + Cowork integration (agent works on issues)</li>
+        <li>Unified Settings (one source of truth for agents)</li>
+        <li>Keep shipping during merge — no feature freeze</li>
+        <li>Session history must survive the migration</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Concerns</h4>
+      <ul>
+        <li>Big bang rewrite = long dark period with no releases</li>
+        <li>File-based history → DB migration could lose data</li>
+        <li>Two "agent" concepts need clear UX resolution</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>CEO — Founder / Visionary</h3>
+  <div style="background: #1a1a2e; border-left: 4px solid #ff6b6b; padding: 16px 20px; border-radius: 8px; margin-bottom: 12px;">
+    <p style="color: #a0a0c0; margin: 0 0 8px; font-size: 13px;">RECOMMENDATION</p>
+    <p style="color: #fff; font-size: 18px; margin: 0 0 12px; font-weight: 600;">A) Node eats Python — and think BIGGER</p>
+    <p style="color: #c0c0d0; margin: 0 0 12px; line-height: 1.6;">
+      Why are we merging? Not for code cleanliness. Because <strong>the product vision demands it</strong>. The 10-star version of this product is: you chat with AI agents who autonomously manage your entire project — file issues, review PRs, deploy code, track costs, all from a conversation.
+    </p>
+    <p style="color: #c0c0d0; margin: 0 0 12px; line-height: 1.6;">
+      Python Chat is <strong>2,600 lines of beautiful simplicity</strong> — multi-agent orchestration, streaming, memory. But it's hitting a ceiling. No DB means no real querying, no joins, no cost tracking. Node/Mth already has all of that: 58 tables, plugin system, adapter layer, budget enforcement.
+    </p>
+    <p style="color: #c0c0d0; margin: 0; line-height: 1.6;">
+      <strong>The real question isn't "merge backends" — it's "what does Chat become when it has a database, a plugin system, and a job scheduler?"</strong> That's the product unlock. Don't think of this as retiring Python. Think of it as <em>graduating Chat into a full platform</em>.
+    </p>
+  </div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Opportunities</h4>
+      <ul>
+        <li>Chat agents gain: issue checkout, PR review, cost tracking</li>
+        <li>Cowork agents gain: real-time multi-agent conversation</li>
+        <li>One auth system, one deployment, one monitoring stack</li>
+        <li>Plugin ecosystem can extend Chat (MCP-style tools)</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>What keeps me up at night</h4>
+      <ul>
+        <li>Losing Python Chat's simplicity — it "just works" today</li>
+        <li>Node/Mth codebase is 10x larger — complexity risk</li>
+        <li>If merge takes too long, competitors ship first</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>CTO — Technical Architect</h3>
+  <div style="background: #1a1a2e; border-left: 4px solid #4ecdc4; padding: 16px 20px; border-radius: 8px; margin-bottom: 12px;">
+    <p style="color: #a0a0c0; margin: 0 0 8px; font-size: 13px;">RECOMMENDATION</p>
+    <p style="color: #fff; font-size: 18px; margin: 0 0 12px; font-weight: 600;">A) Node eats Python — with a strangler fig pattern</p>
+    <p style="color: #c0c0d0; margin: 0 0 12px; line-height: 1.6;">
+      Option B (Python eats Node) is a non-starter. You'd be reimplementing 58 DB tables, Drizzle ORM, plugin system, adapter layer, and auth — in Python. That's 6+ months of rewrite with zero new features.
+    </p>
+    <p style="color: #c0c0d0; margin: 0 0 12px; line-height: 1.6;">
+      Option C (gateway) is a trap. You still maintain two backends, two deploy targets, two sets of bugs. The gateway adds latency and a third failure point. It delays the real work.
+    </p>
+    <p style="color: #c0c0d0; margin: 0 0 12px; line-height: 1.6;">
+      <strong>Strangler fig approach:</strong> Keep Python running. Build Chat features in Node one by one. Each phase, the UI switches one more endpoint from <code>chatClient</code> → <code>api</code>. When the last endpoint migrates, Python dies naturally. Zero big-bang risk.
+    </p>
+    <p style="color: #c0c0d0; margin: 0; line-height: 1.6;">
+      <strong>Key technical insight:</strong> Python's Chat engine (conversation_engine.py, 200 lines) is the crown jewel — multi-agent turn scheduling, mention handling, probabilistic silence. Port this to TypeScript as a clean module. The rest (file I/O, CRUD routes) is mechanical migration.
+    </p>
+  </div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Architecture Wins</h4>
+      <ul>
+        <li>PostgreSQL replaces fragile file-based storage</li>
+        <li>Drizzle ORM gives type-safe queries (vs raw JSON.parse)</li>
+        <li>Existing adapter system handles LLM providers properly</li>
+        <li>Heartbeat scheduler can replace Python's asyncio subprocess management</li>
+        <li>One WebSocket system instead of two</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Technical Risks & Mitigations</h4>
+      <ul>
+        <li><strong>History migration:</strong> file→DB is lossy if not careful. Write migration script + validation early</li>
+        <li><strong>WS protocol:</strong> Python WS is simpler (direct stream). Node WS is event-based. Need adapter layer</li>
+        <li><strong>Two "agent" concepts:</strong> Python agent = chat persona. Node agent = autonomous worker. Must coexist, not merge prematurely</li>
+        <li><strong>conversation_engine.py:</strong> Port carefully — async Python → async TypeScript has subtle timing differences</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<hr style="border-color: #333; margin: 32px 0;">
+
+<div style="background: #1a1a2e; padding: 20px; border-radius: 8px;">
+  <h3 style="margin-top: 0;">Consensus: A) Node eats Python</h3>
+  <p style="color: #c0c0d0; line-height: 1.6; margin: 0;">
+    All three roles agree on direction. The debate is on <strong>execution strategy</strong>:
+  </p>
+  <ul style="color: #c0c0d0; line-height: 1.8;">
+    <li><strong>PM:</strong> Phase it — each chunk ships user value, no feature freeze</li>
+    <li><strong>CEO:</strong> Think platform — Chat graduating into a full-stack product, not just a port</li>
+    <li><strong>CTO:</strong> Strangler fig — migrate endpoint by endpoint, Python dies naturally when empty</li>
+  </ul>
+</div>

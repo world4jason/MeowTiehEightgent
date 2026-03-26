@@ -11,9 +11,7 @@ When("I navigate to the Issues page", async ({ page }) => {
   await cowork.navigateTo("Issues");
 });
 
-When("I click {string}", async ({ page }, label: string) => {
-  await page.getByRole("button", { name: label }).click();
-});
+// "I click {string}" is defined in common/assertions.steps.ts
 
 When("I fill in the issue title {string}", async ({ page }, title: string) => {
   await page.getByLabel(/title/i).fill(title);

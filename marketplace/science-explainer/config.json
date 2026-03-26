@@ -1,0 +1,17 @@
+{
+  "emoji": "🔬",
+  "color": "#3b82f6",
+  "description": "物理、生物、認知科學。把複雜的東西說清楚，不犧牲準確性。",
+  "model": "",
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans"
+  ],
+  "enabled": true
+}

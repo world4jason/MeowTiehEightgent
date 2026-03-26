@@ -1,0 +1,195 @@
+<h2>Stakeholder Review — 7 個設計決策</h2>
+<p class="subtitle">CEO / CTO / PM 各自審查最終方案</p>
+
+<!-- DECISIONS SUMMARY -->
+<div class="section">
+  <h3>待審方案總覽</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <tr style="border-bottom:2px solid #444;">
+      <th style="padding:8px; text-align:left; color:#888;">#</th>
+      <th style="padding:8px; text-align:left; color:#888;">決策</th>
+      <th style="padding:8px; text-align:left; color:#888;">內容</th>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#6c63ff;">D1</td>
+      <td style="padding:8px; color:#fff;">合併方向</td>
+      <td style="padding:8px; color:#c0c0d0;">Node 吃 Python，strangler fig 分階段</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#6c63ff;">D2</td>
+      <td style="padding:8px; color:#fff;">Storage 分界</td>
+      <td style="padding:8px; color:#c0c0d0;">Config/指令/memory/skills/chat history = file。Runtime = DB + daily JSONL export</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#6c63ff;">D3</td>
+      <td style="padding:8px; color:#fff;">Agent 身份</td>
+      <td style="padding:8px; color:#c0c0d0;">agents/{UUID}/，一個 agent 兩個 context（Chat + Cowork）</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#6c63ff;">D4</td>
+      <td style="padding:8px; color:#fff;">Agent config</td>
+      <td style="padding:8px; color:#c0c0d0;">統一規格，純 file，不進 DB。Mth 直接從 file 讀</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#6c63ff;">D5</td>
+      <td style="padding:8px; color:#fff;">Models → Adapter Presets</td>
+      <td style="padding:8px; color:#c0c0d0;">拆「怎麼連」和「用什麼 model」。Global preset + per-agent override</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#6c63ff;">D6</td>
+      <td style="padding:8px; color:#fff;">Company</td>
+      <td style="padding:8px; color:#c0c0d0;">file-based（config.json），單一 default company</td>
+    </tr>
+    <tr style="border-bottom:1px solid #222;">
+      <td style="padding:8px; color:#6c63ff;">D7</td>
+      <td style="padding:8px; color:#fff;">Daily export</td>
+      <td style="padding:8px; color:#c0c0d0;">DB runtime 資料每天匯出 JSONL 到 server/data/exports/，可 git</td>
+    </tr>
+  </table>
+</div>
+
+<!-- CEO REVIEW -->
+<div class="section">
+  <h3>🔴 CEO — Founder / Visionary</h3>
+  <div style="background:#1a1a2e; border-left:4px solid #ff6b6b; padding:16px 20px; border-radius:8px; margin-bottom:16px;">
+    <p style="color:#ff6b6b; font-weight:600; margin:0 0 12px; font-size:15px;">整體評價：方向正確，但有 2 個產品風險</p>
+
+    <p style="color:#fff; font-weight:600; margin:12px 0 4px;">✅ 喜歡的部分</p>
+    <ul style="color:#c0c0d0; line-height:1.8; margin:0;">
+      <li><strong>D3 一個 agent 兩個 context</strong> — 這是產品的靈魂。「叫 CTO 去處理 issue，然後回來 Chat 報告」這個故事能講了</li>
+      <li><strong>D2 file-first + daily export</strong> — 所有資料都能 git = 你永遠有完整歷史。這對一人團隊是巨大的安全網</li>
+      <li><strong>D5 Adapter Presets</strong> — 拆開連線和 model variant 是正確抽象。未來加 Anthropic Direct API 只是多一個 adapter preset</li>
+    </ul>
+
+    <p style="color:#fff; font-weight:600; margin:16px 0 4px;">⚠️ 產品風險</p>
+    <div style="background:#2a1a1a; padding:12px 16px; border-radius:6px; margin:8px 0;">
+      <p style="color:#ffcc00; font-weight:600; margin:0 0 4px;">風險 1：Mth 不讀 DB agent config = 要改 Mth 多少？</p>
+      <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+        D4 說「Mth 直接從 file 讀 agent config」。但 Mth 的 <strong>每一個 service</strong>（heartbeat、agents、routines、approvals）都是 <code>db.select().from(agents)</code>。
+        讓 Mth 從 file 讀不是改一個 function——是改整個 data access layer。<br><br>
+        <strong>建議：</strong>不要改 Mth 的讀取方式。用一個極輕量的 startup sync（掃 file → upsert DB），讓 Mth 繼續從 DB 讀。
+        File 是 source of truth，DB 是 cache。改動量從「重寫 Mth data layer」降到「寫一個 sync function」。
+      </p>
+    </div>
+    <div style="background:#2a1a1a; padding:12px 16px; border-radius:6px; margin:8px 0;">
+      <p style="color:#ffcc00; font-weight:600; margin:0 0 4px;">風險 2：Chat 功能在 Node 裡重建需要多久？</p>
+      <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+        Python Chat 的核心是 <code>conversation_engine.py</code>（200 行）+ <code>app.py</code> 的 WebSocket handler（~400 行）+ <code>history_manager.py</code>（221 行）。
+        加上 54 個 REST endpoints。這不是小工程。<br><br>
+        <strong>建議：</strong>第一個 phase 不要移植 Chat。先做「Agent 能去 Mth 工作」（Mth 讀 unified agent config）。
+        Chat 移植是第二個 phase。兩個 backend 可以共存更久。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- CTO REVIEW -->
+<div class="section">
+  <h3>🟢 CTO — Technical Architect</h3>
+  <div style="background:#1a1a2e; border-left:4px solid #4ecdc4; padding:16px 20px; border-radius:8px; margin-bottom:16px;">
+    <p style="color:#4ecdc4; font-weight:600; margin:0 0 12px; font-size:15px;">整體評價：架構乾淨，有 3 個技術細節要釘死</p>
+
+    <p style="color:#fff; font-weight:600; margin:12px 0 4px;">✅ 技術上正確的決策</p>
+    <ul style="color:#c0c0d0; line-height:1.8; margin:0;">
+      <li><strong>D3 UUID folder name</strong> — 一舉解決 identity、rename、DB mapping 三個問題。優雅</li>
+      <li><strong>D5 Adapter Presets</strong> — Chat 的 model soft ref 就是 Mth adapter 的退化版。統一抽象是對的</li>
+      <li><strong>D7 Daily JSONL export</strong> — 集中式、按 table 匯出、一行一筆。匯入就是 upsert by PK。最簡單的 round-trip</li>
+    </ul>
+
+    <p style="color:#fff; font-weight:600; margin:16px 0 4px;">🔧 要釘死的技術細節</p>
+    <div style="background:#1a2a2a; padding:12px 16px; border-radius:6px; margin:8px 0;">
+      <p style="color:#4ecdc4; font-weight:600; margin:0 0 4px;">細節 1：Mth 的 agents table 要留還是砍？</p>
+      <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+        D4 說「不進 DB」，但 Mth 有 <strong>17 個 table</strong> 有 FK 指向 agents.id：
+        heartbeatRuns、agentTaskSessions、agentConfigRevisions、agentApiKeys、agentWakeupRequests、
+        agentRuntimeState、routines、approvals... <br><br>
+        <strong>選項 A：</strong>保留 agents table 但改成 file sync 的 cache（CEO 的建議，我同意）<br>
+        <strong>選項 B：</strong>砍掉 agents table，所有 FK 改成 loose UUID string ref<br><br>
+        <strong>我推薦 A。</strong>B 要改 17 個 table + 所有 JOIN query，風險太高。A 只要寫一個 sync function。
+      </p>
+    </div>
+    <div style="background:#1a2a2a; padding:12px 16px; border-radius:6px; margin:8px 0;">
+      <p style="color:#4ecdc4; font-weight:600; margin:0 0 4px;">細節 2：Unified config.json schema 要有 version</p>
+      <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+        Agent config 格式會演化。加一個 <code>"configVersion": 1</code> 欄位，未來 migration 有依據。<br>
+        沒有 version = 視為 v0（現有 Chat 格式），startup sync 時自動 migrate。
+      </p>
+    </div>
+    <div style="background:#1a2a2a; padding:12px 16px; border-radius:6px; margin:8px 0;">
+      <p style="color:#4ecdc4; font-weight:600; margin:0 0 4px;">細節 3：Daily export 的觸發和保留策略</p>
+      <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+        <strong>觸發：</strong>server heartbeat scheduler 每天凌晨跑一次（已有 cron 機制）<br>
+        <strong>保留：</strong>每天一份 JSONL。要不要自動清理舊的？建議保留 30 天，更舊的靠 git history<br>
+        <strong>增量 vs 全量：</strong>v1 先全量（簡單），量大了再改增量
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- PM REVIEW -->
+<div class="section">
+  <h3>🔵 PM — Product Manager</h3>
+  <div style="background:#1a1a2e; border-left:4px solid #6c63ff; padding:16px 20px; border-radius:8px; margin-bottom:16px;">
+    <p style="color:#6c63ff; font-weight:600; margin:0 0 12px; font-size:15px;">整體評價：架構決策完整，但要鎖定 Phase 1 交付物</p>
+
+    <p style="color:#fff; font-weight:600; margin:12px 0 4px;">✅ 產品面的好決策</p>
+    <ul style="color:#c0c0d0; line-height:1.8; margin:0;">
+      <li><strong>D2 File-first</strong> — git 追蹤所有資料 = 你隨時能 time travel。對獨立開發者來說這比 DB backup 可靠</li>
+      <li><strong>D6 Single company</strong> — YAGNI 到位。不做 multi-tenant，省掉大量複雜度</li>
+      <li><strong>D3 一個 agent 兩個 context</strong> — 使用者心智模型最自然。「我的 CTO agent」就是一個人，不管他在 Chat 還是 Cowork</li>
+    </ul>
+
+    <p style="color:#fff; font-weight:600; margin:16px 0 4px;">📋 Phase 1 交付建議</p>
+    <div style="background:#1a1a3a; padding:12px 16px; border-radius:6px; margin:8px 0;">
+      <p style="color:#6c63ff; font-weight:600; margin:0 0 8px;">Phase 1 目標：Agent 能去 Mth 工作</p>
+      <ol style="color:#c0c0d0; line-height:2; margin:0; padding-left:20px;">
+        <li>統一 agent config 格式（D4 + D5）</li>
+        <li>agents/ 改用 UUID folder（D3）</li>
+        <li>config.json 加 company + adapter_presets（D5 + D6）</li>
+        <li>寫 startup sync：file → Mth DB agents table</li>
+        <li>Mth 的 instructionsFilePath 指向 agents/{uuid}/AGENT.md</li>
+        <li>驗證：同一個 agent 能在 Chat 聊天 + 在 Cowork 被 assign issue</li>
+      </ol>
+      <p style="color:#aaa; font-size:13px; margin:8px 0 0;">
+        <strong>不做的：</strong>Chat 移植到 Node（Phase 2）、daily export（Phase 3）、file watcher（Phase 4）
+      </p>
+    </div>
+
+    <p style="color:#fff; font-weight:600; margin:16px 0 4px;">⚠️ 使用者體驗風險</p>
+    <div style="background:#2a1a2a; padding:12px 16px; border-radius:6px; margin:8px 0;">
+      <p style="color:#ff6b6b; font-weight:600; margin:0 0 4px;">UUID folder 的可讀性</p>
+      <p style="color:#c0c0d0; margin:0; line-height:1.6;">
+        <code>agents/550e8400-e29b-41d4-a716-446655440000/</code> 在 terminal 裡很醜。<br>
+        大部分操作會透過 UI，但偶爾 <code>ls agents/</code> 或 <code>git log</code> 時辨識度低。<br><br>
+        <strong>緩解：</strong>可以考慮用短 UUID（8 碼）或 <code>{short-uuid}-{name}</code> 格式如 <code>550e8400-CTO/</code>。
+        但這增加複雜度，v1 先用純 UUID 也行。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- CONSENSUS -->
+<div style="background:#1a1a2e; padding:20px; border-radius:8px; margin-top:24px; border:1px solid #444;">
+  <h3 style="margin-top:0; color:#fff;">三方共識 & 修正建議</h3>
+
+  <p style="color:#4ecdc4; font-weight:600; margin:8px 0 4px;">全員同意</p>
+  <ul style="color:#c0c0d0; line-height:1.8;">
+    <li>D1（Node 吃 Python）、D2（file-first + DB runtime）、D3（UUID folder）、D5（adapter presets）、D6（single company）、D7（daily JSONL）</li>
+  </ul>
+
+  <p style="color:#ffcc00; font-weight:600; margin:16px 0 4px;">D4 需要修正 — 「不進 DB」改為「file 是 source of truth，DB 是 sync cache」</p>
+  <ul style="color:#c0c0d0; line-height:1.8;">
+    <li>Mth 有 17 個 table FK 指向 agents.id，不可能全砍</li>
+    <li>保留 agents table，但內容由 startup sync 從 file 灌入</li>
+    <li>File 改了 → 重啟或 file watcher 更新 DB</li>
+    <li>這是 CEO 和 CTO 一致的建議</li>
+  </ul>
+
+  <p style="color:#6c63ff; font-weight:600; margin:16px 0 4px;">新增建議</p>
+  <ul style="color:#c0c0d0; line-height:1.8;">
+    <li><strong>CTO：</strong>config.json 加 <code>configVersion: 1</code> 欄位，方便未來 migration</li>
+    <li><strong>CTO：</strong>daily export 保留 30 天，更舊的靠 git history</li>
+    <li><strong>PM：</strong>Phase 1 只做「agent 能去 Mth 工作」，Chat 移植是 Phase 2</li>
+    <li><strong>PM：</strong>考慮 UUID folder 可讀性（短 UUID 或 uuid-name 格式）</li>
+  </ul>
+</div>

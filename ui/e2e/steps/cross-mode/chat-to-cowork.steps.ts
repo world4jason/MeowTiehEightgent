@@ -25,10 +25,7 @@ When("the agent creates an issue via intent router", async ({ page }) => {
   await page.waitForTimeout(2000); // Wait for mock response
 });
 
-When("I navigate to the Issues page", async ({ page }) => {
-  const layout = new CoworkLayout(page);
-  await layout.navigateTo("Issues");
-});
+// "I navigate to the Issues page" is defined in cowork/issues.steps.ts
 
 Then("the newly created issue should be visible", async ({ page }) => {
   // The issue created via intent router should appear in the Cowork issues list
