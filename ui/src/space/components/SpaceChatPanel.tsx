@@ -130,7 +130,7 @@ export function SpaceChatPanel({
   }, []);
 
   return (
-    <div className="absolute right-0 top-0 h-full w-80 border-l border-border bg-background flex flex-col z-10 shadow-xl">
+    <div className="h-full w-80 shrink-0 border-l border-border bg-background flex flex-col z-10 shadow-xl">
       {/* Header */}
       <div className="shrink-0 flex items-center gap-2 border-b border-border px-3 py-2">
         <div className="flex items-center gap-1 flex-1 overflow-hidden">
@@ -145,10 +145,10 @@ export function SpaceChatPanel({
         </div>
         <button
           aria-label="Close chat panel"
-          onClick={onClose}
-          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="shrink-0 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
       </div>
 

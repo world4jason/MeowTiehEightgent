@@ -46,7 +46,8 @@ export function useProximity(allAgents: AgentInfo[]) {
 
   const endInteraction = useCallback(() => {
     setInteractingAgent(null);
-  }, [setInteractingAgent]);
+    setActiveSessionId(null);
+  }, [setInteractingAgent, setActiveSessionId]);
 
   const interactingAgents: AgentInfo[] = interactingAgent
     ? allAgents.filter((a) => proximityAgents.includes(a.name))
