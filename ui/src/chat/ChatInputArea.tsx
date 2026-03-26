@@ -45,9 +45,9 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
   const agent = useAgentPicker(agents);
   const { images, attach, remove, clear } = useImageAttachment(supportsImage);
 
-  // P2-12: Enter-to-Send Toggle — default false (Manual mode)
+  // P2-12: Enter-to-Send Toggle — default true (Enter sends)
   const [enterToSend, setEnterToSend] = useState<boolean>(() => {
-    try { return localStorage.getItem("enter-to-send") === "true"; } catch { return false; }
+    try { const v = localStorage.getItem("enter-to-send"); return v === null ? true : v === "true"; } catch { return true; }
   });
 
   function toggleEnterToSend() {
@@ -83,7 +83,9 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
     return finalText;
   }
 
+  const sendingRef = useRef(false);
   function send() {
+    if (sendingRef.current) return; // debounce
     const finalText = buildFinalText();
     if (!finalText && images.length === 0) return;
 
@@ -97,12 +99,14 @@ export function ChatInputArea({ skills, agents, onSend, disabled, supportsImage 
       return;
     }
 
+    sendingRef.current = true;
     onSend({ text: finalText, images: images.length > 0 ? images.map((i) => i.base64) : undefined });
     setText("");
     setTextFiles([]);
     clear();
     skill.close();
     agent.close();
+    setTimeout(() => { sendingRef.current = false; }, 300);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {

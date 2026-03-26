@@ -14,7 +14,15 @@ export function useWebSocket(
   const urlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!url) return;
+    // URL gone (e.g. left chat / new chat) — close WS to stop burning tokens
+    if (!url) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      urlRef.current = null;
+      return;
+    }
 
     // Already connected to same URL — skip
     if (

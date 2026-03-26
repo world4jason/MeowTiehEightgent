@@ -55,6 +55,11 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const roundsRef = useRef(rounds);
   roundsRef.current = rounds;
 
+  // Pending session config: set by handleScenarioStart, consumed by handleOpen
+  const pendingConfigRef = useRef<{ agents: string[]; topic?: string; systemPrompt?: string } | null>(null);
+  // Skip history fetch for brand new sessions (WS will deliver messages)
+  const isNewSessionRef = useRef(false);
+
   // Data queries
   const { data: allAgents = [] } = useAgentsList();
   const { data: workspaces = [] } = useWorkspaces();
@@ -103,6 +108,12 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
       if (!isVisible) setHasUnreadChat(true);
     } else if (msg.type === "done") {
       setMessages(applyDoneMessage);
+    } else if (msg.type === "message" && String(msg.agent ?? "") === "Human") {
+      // User message echoed back from server (e.g. topic as first message)
+      const text = String(msg.text ?? msg.content ?? "");
+      if (text.trim()) {
+        setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", content: text, timestamp: Date.now() }]);
+      }
     } else if (msg.type === "message" && String(msg.agent ?? "") !== "Human") {
       // Final full message (fallback if no stream_start/chunk flow)
       const agentName = String(msg.agent ?? "");
@@ -152,13 +163,17 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     setWsConnected(false);
   }, [activeSessionId]);
 
-  // On WS open: send the start/resume message with all available agents
+  // On WS open: send init message with correct agents (selected or all for resume)
   const handleOpen = useCallback(() => {
     if (!activeSessionId || !wsRef.current) return;
+    const pending = pendingConfigRef.current;
+    pendingConfigRef.current = null; // consume once
+
     wsRef.current.send(JSON.stringify({
-      topic: "",
-      agents: allAgentsRef.current.map((a) => a.name),
-      resume_from: activeSessionId,
+      topic: pending?.topic ?? "",
+      system_prompt: pending?.systemPrompt,
+      agents: pending?.agents ?? allAgentsRef.current.map((a) => a.name),
+      resume_from: pending ? undefined : activeSessionId,
       auto: autoModeRef.current,
       rounds: roundsRef.current,
     }));
@@ -185,9 +200,10 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
   const sendCreateIssue = (data: { title: string; description: string; assignee?: string }) =>
     sendWs({ type: "agent:intent", intent: "create_issue", payload: data });
 
-  // Load messages when session changes
+  // Load messages when session changes (skip for brand new sessions — WS delivers messages)
   useEffect(() => {
     if (!activeSessionId) { setMessages([]); setTopic(""); return; }
+    if (isNewSessionRef.current) { isNewSessionRef.current = false; return; }
     fetch(`${CHAT_URL}/sessions/${activeSessionId}`)
       .then((r) => r.json())
       .then((data) => {
@@ -243,22 +259,29 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
     setAgents((prev) => prev.filter((a) => a.name !== agentName));
   }
 
-  async function handleNewSession(workspaceId?: string) {
-    if (createSession.isPending) return; // debounce: prevent duplicate creation
-    const s = await createSession.mutateAsync(workspaceId);
-    setActiveSessionId(s.id);
+  function handleNewSession() {
+    // Go back to WelcomeScreen so user can pick agents/topic
+    setActiveSessionId(null);
     setMessages([]);
+    setAgents([]);
   }
 
   async function handleScenarioStart(config: { agents: string[]; systemPrompt?: string; topic?: string; workspaceId?: string }) {
-    const s = await createSession.mutateAsync(config.workspaceId);
-    setActiveSessionId(s.id);
-    setMessages([]);
-    // Brief delay to let WS connect, then send system setup
-    setTimeout(() => {
-      const { workspaceId: _wid, ...scenarioPayload } = config;
-      wsRef.current?.send(JSON.stringify({ type: "scenario_start", ...scenarioPayload }));
-    }, 300);
+    // Store config so handleOpen sends the correct agents/topic when WS connects
+    pendingConfigRef.current = {
+      agents: config.agents,
+      topic: config.topic,
+      systemPrompt: config.systemPrompt,
+    };
+    try {
+      const s = await createSession.mutateAsync(config.workspaceId);
+      isNewSessionRef.current = true; // skip history fetch — WS will deliver messages
+      setActiveSessionId(s.id); // triggers WS connect → handleOpen reads pendingConfigRef
+      setMessages([]);
+    } catch (err) {
+      console.error("Failed to create session:", err);
+      pendingConfigRef.current = null;
+    }
   }
 
   const showWelcome = !activeSessionId;
@@ -375,10 +398,10 @@ export function ChatPage({ isVisible = true, onOpenSettings }: { isVisible?: boo
             {!showWelcome && (
               <ChatInputArea
                 skills={skills}
-                agents={allAgents}
+                agents={agents}
                 onSend={handleSend}
                 disabled={!isConnected}
-                supportsImage={allAgents.some((a) => a.name === agents[0]?.name && a.supportsImage)}
+                supportsImage={agents.some((a) => a.supportsImage)}
                 isStreaming={isStreaming}
                 onStop={handleStop}
                 paused={paused}

@@ -5,7 +5,7 @@ import { ChatMessage } from "./types";
  * Backend format: { type: "message"|"user", agent?: string, text: string, timestamp?: string }
  */
 export function toHistoryChatMessage(raw: Record<string, unknown>): ChatMessage {
-  const isUser = raw.type === "user" || raw.role === "user";
+  const isUser = raw.type === "user" || raw.role === "user" || String(raw.agent ?? "") === "Human";
   return {
     id: crypto.randomUUID(),
     role: isUser ? "user" : "agent",

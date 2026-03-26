@@ -443,6 +443,20 @@ export function handleChatWebSocket(
       return;
     }
 
+    // Notify frontend which agents are active in this session
+    send(ws, {
+      type: "agents",
+      agents: activeAgents.map((a) => ({
+        name: a.name,
+        emoji: a.emoji ?? "🤖",
+        color: a.color ?? "#6366F1",
+        model: a.model ?? "",
+        mode: (a.mode as string) ?? "chat",
+        supportsThinking: a.supportsThinking ?? false,
+        supportsImage: a.supportsImage ?? false,
+      })),
+    });
+
     // Per-agent mode state
     const agentModes: Record<string, "chat" | "think"> = {};
     for (const a of activeAgents) {
@@ -487,6 +501,8 @@ export function handleChatWebSocket(
       };
       messages.push(hmsg);
       await saveMessage(historyDir, sessionId, hmsg);
+      // Send topic back to frontend so the user sees what they typed
+      send(ws, { type: "message", agent: "Human", text: topic });
     }
 
     // ── 6. Engine ───────────────────────────────────────────────────────────
