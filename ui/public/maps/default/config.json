@@ -1,0 +1,8 @@
+{
+  "id": "default",
+  "name": "智囊團大廳",
+  "width": 20,
+  "height": 15,
+  "tileSize": 32,
+  "spawnPoint": { "x": 10, "y": 12 }
+}
