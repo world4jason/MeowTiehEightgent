@@ -85,11 +85,22 @@ export class TestFactory {
   }
 
   async createModel(opts?: { name?: string; type?: string }) {
-    // Models are stored in config.json, not a REST CRUD API.
-    // There is no POST /chat/api/models endpoint.
-    // Return a stub name; tests that need models should use the UI.
+    // Models are adapter-presets, not a separate CRUD resource.
+    // POST /chat/api/adapter-presets creates a new adapter preset (= "model").
     const name = opts?.name || `${this.prefix}-model-${Date.now()}`;
-    console.warn(`TestFactory.createModel: POST /chat/api/models not available; returning stub for "${name}"`);
+    const adapterType = opts?.type || "cli";
+    try {
+      await this.apiPost("/chat/api/adapter-presets", {
+        type: name,
+        adapter: adapterType === "ollama" ? "ollama-local" : "claude-local",
+        label: name,
+        config: {},
+      });
+      this.tracked.push({ type: "model", id: name, deleteUrl: `/chat/api/adapter-presets/${name}` });
+    } catch {
+      // Adapter preset may already exist or API may not support creation — continue gracefully
+      console.warn(`TestFactory.createModel: could not create adapter-preset "${name}", continuing`);
+    }
     return { name };
   }
 
