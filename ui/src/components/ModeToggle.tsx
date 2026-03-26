@@ -47,8 +47,8 @@ export function ModeToggle({
           : undefined
       )}
       {btn("cowork", "Cowork", coworkOnline)}
-      {btn("settings", "Settings", settingsOnline)}
       {btn("space", "Space", spaceOnline)}
+      {btn("settings", "Settings", settingsOnline)}
     </div>
   );
 }

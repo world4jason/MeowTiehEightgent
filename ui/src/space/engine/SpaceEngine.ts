@@ -37,12 +37,23 @@ export class SpaceEngine {
   }
 
   async init(container: HTMLElement): Promise<void> {
-    await this.app.init({
-      resizeTo: container,
-      backgroundColor: 0x1a1a2e,
-      antialias: false,
-      resolution: 1,
-    });
+    try {
+      await this.app.init({
+        preference: "webgl",
+        resizeTo: container,
+        backgroundColor: 0x1a1a2e,
+        antialias: false,
+        resolution: 1,
+      });
+    } catch {
+      // WebGL failed, try webgpu or canvas fallback
+      await this.app.init({
+        resizeTo: container,
+        backgroundColor: 0x1a1a2e,
+        antialias: false,
+        resolution: 1,
+      });
+    }
     container.appendChild(this.app.canvas);
 
     const mapData = await loadMapData("/maps/default/map.json");

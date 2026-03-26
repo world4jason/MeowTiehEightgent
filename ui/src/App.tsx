@@ -330,8 +330,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "1") { e.preventDefault(); setMode("chat"); }
       if ((e.metaKey || e.ctrlKey) && e.key === "2") { e.preventDefault(); setMode("cowork"); }
-      if ((e.metaKey || e.ctrlKey) && e.key === "3") { e.preventDefault(); setMode("settings"); }
-      if ((e.metaKey || e.ctrlKey) && e.key === "4") { e.preventDefault(); setMode("space"); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "3") { e.preventDefault(); setMode("space"); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "4") { e.preventDefault(); setMode("settings"); }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -362,9 +362,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <SettingsShell coworkOnline={coworkOnline} />
           </div>
         )}
-        <div className={mode === "space" ? "flex flex-1 overflow-hidden" : "hidden"}>
-          <SpacePage />
-        </div>
+        {mode === "space" && (
+          <div className="flex flex-1 overflow-hidden">
+            <SpacePage />
+          </div>
+        )}
       </main>
     </div>
   );

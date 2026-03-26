@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { Component, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { SpaceEngine } from "./engine/SpaceEngine";
 import { SpaceProvider, useSpace } from "./SpaceContext";
 import { AgentPreview } from "./components/AgentPreview";
@@ -7,6 +7,35 @@ import { useProximity } from "./hooks/useProximity";
 import { useSpaceWs } from "./hooks/useSpaceWs";
 import { useAgentsList } from "../chat/hooks/useChatApi";
 import type { AgentPosition } from "./types";
+
+class SpaceErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 text-muted-foreground">
+          <p className="text-lg font-medium">Space mode 載入失敗</p>
+          <p className="text-sm">{this.state.error.message}</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+          >
+            重試
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function SpaceContent() {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -125,8 +154,10 @@ function SpaceContent() {
 
 export function SpacePage() {
   return (
-    <SpaceProvider>
-      <SpaceContent />
-    </SpaceProvider>
+    <SpaceErrorBoundary>
+      <SpaceProvider>
+        <SpaceContent />
+      </SpaceProvider>
+    </SpaceErrorBoundary>
   );
 }
