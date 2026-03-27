@@ -464,17 +464,41 @@ async def write_daily_summary(agent: dict):
 
 
 def _resolve_supports_image(agent: dict) -> bool:
-    """Resolve whether this agent supports image input.
+    """Precedence: agent-level > adapter preset (v1) > model_config > DEFAULT_MODELS > True.
 
-    Precedence: agent-level ``supports_image`` > DEFAULT_MODELS lookup > True.
+    For v1 agents (configVersion >= 1):
+      1. Agent-level ``supports_image`` (set by user or copied by _merge_v1_agent)
+      2. Adapter preset ``supports_image``
+      3. Fallback True
 
-    For v1 agents, ``supports_image`` is already copied from the adapter preset
-    into the agent dict by ``_merge_v1_agent``, so no preset lookup is needed here.
+    For v0 agents (legacy):
+      1. Agent-level ``supports_image``
+      2. model_config ``supports_image``
+      3. DEFAULT_MODELS lookup by model name
+      4. Fallback True
     """
+    # Step 1: agent-level override (works for both v0 and v1)
     if "supports_image" in agent:
         return bool(agent["supports_image"])
-    # v0 fallback: DEFAULT_MODELS lookup by model name
+
+    # Step 2 (v1): look up adapter preset
+    if agent.get("configVersion", 0) >= 1:
+        adapter_type = agent.get("adapter", "")
+        if adapter_type:
+            import app as _app
+            presets = _app.load_adapter_presets()
+            preset = presets.get(adapter_type) or {}
+            if "supports_image" in preset:
+                return bool(preset["supports_image"])
+        return True
+
+    # Step 2 (v0): model_config then DEFAULT_MODELS
+    model_cfg = agent.get("model_config") or {}
+    if "supports_image" in model_cfg:
+        return bool(model_cfg["supports_image"])
     model_name = agent.get("model", "")
     if model_name in DEFAULT_MODELS and "supports_image" in DEFAULT_MODELS[model_name]:
         return bool(DEFAULT_MODELS[model_name]["supports_image"])
     return True
+
+
