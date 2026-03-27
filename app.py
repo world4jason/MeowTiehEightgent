@@ -607,7 +607,7 @@ def resolve_human_text(text: str, workspace_id: str | None = None) -> tuple[str,
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
-def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None, all_agents: list[dict] | None = None, mode: str = "chat", scenario_system_prompt: str | None = None, blank_mode: bool = False) -> str:
+def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None, all_agents: list[dict] | None = None, mode: str = "chat", scenario_system_prompt: str | None = None, blank_mode: bool = False, kanban_state: list[dict] | None = None) -> str:
     ws: Path = agent["workspace"]
     parts = []
     mode_prefix = "Keep your response concise — 2-3 sentences max.\n\n" if mode == "chat" else ""
@@ -645,6 +645,21 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
             if guide_parts:
                 parts.append("## Workspace Guide\n\n" + "\n\n".join(guide_parts))
     # blank_mode: inject nothing
+
+    # Kanban discussion state
+    if kanban_state:
+        todo = [i["text"] for i in kanban_state if i.get("status") == "todo"]
+        wip = [i["text"] for i in kanban_state if i.get("status") == "wip"]
+        done = [i["text"] for i in kanban_state if i.get("status") == "done"]
+        lines = ["## Discussion Board"]
+        if wip:
+            lines.append("**In Progress:** " + ", ".join(wip))
+        if todo:
+            lines.append("**TODO:** " + ", ".join(todo))
+        if done:
+            lines.append("**Done:** " + ", ".join(done))
+        lines.append("\nFocus on In Progress items. Refer to this board to stay aligned with the discussion goals.")
+        parts.append("\n".join(lines))
 
     # AGENT.md first — main operational instructions
     for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
@@ -2476,6 +2491,7 @@ async def websocket_endpoint(ws: WebSocket):
     workspace_id: str | None = data.get("workspace_id") or None
     scenario_id: str | None = data.get("scenario_id") or None
     blank_mode: bool = bool(data.get("blank_mode", False))
+    kanban_state: list[dict] = data.get("kanban", [])
 
     session_id = resume_id if resume_id else (
         datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_" + uuid.uuid4().hex[:6]
@@ -2688,6 +2704,7 @@ async def websocket_endpoint(ws: WebSocket):
                         mode=_current_mode,
                         scenario_system_prompt=scenario_system_prompt,
                         blank_mode=blank_mode,
+                        kanban_state=kanban_state,
                     )
                     async for chunk in stream_agent(agent, _prompt, images=turn_images or None, mode=_current_mode):
                         if isinstance(chunk, TokenUsage):
@@ -2741,6 +2758,8 @@ async def websocket_endpoint(ws: WebSocket):
                         await handle_member_event(evt)
                     elif t == "set_mode":
                         await _handle_set_mode(ws, evt, agent_modes, active_agents)
+                    elif t == "kanban_update":
+                        kanban_state = evt.get("items", [])
                     elif t == "human":
                         pending_humans.append(evt)
 

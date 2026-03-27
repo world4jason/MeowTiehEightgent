@@ -130,14 +130,16 @@
   /* Phase 1.2: 3-way context mode toggle */
   .context-mode-toggle { display: flex; gap: 4px; padding: 3px; background: var(--surface); border-radius: 8px; margin-bottom: 14px; }
   .context-mode-btn { flex: 1; padding: 7px 10px; border: none; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
-  .context-mode-btn.active { background: var(--bg); color: var(--text); font-weight: 500; }
+  .context-mode-btn.active { background: #10a37f; color: #fff; font-weight: 600; }
 
   /* Phase 1.2: Scenario picker */
   .scenario-picker { display: none; }
   .scenario-picker.visible { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
   .scenario-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: all 0.15s; }
   .scenario-card:hover { border-color: #555; }
-  .scenario-card.selected { border-color: var(--accent, #6366f1); background: rgba(99,102,241,0.08); }
+  .scenario-card.selected { border-color: #10a37f; border-width: 2px; background: rgba(16,163,127,0.10); box-shadow: 0 0 0 1px #10a37f; }
+  .scenario-card .scenario-selected-hint { display: none; }
+  .scenario-card.selected .scenario-selected-hint { display: block; margin-top: 8px; font-size: 0.75rem; color: #10a37f; font-weight: 500; }
   .scenario-card-name { font-size: 0.87rem; font-weight: 600; color: var(--text); margin-bottom: 3px; }
   .scenario-card-desc { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
   .scenario-card-agents { display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
@@ -154,10 +156,31 @@
 
   /* ── Chat ── */
   #chat-area { display: none; flex-direction: column; flex: 1; overflow: hidden; }
-  #chat-header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  #chat-header { padding: 10px 20px; border-bottom: none; display: flex; align-items: center; gap: 8px; }
   #chat-header .topic-text { font-size: 0.85rem; color: var(--text-muted); flex: 1; }
   #chat-header .agents-pills { display: flex; gap: 5px; }
   .agent-pill { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+
+  /* ── Mini Kanban ── */
+  #kanban-bar { display: none; padding: 8px 20px 10px; border-bottom: 1px solid var(--border); }
+  #kanban-bar.visible { display: flex; gap: 12px; }
+  .kanban-col { flex: 1; min-width: 0; }
+  .kanban-col-header { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px; display: flex; align-items: center; gap: 5px; }
+  .kanban-col-header .kanban-count { font-size: 0.62rem; background: var(--surface2); border-radius: 4px; padding: 0 5px; color: var(--text-muted); }
+  .kanban-todo .kanban-col-header { color: #94a3b8; }
+  .kanban-wip .kanban-col-header { color: #f59e0b; }
+  .kanban-done .kanban-col-header { color: #10b981; }
+  .kanban-items { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; }
+  .kanban-item { font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); color: var(--text); cursor: pointer; transition: all 0.12s; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+  .kanban-item:hover { border-color: #555; }
+  .kanban-todo .kanban-item { border-left: 2px solid #94a3b8; }
+  .kanban-wip .kanban-item { border-left: 2px solid #f59e0b; background: rgba(245,158,11,0.06); }
+  .kanban-done .kanban-item { border-left: 2px solid #10b981; color: var(--text-muted); text-decoration: line-through; }
+  #kanban-add-wrap { display: flex; gap: 4px; margin-top: 4px; }
+  #kanban-add-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 3px 7px; font-size: 0.72rem; color: var(--text); outline: none; }
+  #kanban-add-input::placeholder { color: var(--text-muted); }
+  #kanban-add-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; font-size: 0.7rem; color: var(--text-muted); cursor: pointer; }
+  #kanban-add-btn:hover { color: var(--text); }
 
   #messages { flex: 1; overflow-y: auto; padding: 16px 0 16px; display: flex; flex-direction: column; }
   #messages::-webkit-scrollbar { width: 5px; }
@@ -727,6 +750,20 @@
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8h2M11 8h6M7 12h3M14 12h3"/></svg>
       </button>
     </div>
+    <div id="kanban-bar">
+      <div class="kanban-col kanban-todo">
+        <div class="kanban-col-header">TODO <span class="kanban-count" id="kanban-todo-count">0</span></div>
+        <div class="kanban-items" id="kanban-todo-items"></div>
+      </div>
+      <div class="kanban-col kanban-wip">
+        <div class="kanban-col-header">In Progress <span class="kanban-count" id="kanban-wip-count">0</span></div>
+        <div class="kanban-items" id="kanban-wip-items"></div>
+      </div>
+      <div class="kanban-col kanban-done">
+        <div class="kanban-col-header">Done <span class="kanban-count" id="kanban-done-count">0</span></div>
+        <div class="kanban-items" id="kanban-done-items"></div>
+      </div>
+    </div>
     <div id="chat-body">
       <div id="messages"></div>
       <div id="runs-panel">
@@ -785,6 +822,7 @@
         <div class="settings-nav-item" data-tab="agents" onclick="switchSettingsTab('agents')">代理人</div>
         <div class="settings-nav-item" data-tab="market" onclick="switchSettingsTab('market')">市場</div>
         <div class="settings-nav-item" data-tab="skills" onclick="switchSettingsTab('skills')">技能</div>
+        <div class="settings-nav-item" data-tab="scenarios" onclick="switchSettingsTab('scenarios')">情境</div>
         <div class="settings-nav-item" data-tab="workspaces" onclick="switchSettingsTab('workspaces')">工作區</div>
         <div class="settings-nav-item" data-tab="default" onclick="switchSettingsTab('default')">靈魂</div>
         <div class="settings-nav-item" data-tab="about-system" onclick="switchSettingsTab('about-system')">關於</div>
@@ -870,6 +908,58 @@
             <div class="asst-edit-body" id="skill-edit-body"></div>
             <div class="asst-edit-footer">
               <button class="asst-edit-save-btn" onclick="saveSkillEdit()">儲存</button>
+            </div>
+          </div>
+        </div>
+        <!-- 情境 tab -->
+        <div class="settings-tab" id="tab-scenarios">
+          <div class="settings-tab-header" style="display:flex;align-items:center;gap:8px;padding:12px 16px 0">
+            <span style="flex:1;font-size:0.8rem;color:var(--text-muted)">對話情境模板</span>
+            <button class="bar-btn" onclick="openAddScenario()">＋ 新增</button>
+          </div>
+          <div class="settings-tab-body" id="tab-scenarios-body"></div>
+          <!-- add scenario form -->
+          <div id="scenario-add-panel" style="display:none">
+            <div class="asst-edit-header">
+              <button class="asst-edit-back" onclick="closeAddScenario()">← 返回</button>
+              <span class="asst-edit-title">新增情境</span>
+            </div>
+            <div class="asst-edit-body">
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">ID（英文，用於資料夾）</span>
+                <input class="asst-edit-input" id="new-scenario-id" placeholder="my-scenario">
+              </div>
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">名稱</span>
+                <input class="asst-edit-input" id="new-scenario-name" placeholder="我的情境">
+              </div>
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">描述</span>
+                <input class="asst-edit-input" id="new-scenario-desc" placeholder="一句話描述這個情境">
+              </div>
+              <div class="asst-edit-field">
+                <span class="asst-edit-label">主題提示（選填）</span>
+                <input class="asst-edit-input" id="new-scenario-hint" placeholder="輸入時的預設提示文字">
+              </div>
+              <div class="asst-edit-field" style="flex:1;min-height:0;display:flex;flex-direction:column">
+                <span class="asst-edit-label">系統提示詞</span>
+                <textarea class="asst-edit-input asst-edit-textarea" id="new-scenario-prompt" placeholder="給 Agent 的指示..." style="flex:1;min-height:120px;resize:vertical"></textarea>
+              </div>
+            </div>
+            <div class="asst-edit-footer">
+              <button class="asst-edit-save-btn" onclick="submitNewScenario()">建立</button>
+            </div>
+          </div>
+          <!-- edit scenario panel -->
+          <div id="scenario-edit-panel" style="display:none">
+            <div class="asst-edit-header">
+              <button class="asst-edit-back" onclick="closeScenarioEdit()">← 返回</button>
+              <span class="asst-edit-title" id="scenario-edit-title">編輯情境</span>
+            </div>
+            <div class="asst-edit-body" id="scenario-edit-body"></div>
+            <div class="asst-edit-footer">
+              <button class="asst-edit-save-btn" onclick="saveScenarioEdit()">儲存</button>
+              <button class="asst-edit-save-btn" style="background:#dc2626;margin-left:8px" onclick="deleteScenarioEdit()">刪除</button>
             </div>
           </div>
         </div>
@@ -1285,31 +1375,26 @@ function renderScenarioPicker() {
   }
   picker.innerHTML = scenariosCache.map(s => `
     <div class="scenario-card${selectedScenarioId === s.id ? ' selected' : ''}"
-         onclick="selectScenario(${JSON.stringify(s.id)}, ${JSON.stringify(s.topic_hint || '')}, ${JSON.stringify((s.suggested_agents || []).join(','))})">
+         onclick='selectScenario(${JSON.stringify(s.id)}, ${JSON.stringify(s.topic_hint || '')}, ${JSON.stringify((s.suggested_agents || []).join(','))})'>
       <div class="scenario-card-name">${esc(s.name || '')}</div>
       <div class="scenario-card-desc">${esc(s.description || '')}</div>
-      ${(s.suggested_agents || []).length ? `<div class="scenario-card-agents">${(s.suggested_agents || []).map(a => `<span class="scenario-agent-badge">${esc(a)}</span>`).join('')}</div>` : ''}
+      <div class="scenario-selected-hint">✓ 已選定此情境</div>
     </div>
   `).join('');
 }
 
 function selectScenario(id, topicHint, suggestedAgentsStr) {
+  const topicInput = document.getElementById('topic-input');
   if (selectedScenarioId === id) {
     selectedScenarioId = null;  // deselect on second click
+    if (topicInput) topicInput.value = '';
+    if (topicInput) topicInput.placeholder = '輸入討論主題...';
   } else {
     selectedScenarioId = id;
-    // Pre-fill topic hint if topic input is empty
-    if (topicHint) {
-      const topicInput = document.getElementById('topic-input');
-      if (topicInput && !topicInput.value.trim()) topicInput.value = topicHint;
-    }
-    // Pre-check suggested agents
-    const suggested = suggestedAgentsStr ? suggestedAgentsStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
-    if (suggested.length) {
-      document.querySelectorAll('.agent-checkbox').forEach(cb => {
-        const name = (cb.dataset.agent || cb.value || '').toLowerCase();
-        cb.checked = suggested.includes(name);
-      });
+    // Set topic hint as placeholder, don't auto-fill
+    if (topicInput) {
+      topicInput.value = '';
+      topicInput.placeholder = topicHint || '輸入討論主題...';
     }
   }
   renderScenarioPicker();
@@ -2301,6 +2386,7 @@ function startSession() {
   showChatArea();
   document.getElementById('messages').innerHTML = '';
   document.getElementById('chat-topic').textContent = topic;
+  initKanbanFromTopic(topic);
   // Show first input as a Human message bubble, not just the topic header
   addMessage('Human', topicRaw, '#60a5fa', new Date().toISOString());
   document.getElementById('msg-input').focus();
@@ -2337,6 +2423,7 @@ function startSession() {
     workspace_id: selectedWorkspaceId || null,
     scenario_id: contextMode === 'scenario' ? selectedScenarioId : null,
     blank_mode: contextMode === 'blank',
+    kanban: kanbanItems,
   };
 
   _wsIntentionalClose = false;
@@ -2845,6 +2932,7 @@ function switchSettingsTab(tab) {
   if (tab === 'agents') renderPersonaList();
   if (tab === 'market') renderMarketTab();
   if (tab === 'skills') renderSkillsTab();
+  if (tab === 'scenarios') renderScenariosTab();
   if (tab === 'workspaces') renderWorkspacesTab();
   if (tab === 'default') renderDefaultTab();
 }
@@ -3740,6 +3828,216 @@ async function uploadSkillZip(input) {
     if (r.created?.length) alert(`已安裝技能：${r.created.join(', ')}`);
   } else {
     alert(r.detail || '上傳失敗');
+  }
+}
+
+// ── Mini Kanban ───────────────────────────────────────────────
+let kanbanItems = [];  // { id, text, status: 'todo'|'wip'|'done' }
+let kanbanNextId = 1;
+let _kanbanDragId = null;
+
+function showKanban() {
+  document.getElementById('kanban-bar').classList.add('visible');
+}
+
+function sendKanbanUpdate() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'kanban_update', items: kanbanItems }));
+  }
+}
+
+function renderKanban() {
+  const cols = { todo: [], wip: [], done: [] };
+  kanbanItems.forEach(item => cols[item.status].push(item));
+
+  ['todo', 'wip', 'done'].forEach(status => {
+    const container = document.getElementById(`kanban-${status}-items`);
+    const count = document.getElementById(`kanban-${status}-count`);
+    count.textContent = cols[status].length;
+
+    container.innerHTML = cols[status].map(item => `
+      <span class="kanban-item" draggable="true" data-id="${item.id}"
+            ondragstart="onKanbanDragStart(event, ${item.id})"
+            title="${esc(item.text)}">${esc(item.text)}</span>
+    `).join('');
+
+    // Drop zone
+    container.ondragover = e => { e.preventDefault(); container.style.background = 'rgba(255,255,255,0.03)'; };
+    container.ondragleave = () => { container.style.background = ''; };
+    container.ondrop = e => {
+      e.preventDefault();
+      container.style.background = '';
+      if (_kanbanDragId !== null) {
+        const item = kanbanItems.find(i => i.id === _kanbanDragId);
+        if (item) { item.status = status; renderKanban(); sendKanbanUpdate(); }
+        _kanbanDragId = null;
+      }
+    };
+  });
+
+  // Add input in TODO column
+  const todoContainer = document.getElementById('kanban-todo-items');
+  todoContainer.innerHTML += `
+    <div id="kanban-add-wrap">
+      <input id="kanban-add-input" placeholder="+ 新增項目" onkeydown="if(event.key==='Enter')addKanbanItem()">
+    </div>`;
+}
+
+function onKanbanDragStart(e, id) {
+  _kanbanDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function addKanbanItem(text) {
+  const input = document.getElementById('kanban-add-input');
+  const val = text || (input ? input.value.trim() : '');
+  if (!val) return;
+  kanbanItems.push({ id: kanbanNextId++, text: val, status: 'todo' });
+  renderKanban();
+  sendKanbanUpdate();
+}
+
+function initKanbanFromTopic(topic) {
+  if (!topic) return;
+  kanbanItems = [{ id: kanbanNextId++, text: topic, status: 'wip' }];
+  showKanban();
+  renderKanban();
+}
+
+// ── Scenarios Settings Tab ─────────────────────────────────────
+function renderScenariosTab() {
+  const body = document.getElementById('tab-scenarios-body');
+  body.style.maxWidth = 'none';
+  body.style.padding = '0';
+  body.style.gap = '0';
+  if (!scenariosCache.length) {
+    body.innerHTML = '<div style="color:var(--text-muted);font-size:0.84rem;text-align:center;padding:40px 16px">暫無情境模板，點右上角「＋ 新增」建立</div>';
+    return;
+  }
+  body.innerHTML = `<div class="skill-grid">${scenariosCache.map(s => `
+    <div class="skill-card" onclick="openScenarioEdit('${esc(s.id)}')">
+      <button class="skill-card-edit" onclick="event.stopPropagation();openScenarioEdit('${esc(s.id)}')" title="編輯">✏</button>
+      <div class="skill-card-top">
+        <div class="skill-card-icon">🎭</div>
+        <div class="skill-card-name">${esc(s.name)}</div>
+      </div>
+      <div class="skill-card-desc">${esc(s.description || '—')}</div>
+    </div>`).join('')}</div>`;
+}
+
+let editingScenarioId = null;
+
+async function openScenarioEdit(id) {
+  editingScenarioId = id;
+  const panel = document.getElementById('scenario-edit-panel');
+  const title = document.getElementById('scenario-edit-title');
+  const body = document.getElementById('scenario-edit-body');
+  title.textContent = '編輯情境';
+  body.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;padding:8px 0">載入中…</div>';
+  panel.style.display = '';
+  document.getElementById('tab-scenarios-body').style.display = 'none';
+  document.querySelector('#tab-scenarios .settings-tab-header').style.display = 'none';
+
+  const s = await fetch('/scenarios/' + id).then(r => r.json()).catch(() => null);
+  if (!s) { body.innerHTML = '<div style="color:#f87171">載入失敗</div>'; return; }
+
+  title.textContent = '編輯情境：' + s.name;
+  body.innerHTML = `
+    <div class="asst-edit-field">
+      <span class="asst-edit-label">名稱</span>
+      <input class="asst-edit-input" id="scenario-edit-name" value="${esc(s.name)}">
+    </div>
+    <div class="asst-edit-field">
+      <span class="asst-edit-label">描述</span>
+      <input class="asst-edit-input" id="scenario-edit-desc" value="${esc(s.description || '')}">
+    </div>
+    <div class="asst-edit-field">
+      <span class="asst-edit-label">主題提示</span>
+      <input class="asst-edit-input" id="scenario-edit-hint" value="${esc(s.topic_hint || '')}">
+    </div>
+    <div class="asst-edit-field" style="flex:1;min-height:0;display:flex;flex-direction:column">
+      <span class="asst-edit-label">系統提示詞</span>
+      <textarea class="asst-edit-input asst-edit-textarea" id="scenario-edit-prompt" style="flex:1;min-height:120px;resize:vertical">${esc(s.system_prompt || '')}</textarea>
+    </div>`;
+}
+
+function closeScenarioEdit() {
+  document.getElementById('scenario-edit-panel').style.display = 'none';
+  document.getElementById('tab-scenarios-body').style.display = '';
+  document.querySelector('#tab-scenarios .settings-tab-header').style.display = '';
+  editingScenarioId = null;
+}
+
+async function saveScenarioEdit() {
+  if (!editingScenarioId) return;
+  const name = document.getElementById('scenario-edit-name')?.value.trim();
+  const description = document.getElementById('scenario-edit-desc')?.value.trim() || '';
+  const topic_hint = document.getElementById('scenario-edit-hint')?.value.trim() || '';
+  const system_prompt = document.getElementById('scenario-edit-prompt')?.value || '';
+  if (!name) { alert('名稱不可為空'); return; }
+
+  const r = await fetch('/scenarios/' + editingScenarioId, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, description, topic_hint, system_prompt }),
+  }).then(x => x.json()).catch(() => ({ok: false}));
+
+  if (r.ok !== false) {
+    await loadScenarios();
+    closeScenarioEdit();
+    renderScenariosTab();
+  } else {
+    alert(r.detail || '儲存失敗');
+  }
+}
+
+async function deleteScenarioEdit() {
+  if (!editingScenarioId) return;
+  if (!confirm('確定要刪除此情境？')) return;
+  await fetch('/scenarios/' + editingScenarioId, { method: 'DELETE' });
+  await loadScenarios();
+  closeScenarioEdit();
+  renderScenariosTab();
+}
+
+function openAddScenario() {
+  document.getElementById('scenario-add-panel').style.display = '';
+  document.getElementById('tab-scenarios-body').style.display = 'none';
+  document.querySelector('#tab-scenarios .settings-tab-header').style.display = 'none';
+  document.getElementById('new-scenario-id').value = '';
+  document.getElementById('new-scenario-name').value = '';
+  document.getElementById('new-scenario-desc').value = '';
+  document.getElementById('new-scenario-hint').value = '';
+  document.getElementById('new-scenario-prompt').value = '';
+}
+
+function closeAddScenario() {
+  document.getElementById('scenario-add-panel').style.display = 'none';
+  document.getElementById('tab-scenarios-body').style.display = '';
+  document.querySelector('#tab-scenarios .settings-tab-header').style.display = '';
+}
+
+async function submitNewScenario() {
+  const id = document.getElementById('new-scenario-id').value.trim();
+  const name = document.getElementById('new-scenario-name').value.trim() || id;
+  const description = document.getElementById('new-scenario-desc').value.trim();
+  const topic_hint = document.getElementById('new-scenario-hint').value.trim();
+  const system_prompt = document.getElementById('new-scenario-prompt').value;
+  if (!id) { alert('請填寫 ID'); return; }
+  if (!/^[a-z0-9_-]+$/.test(id)) { alert('ID 只能包含小寫英文、數字、- 和 _'); return; }
+
+  const r = await fetch('/scenarios', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id, name, description, topic_hint, system_prompt }),
+  }).then(x => x.json()).catch(() => ({ok: false}));
+
+  if (r.ok !== false && !r.detail) {
+    await loadScenarios();
+    closeAddScenario();
+    renderScenariosTab();
+  } else {
+    alert(r.detail || '建立失敗');
   }
 }
 

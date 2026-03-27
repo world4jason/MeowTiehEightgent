@@ -22,6 +22,9 @@ services:
     ports:
       - "${CHAT_PORT:-8000}:8000"
     volumes:
+      - ./app.py:/app/app.py
+      - ./conversation_engine.py:/app/conversation_engine.py
+      - ./history_manager.py:/app/history_manager.py
       - ./agents:/app/agents
       - ./skills:/app/skills
       - ./workspaces:/app/workspaces
@@ -44,7 +47,11 @@ services:
       SERVE_UI: "false"
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-change-me-in-production}
       MTH_DEPLOYMENT_MODE: ${MTH_DEPLOYMENT_MODE:-local}
+      MTH_MIGRATION_PROMPT: "never"
+      MTH_MIGRATION_AUTO_APPLY: "true"
     volumes:
+      - ./server/src:/app/server/src
+      - ./packages:/app/packages
       - ./agents:/app/agents:ro
       - ./skills:/app/skills:ro
     restart: unless-stopped
@@ -65,6 +72,8 @@ services:
     volumes:
       - ./ui/src:/app/src
       - ./ui/public:/app/public
+      - ./ui/index.html:/app/index.html
+      - ./ui/vite.config.ts:/app/vite.config.ts
     restart: unless-stopped
 
 volumes:
