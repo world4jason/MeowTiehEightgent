@@ -1,0 +1,160 @@
+"""Models, adapter presets, and config endpoints."""
+import json
+
+from fastapi import APIRouter, HTTPException
+
+router = APIRouter()
+
+
+def _adapter_presets_key(cfg: dict) -> str:
+    """Return the config key that holds adapter presets ('adapter_presets' or 'models')."""
+    return "adapter_presets" if "adapter_presets" in cfg else "models"
+
+
+# ── Models ────────────────────────────────────────────────────────────────────
+
+@router.get("/models")
+async def list_models():
+    """Backward-compatible model list — returns adapter_presets if available,
+    otherwise falls back to old models dict."""
+    import app as _app
+    presets = _app.load_adapter_presets()
+    return [{"id": mid, **m} for mid, m in presets.items()]
+
+
+@router.post("/models")
+async def add_model(body: dict):
+    import app as _app
+    mid = body.get("id", "").strip().lower()
+    if not mid:
+        raise HTTPException(status_code=400, detail="Model id required")
+    cfg = _app.load_config()
+    if "models" not in cfg:
+        cfg["models"] = {}
+    if mid in cfg["models"]:
+        raise HTTPException(status_code=409, detail="Model already exists")
+    entry: dict = {
+        "type": body.get("type", "cli"),
+        "color": body.get("color", "#888"),
+        "emoji": body.get("emoji", "🤖"),
+        "label": body.get("label", "").strip() or mid,
+    }
+    if entry["type"] == "cli":
+        entry["cmd"] = body.get("cmd", [mid])
+    else:
+        entry["baseUrl"] = body.get("baseUrl", "http://127.0.0.1:11434")
+        entry["apiModel"] = body.get("apiModel", "llama3.2")
+    cfg["models"][mid] = entry
+    _app.save_config(cfg)
+    return {"ok": True}
+
+
+@router.put("/models/{mid}")
+async def update_model(mid: str, body: dict):
+    import app as _app
+    cfg = _app.load_config()
+    if "models" not in cfg or mid not in cfg["models"]:
+        raise HTTPException(status_code=404, detail="Model not found")
+    body.pop("id", None)
+    cfg["models"][mid].update(body)
+    _app.save_config(cfg)
+    return {"ok": True}
+
+
+@router.delete("/models/{mid}")
+async def delete_model(mid: str):
+    import app as _app
+    cfg = _app.load_config()
+    cfg.get("models", {}).pop(mid, None)
+    _app.save_config(cfg)
+    return {"ok": True}
+
+
+# ── Adapter Preset CRUD ───────────────────────────────────────────────────────
+
+@router.get("/adapter-presets")
+async def list_adapter_presets():
+    """List all adapter presets from config.json."""
+    import app as _app
+    presets = _app.load_adapter_presets()
+    return [{"adapter_type": k, **v} for k, v in presets.items()]
+
+
+@router.post("/adapter-presets")
+async def create_adapter_preset(body: dict):
+    """Create a new adapter preset."""
+    import app as _app
+    adapter_type = body.get("adapter_type", "").strip()
+    if not adapter_type:
+        raise HTTPException(status_code=400, detail="adapter_type required")
+
+    cfg = _app.load_config()
+    key = _adapter_presets_key(cfg)
+    if key not in cfg:
+        cfg[key] = {}
+    if adapter_type in cfg[key]:
+        raise HTTPException(status_code=409, detail="Adapter preset already exists")
+
+    entry = {k: v for k, v in body.items() if k != "adapter_type"}
+    cfg[key][adapter_type] = entry
+    _app.save_config(cfg)
+    return {"ok": True, "adapter_type": adapter_type}
+
+
+@router.put("/adapter-presets/{adapter_type}")
+async def update_adapter_preset(adapter_type: str, body: dict):
+    """Update an existing adapter preset."""
+    import app as _app
+    cfg = _app.load_config()
+    key = _adapter_presets_key(cfg)
+    if key not in cfg or adapter_type not in cfg[key]:
+        raise HTTPException(status_code=404, detail="Adapter preset not found")
+
+    body.pop("adapter_type", None)
+    cfg[key][adapter_type].update(body)
+    _app.save_config(cfg)
+    return {"ok": True}
+
+
+@router.delete("/adapter-presets/{adapter_type}")
+async def delete_adapter_preset(adapter_type: str):
+    """Delete an adapter preset."""
+    import app as _app
+    cfg = _app.load_config()
+    key = _adapter_presets_key(cfg)
+    cfg.get(key, {}).pop(adapter_type, None)
+    _app.save_config(cfg)
+    return {"ok": True}
+
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+@router.get("/config")
+async def get_config():
+    import app as _app
+    return _app.load_config()
+
+
+@router.post("/config")
+async def post_config(body: dict):
+    import app as _app
+    _app.save_config(body)
+    return {"ok": True}
+
+
+@router.put("/config")
+async def put_config(body: dict):
+    import app as _app
+    config = _app.load_config()
+    if "summarization_model" in body:
+        v = body["summarization_model"]
+        if not isinstance(v, str):
+            raise HTTPException(status_code=400, detail="summarization_model must be a string")
+        config["summarization_model"] = v
+    if "summary_trigger_threshold" in body:
+        v = body["summary_trigger_threshold"]
+        if not isinstance(v, int) or v < 1:
+            raise HTTPException(status_code=400, detail="summary_trigger_threshold must be a positive integer")
+        config["summary_trigger_threshold"] = v
+    _app.CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False))
+    return {"ok": True}

@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import logging
-import tempfile
 import os
 from conversation_engine import ConversationEngine
 import json
@@ -10,14 +9,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-import io
-import zipfile
-
-import httpx
+import httpx  # re-exported: tests patch app.httpx.AsyncClient
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
@@ -49,101 +44,9 @@ CONFIG_FILE = PROJECT_DIR / "config.json"
 AGENTS_DIR = PROJECT_DIR / "agents"
 AGENTS_DIR.mkdir(exist_ok=True)
 
-# ── Default templates ──────────────────────────────────────────────────────────
+# ── Config defaults (re-exported from core.config) ────────────────────────────
 
-DEFAULT_AGENT_MD = """\
-# Agent Instructions
-
-## Role
-You are {name}.
-
-## Session Startup
-
-Before anything else:
-1. Read `IDENTITY.md` — this is who you are
-2. Read `SOUL.md` — this is what drives you
-3. Read `../../USER.md` — this is who you're helping
-4. Read `memory/` latest file if it exists — recent context
-5. Check `../../skills/` for available shared skills
-
-## Memory
-
-> ⚠️ Do NOT write to `~/.claude/`, `~/.gemini/`, `~/codex/`, or any CLI system directory.
-> Your memory belongs here, in this workspace.
-
-Working directory is `agents/{name}/`. Write to:
-
-- `MEMORY.md` — long-term notes, curated across sessions
-- `memory/YYYY-MM-DD.md` — daily log, append key exchanges each session
-
-After each significant exchange, append a short note to today's log file.
-
-## How to engage
-- Build on conversation history — don't repeat what's been said
-- When the human speaks, prioritize their input and reset your focus
-- Engage directly with what others actually said — not just your own agenda
-- Keep responses to 2–4 paragraphs unless depth is clearly needed
-- Plain prose. No bullet dumps. No sign-offs.
-- To address someone directly, use `@Name`.
-
-## Red Lines
-
-- Don't summarize the whole conversation on every turn
-"""
-
-DEFAULT_IDENTITY_MD = """\
-# Identity
-
-- **Name:** {name}
-- **Vibe:** Thoughtful AI in a multi-agent discussion.
-"""
-
-DEFAULT_SOUL_MD = """\
-# Soul
-
-You believe in the value of dialogue. Careful thinking, expressed clearly, moves conversations forward.
-
-You are curious. You are direct. You don't perform certainty you don't have.
-"""
-
-DEFAULT_MEMORY_MD = "# MEMORY.md - Long-Term Memory\n\n_Sessions will be recorded here._\n"
-
-DEFAULT_MODELS = {
-    "claude": {
-        "type": "cli",
-        "cmd": ["claude", "--print"],
-        "color": "#a78bfa",
-        "emoji": "🟣",
-        "supports_image": True,
-        "idle_timeout_seconds": 120,
-        "startup_timeout_seconds": 120,  # full AGENT.md prompt can take 15s+ for first byte
-    },
-    "gemini": {
-        "type": "cli",
-        "cmd": ["gemini", "-p"],
-        "color": "#34d399",
-        "emoji": "🟢",
-        "supports_image": True,
-        "idle_timeout_seconds": 600,       # generalist tool can take 3-5 min
-        "startup_timeout_seconds": 120,  # gemini MCP context init takes 19s+ before first byte
-    },
-    "ollama": {
-        "type": "api",
-        "baseUrl": "http://127.0.0.1:11434",
-        "apiModel": "llama3.2",
-        "color": "#fb923c",
-        "emoji": "🦙",
-    },
-    "codex": {
-        "type": "cli",
-        "cmd": ["codex", "-q", "--no-project-doc", "--approval-mode", "full-auto", "-p"],
-        "color": "#38bdf8",
-        "emoji": "🔵",
-        "supports_image": False,
-        "idle_timeout_seconds": 120,
-        "startup_timeout_seconds": 120,
-    },
-}
+from core.config import DEFAULT_MODELS, _convert_models_to_presets
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -169,32 +72,6 @@ def load_models() -> dict:
     cfg = load_config()
     return cfg.get("models", DEFAULT_MODELS)
 
-
-def _convert_models_to_presets(models: dict) -> dict:
-    """Convert old v0 models dict to adapter_presets-like dict on the fly.
-
-    The keys remain the same as the old model IDs (e.g. "claude", "ollama")
-    so that v0 agents with model="claude" can still look up their preset.
-    Each entry is augmented with command/defaultArgs extracted from cmd[].
-    """
-    presets: dict = {}
-    for mid, m in models.items():
-        preset: dict = dict(m)  # shallow copy
-        # Extract command + defaultArgs from cmd list
-        cmd_list = m.get("cmd", [])
-        if cmd_list:
-            preset["command"] = cmd_list[0]
-            preset["defaultArgs"] = cmd_list[1:]
-        # Map apiModel → defaultModel for consistency
-        if "apiModel" in m:
-            preset["defaultModel"] = m["apiModel"]
-        # Map timeout fields
-        if "idle_timeout_seconds" in m:
-            preset["timeoutSec"] = m["idle_timeout_seconds"]
-        if "startup_timeout_seconds" in m:
-            preset["startupTimeoutSec"] = m["startup_timeout_seconds"]
-        presets[mid] = preset
-    return presets
 
 
 def load_adapter_presets() -> dict:
@@ -247,7 +124,9 @@ def migrate_if_needed():
             if old_md.exists():
                 agent_md.write_text(old_md.read_text())
             else:
-                agent_md.write_text(DEFAULT_AGENT_MD.format(name=name))
+                default_src = AGENTS_DIR / "_default" / "AGENT.md"
+                if default_src.exists():
+                    agent_md.write_text(default_src.read_text().replace("{name}", name))
 
         # Build model entry
         model_id = name.lower()
@@ -303,24 +182,21 @@ def ensure_agent_configs():
                     agent_md.write_text(old.read_text())
                     break
             else:
-                agent_md.write_text(DEFAULT_AGENT_MD.format(name=name))
+                default_src = AGENTS_DIR / "_default" / "AGENT.md"
+                if default_src.exists():
+                    agent_md.write_text(default_src.read_text().replace("{name}", name))
 
 
 # ── Default template agent ─────────────────────────────────────────────────────
 
 def ensure_default_template():
-    """Create _default template folder for new agents."""
+    """Verify _default template folder exists. It MUST be in git."""
     default_dir = AGENTS_DIR / "_default"
-    default_dir.mkdir(parents=True, exist_ok=True)
-    for fname, content in [
-        ("AGENT.md", DEFAULT_AGENT_MD.format(name="{name}")),
-        ("IDENTITY.md", DEFAULT_IDENTITY_MD.format(name="{name}")),
-        ("SOUL.md", DEFAULT_SOUL_MD),
-        ("MEMORY.md", DEFAULT_MEMORY_MD),
-    ]:
-        f = default_dir / fname
-        if not f.exists():
-            f.write_text(content)
+    if not default_dir.exists():
+        raise RuntimeError(
+            f"agents/_default/ not found at {default_dir}. "
+            "This folder is required and should be committed to git."
+        )
 
 
 # ── Workspace setup ───────────────────────────────────────────────────────────
@@ -332,22 +208,12 @@ def ensure_workspace(agent: dict):
     name = agent["name"]
 
     default_dir = AGENTS_DIR / "_default"
-
-    def from_default(fname: str, fallback: str) -> str:
-        src = default_dir / fname
-        if src.exists():
-            return src.read_text().replace("{name}", name)
-        return fallback
-
-    for fname, content in [
-        ("AGENT.md", from_default("AGENT.md", DEFAULT_AGENT_MD.format(name=name))),
-        ("IDENTITY.md", from_default("IDENTITY.md", DEFAULT_IDENTITY_MD.format(name=name))),
-        ("SOUL.md", from_default("SOUL.md", DEFAULT_SOUL_MD)),
-        ("MEMORY.md", DEFAULT_MEMORY_MD),
-    ]:
-        f = ws / fname
-        if not f.exists():
-            f.write_text(content)
+    for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md", "MEMORY.md"]:
+        dst = ws / fname
+        if not dst.exists():
+            src = default_dir / fname
+            if src.exists():
+                dst.write_text(src.read_text().replace("{name}", name))
 
 
 # ── Agent registry ────────────────────────────────────────────────────────────
@@ -718,153 +584,49 @@ def build_prompt(agent: dict, history_text: str, workspace_id: str | None = None
     )
 
 
-# ── Subprocess error types ────────────────────────────────────────────────────
+# ── Subprocess error types (re-exported from core.errors) ─────────────────────
 
-class SubprocessError(Exception):
-    """Base class for all CLI subprocess failures."""
-    def __init__(self, agent: str, partial_output: str = "", stderr_output: str = "", **_):
-        super().__init__(agent)
-        self.agent = agent
-        self.partial_output = partial_output
-        self.stderr_output = stderr_output
-
-
-class SubprocessStartupError(SubprocessError):
-    """Command not found, permission denied, or no output within startup_timeout."""
-    def __init__(self, agent: str, cause: str = "", **_):
-        super().__init__(agent, partial_output="", stderr_output="")
-        self.cause = cause
+from core.errors import (
+    SubprocessError,
+    SubprocessStartupError,
+    SubprocessTimeoutError,
+    SubprocessCrashError,
+    TokenUsage,
+)
 
 
-class SubprocessTimeoutError(SubprocessError):
-    """Idle timeout: no new chunk within idle_timeout_seconds."""
-    def __init__(self, agent: str, partial_output: str, stderr_output: str,
-                 timeout_seconds: float, **_):
-        super().__init__(agent, partial_output, stderr_output)
-        self.timeout_seconds = timeout_seconds
+# ── Runner helpers (re-exported from core.runner) ─────────────────────────────
+# Think mode uses "--effort" "max" flag (see core/runner.py stream_cli_agent)
 
-
-class SubprocessCrashError(SubprocessError):
-    """Process exited non-zero or raised an unexpected exception."""
-    def __init__(self, agent: str, partial_output: str = "", stderr_output: str = "",
-                 exit_code: int | None = None, cause: str = "", **_):
-        super().__init__(agent, partial_output, stderr_output)
-        self.exit_code = exit_code
-        self.cause = cause
-
-
-class TokenUsage:
-    """Sentinel yielded at end of a JSON-mode CLI stream with per-turn token counts."""
-    __slots__ = ("input_tokens", "output_tokens", "cached_tokens")
-
-    def __init__(self, input_tokens: int = 0, output_tokens: int = 0, cached_tokens: int = 0):
-        self.input_tokens = input_tokens
-        self.output_tokens = output_tokens
-        self.cached_tokens = cached_tokens
-
-
-def _get_json_output_flags(agent: dict) -> list[str]:
-    """Return extra CLI flags to enable JSON streaming output for token tracking.
-
-    Returns [] if the model does not support JSON output, or if explicitly disabled.
-    """
-    if agent.get("json_output") is False:
-        return []
-    model_id = agent.get("model_id", "")
-    if model_id == "claude":
-        return ["--output-format", "stream-json", "--verbose"]
-    if model_id == "gemini":
-        return ["--output-format", "stream-json"]
-    return []
-
-
-def _parse_jsonl_line(line: str, model_id: str) -> tuple[str | None, dict | None]:
-    """Parse one JSONL line from a stream-json CLI output.
-
-    Returns (text_chunk, usage_dict).
-    - text_chunk: incremental text from this event, or None
-    - usage_dict: {"input": int, "output": int, "cached": int}, or None
-    """
-    try:
-        obj = json.loads(line)
-    except json.JSONDecodeError:
-        return (line, None)  # non-JSON line: pass through as raw text
-
-    t = obj.get("type", "")
-
-    if model_id == "claude":
-        if t == "assistant":
-            msg = obj.get("message") or {}
-            content = msg.get("content") or []
-            texts = [b.get("text", "") for b in content
-                     if isinstance(b, dict) and b.get("type") == "text"]
-            text = "".join(texts)
-            return (text or None, None)
-        if t == "result":
-            u = obj.get("usage") or {}
-            return (None, {
-                "input": int(u.get("input_tokens", 0)),
-                "output": int(u.get("output_tokens", 0)),
-                "cached": int(u.get("cache_read_input_tokens", 0)),
-            })
-
-    elif model_id == "gemini":
-        # Gemini stream-json format: type=message + role=assistant + content (str)
-        if t == "message":
-            role = obj.get("role", "")
-            if role == "assistant":
-                content = obj.get("content", "")
-                if isinstance(content, str):
-                    return (content or None, None)
-                elif isinstance(content, list):
-                    texts = []
-                    for item in content:
-                        if isinstance(item, str):
-                            texts.append(item)
-                        elif isinstance(item, dict):
-                            texts.append(str(item.get("text", "") or item.get("content", "")))
-                    return ("".join(texts) or None, None)
-            return (None, None)
-        # Gemini usage is in type=result → stats
-        if t == "result":
-            stats = obj.get("stats") or {}
-            input_tok = int(stats.get("input_tokens", 0))
-            output_tok = int(stats.get("output_tokens", 0))
-            cached_tok = int(stats.get("cached", 0))
-            return (None, {"input": input_tok, "output": output_tok, "cached": cached_tok})
-
-    return (None, None)
-
+from core.runner import (
+    _get_json_output_flags,
+    _parse_jsonl_line,
+    accumulate_token_usage,
+    format_token_count,
+    _resolve_timeout,
+    _error_message,
+    write_temp_images,
+    cleanup_temp_files,
+    call_cli_agent,
+    call_api_agent,
+    call_agent,
+    stream_cli_agent,
+    stream_api_agent,
+    build_mode_switch_notification,
+    _handle_set_mode,
+    append_memory,
+    write_daily_summary,
+)
 
 from history_manager import truncate_history, apply_sliding_window, TRUNCATION_MARKER, compress_history, load_session_config, _format_history_text
 
+# ── Security helpers (re-exported from core.security) ─────────────────────────
 
-def accumulate_token_usage(totals: dict, agent_name: str, input_tokens: int, output_tokens: int) -> None:
-    """Add turn token counts to the per-agent cumulative totals dict (mutates in place)."""
-    if agent_name not in totals:
-        totals[agent_name] = {"input": 0, "output": 0}
-    totals[agent_name]["input"] += input_tokens
-    totals[agent_name]["output"] += output_tokens
-
-
-def format_token_count(n: int) -> str:
-    """Format token count: < 1000 as integer, >= 1000 as '1.2k'."""
-    if n < 1000:
-        return str(n)
-    return f"{n / 1000:.1f}k"
-
-
-
-def _resolve_timeout(agent: dict, key: str, default: float) -> float:
-    """Precedence: agent config > DEFAULT_MODELS > hard default."""
-    if key in agent:
-        return float(agent[key])
-    # Fall back to DEFAULT_MODELS so built-in defaults apply even when
-    # the user's config.json overrides the models dict without timeout fields.
-    model_id = agent.get("model_id", "")
-    if model_id in DEFAULT_MODELS and key in DEFAULT_MODELS[model_id]:
-        return float(DEFAULT_MODELS[model_id][key])
-    return default
+from core.security import (
+    PROTECTED_FILENAMES,
+    validate_filename,
+    safe_workspace_path,
+)
 
 
 def _resolve_supports_image(agent: dict) -> bool:
@@ -903,354 +665,6 @@ def _resolve_supports_image(agent: dict) -> bool:
     if model_name in DEFAULT_MODELS and "supports_image" in DEFAULT_MODELS[model_name]:
         return bool(DEFAULT_MODELS[model_name]["supports_image"])
     return True
-
-
-PROTECTED_FILENAMES: frozenset[str] = frozenset({
-    "guide.md",
-    "config.json",
-    ".env",
-    "requirements.txt",
-})
-
-_SAFE_FILENAME_RE = re.compile(r'^[\w\-. ]+$')
-_MAX_FILENAME_LENGTH = 255
-
-
-def validate_filename(filename: str, *, allow_protected: bool = False) -> None:
-    """Raise ValueError if filename is unsafe or protected."""
-    if not filename:
-        raise ValueError("Filename cannot be empty")
-    if len(filename) > _MAX_FILENAME_LENGTH:
-        raise ValueError(f"Filename too long: {len(filename)} chars")
-    if "/" in filename or "\\" in filename:
-        raise ValueError(f"Filename must not contain path separators: {filename!r}")
-    if ".." in filename:
-        raise ValueError(f"Filename must not contain '..': {filename!r}")
-    if not _SAFE_FILENAME_RE.match(filename):
-        raise ValueError(f"Filename contains invalid characters: {filename!r}")
-    if not allow_protected and filename in PROTECTED_FILENAMES:
-        raise ValueError(f"Filename is protected and cannot be written by agents: {filename!r}")
-
-
-def safe_workspace_path(workspace_dir: str, filename: str) -> str:
-    """Return safe full path; raise ValueError if it resolves outside workspace_dir."""
-    full_path = os.path.realpath(os.path.join(workspace_dir, filename))
-    workspace_real = os.path.realpath(workspace_dir)
-    if not full_path.startswith(workspace_real + os.sep) and full_path != workspace_real:
-        raise ValueError(f"Path traversal detected: {filename!r} resolves outside workspace")
-    return full_path
-
-
-def _error_message(e: "SubprocessError") -> str:
-    if isinstance(e, SubprocessTimeoutError):
-        return f"Agent {e.agent} timed out after {e.timeout_seconds}s of inactivity"
-    if isinstance(e, SubprocessStartupError):
-        return f"Agent {e.agent} failed to start: {e.cause}"
-    if isinstance(e, SubprocessCrashError):
-        details = f"exit {e.exit_code}" if e.exit_code is not None else e.cause
-        return f"Agent {e.agent} crashed ({details})"
-    return f"Agent {e.agent} failed"
-
-
-# ── Agent runners ─────────────────────────────────────────────────────────────
-
-def save_session_images(session_id: str, images: list[dict]) -> list[dict]:
-    """Save images to history/<session_id>/images/ and return [{name, filename}] references."""
-    if not images:
-        return []
-    img_dir = HISTORY_DIR / session_id / "images"
-    img_dir.mkdir(parents=True, exist_ok=True)
-    refs = []
-    for img in images:
-        suffix = '.' + (img.get('mime', 'image/jpeg').split('/')[-1] or 'jpg')
-        fname = f"{uuid.uuid4().hex}{suffix}"
-        (img_dir / fname).write_bytes(base64.b64decode(img['base64']))
-        refs.append({"name": img.get("name", fname), "filename": fname})
-    return refs
-
-
-def write_temp_images(images: list[dict]) -> tuple[list[str], list[str]]:
-    """Write base64 images to temp files. Returns (file_paths, extra_cmd_args)."""
-    tmp_paths: list[str] = []
-    extra_args: list[str] = []
-    for img in images:
-        suffix = '.' + (img.get('mime', 'image/jpeg').split('/')[-1] or 'jpg')
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
-            f.write(base64.b64decode(img['base64']))
-            tmp_paths.append(f.name)
-            extra_args.extend(['--add-file', f.name])
-    return tmp_paths, extra_args
-
-def cleanup_temp_files(paths: list[str]):
-    for p in paths:
-        try: os.unlink(p)
-        except Exception: pass
-
-
-async def call_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None) -> str:
-    tmp_paths: list[str] = []
-    extra_args: list[str] = []
-    if images:
-        tmp_paths, extra_args = write_temp_images(images)
-    proc = await asyncio.create_subprocess_exec(
-        *agent["cmd"], *extra_args, prompt,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-        cwd=agent["workspace"],
-    )
-    try:
-        stdout, _ = await proc.communicate()
-        return stdout.decode().strip()
-    except asyncio.CancelledError:
-        proc.kill()
-        raise
-    finally:
-        cleanup_temp_files(tmp_paths)
-
-
-async def call_api_agent(agent: dict, prompt: str) -> str:
-    base = agent.get("baseUrl", "http://127.0.0.1:11434")
-    model = agent.get("model", "llama3.2")
-    async with httpx.AsyncClient(timeout=120) as client:
-        r = await client.post(
-            f"{base}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False},
-        )
-        r.raise_for_status()
-        return r.json().get("response", "").strip()
-
-
-async def call_agent(agent: dict, prompt: str) -> str:
-    if agent.get("type") == "api":
-        return await call_api_agent(agent, prompt)
-    return await call_cli_agent(agent, prompt)
-
-
-async def stream_cli_agent(agent: dict, prompt: str, images: list[dict] | None = None, mode: str = "chat"):
-    """Async generator: yield text chunks from CLI stdout, then optionally a TokenUsage.
-
-    When the model supports JSON output (claude/gemini), adds --output-format stream-json
-    flags, reads line-by-line, parses JSONL events for text and token usage, and yields
-    a TokenUsage object as the last item after all text chunks.
-
-    Raises SubprocessStartupError, SubprocessTimeoutError, or SubprocessCrashError
-    on failure.  Already-yielded chunks are preserved in the exception's
-    partial_output so the caller can append [TRUNCATED] to history.
-    """
-    idle_timeout = _resolve_timeout(agent, "idle_timeout_seconds", 60)
-    startup_timeout = _resolve_timeout(agent, "startup_timeout_seconds", 10)
-    buffer = ""
-
-    tmp_paths: list[str] = []
-    extra_args: list[str] = []
-    if images and _resolve_supports_image(agent):
-        tmp_paths, extra_args = write_temp_images(images)
-
-    if mode == "think" and agent.get("supports_thinking", False):
-        extra_args = extra_args + ["--effort", "max"]
-
-    # JSON output mode: adds stream-json flags for token tracking
-    # json_flags must come BEFORE the rest of cmd (e.g. before gemini's `-p`)
-    # to avoid yargs parsing errors like "Not enough arguments following: p"
-    json_flags = _get_json_output_flags(agent)
-    cmd_binary = agent["cmd"][:1]   # e.g. ["gemini"] or ["claude"]
-    cmd_rest = agent["cmd"][1:]     # e.g. ["-p"] or ["--print"]
-    model_id = agent.get("model_id", "")
-    _usage: dict[str, int] = {"input": 0, "output": 0, "cached": 0}
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd_binary, *json_flags, *cmd_rest, *extra_args, prompt,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=agent["workspace"],
-        )
-    except (FileNotFoundError, PermissionError, OSError) as e:
-        cleanup_temp_files(tmp_paths)
-        raise SubprocessStartupError(agent=agent["name"], cause=str(e))
-
-    # Increase StreamReader line limit to 8MB so large tool_result JSONL lines
-    # (e.g. Gemini reading big memory files) don't raise LimitOverrunError
-    if json_flags and hasattr(proc.stdout, '_limit'):
-        proc.stdout._limit = 8 * 1024 * 1024  # 8MB per line
-
-    stderr_task = asyncio.create_task(proc.stderr.read())
-
-    try:
-        # --- startup timeout: wait for first byte/line ---
-        try:
-            first_data = await asyncio.wait_for(
-                proc.stdout.readline() if json_flags else proc.stdout.read(256),
-                timeout=startup_timeout,
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            raise SubprocessStartupError(
-                agent=agent["name"],
-                cause=f"no output within {startup_timeout}s",
-            )
-
-        if not first_data:
-            # EOF immediately after startup
-            await proc.wait()
-            stderr_out = await stderr_task
-            raise SubprocessCrashError(
-                agent=agent["name"],
-                partial_output="",
-                stderr_output=stderr_out.decode(errors='replace'),
-                exit_code=proc.returncode,
-                cause="empty output",
-            )
-
-        decoded = first_data.decode(errors='replace')
-        if json_flags:
-            line = decoded.strip()
-            if line:
-                text, usage = _parse_jsonl_line(line, model_id)
-                if usage:
-                    for k, v in usage.items():
-                        if v > _usage.get(k, 0):
-                            _usage[k] = v
-                if text:
-                    buffer += text
-                    yield text
-        else:
-            buffer += decoded
-            yield decoded
-
-        # --- idle timeout: per-chunk/line reads ---
-        while True:
-            try:
-                data = await asyncio.wait_for(
-                    proc.stdout.readline() if json_flags else proc.stdout.read(256),
-                    timeout=idle_timeout,
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                stderr_out = await stderr_task
-                with open("/tmp/agent_crash.log", "a") as _f:
-                    _f.write(f"\n=== {agent['name']} IDLE TIMEOUT ({idle_timeout}s) ===\n")
-                    _f.write(f"buffer_len: {len(buffer)}\n")
-                raise SubprocessTimeoutError(
-                    agent=agent["name"],
-                    partial_output=buffer,
-                    stderr_output=stderr_out.decode(errors='replace'),
-                    timeout_seconds=idle_timeout,
-                )
-            if not data:
-                break
-            decoded = data.decode(errors='replace')
-            if json_flags:
-                line = decoded.strip()
-                if line:
-                    text, usage = _parse_jsonl_line(line, model_id)
-                    if usage:
-                        for k, v in usage.items():
-                            if v > _usage.get(k, 0):
-                                _usage[k] = v
-                    if text:
-                        buffer += text
-                        yield text
-            else:
-                buffer += decoded
-                yield decoded
-
-    except SubprocessError:
-        raise
-
-    except Exception as e:
-        proc.kill()
-        await proc.wait()
-        stderr_out = await stderr_task
-        stderr_text = stderr_out.decode(errors='replace')
-        with open("/tmp/agent_crash.log", "a") as _f:
-            _f.write(f"\n=== {agent['name']} EXCEPTION: {type(e).__name__}: {e} ===\n")
-            _f.write(f"stderr: {stderr_text[:500]}\n")
-        raise SubprocessCrashError(
-            agent=agent["name"],
-            partial_output=buffer,
-            stderr_output=stderr_text,
-            cause=str(e),
-        )
-
-    finally:
-        cleanup_temp_files(tmp_paths)
-
-    # --- normal exit: check return code ---
-    await proc.wait()
-    stderr_out = await stderr_task
-    if proc.returncode != 0:
-        stderr_text = stderr_out.decode(errors='replace')
-        with open("/tmp/agent_crash.log", "a") as _f:
-            _f.write(f"\n=== {agent['name']} exit {proc.returncode} ===\n")
-            _f.write(f"stderr: {stderr_text[:1000]}\n")
-            _f.write(f"buffer_len: {len(buffer)}\n")
-        raise SubprocessCrashError(
-            agent=agent["name"],
-            partial_output=buffer,
-            stderr_output=stderr_text,
-            exit_code=proc.returncode,
-        )
-
-    # Yield token usage if JSON mode was active and we captured any counts
-    if json_flags and (_usage["input"] or _usage["output"]):
-        yield TokenUsage(
-            input_tokens=_usage["input"],
-            output_tokens=_usage["output"],
-            cached_tokens=_usage["cached"],
-        )
-
-
-async def stream_api_agent(agent: dict, prompt: str):
-    """Async generator: yield text chunks from Ollama HTTP stream."""
-    base = agent.get("baseUrl", "http://127.0.0.1:11434")
-    model = agent.get("model", "llama3.2")
-    async with httpx.AsyncClient(timeout=120) as client:
-        async with client.stream(
-            "POST", f"{base}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": True},
-        ) as resp:
-            async for line in resp.aiter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        if chunk := data.get("response", ""):
-                            yield chunk
-                    except json.JSONDecodeError:
-                        pass
-
-
-def build_mode_switch_notification(agent: dict, mode: str) -> dict | None:
-    """Build a system message for model_tiers mode switches. Returns None if no notification needed."""
-    tiers = agent.get("model_tiers")
-    if not tiers or "thinking" not in tiers:
-        return None
-    thinking_key = tiers["thinking"]
-    name = agent.get("name", "Agent")
-    if mode == "think":
-        return {"type": "system", "text": f"\U0001f9e0 {name} 已切換至思考模式 ({thinking_key})"}
-    else:
-        return {"type": "system", "text": f"\U0001f4ac {name} 已切換至對話模式"}
-
-
-async def _handle_set_mode(ws, evt, agent_modes: dict, active_agents: list):
-    """Shared handler for set_mode WS messages."""
-    _sm_agent = evt.get("agent", "")
-    _sm_mode = evt.get("mode", "")
-    if _sm_agent not in agent_modes:
-        await ws.send_json({"type": "error", "message": f"Unknown agent: {_sm_agent}"})
-    elif _sm_mode not in ("chat", "think"):
-        await ws.send_json({"type": "error", "message": f"Invalid mode: {_sm_mode}"})
-    else:
-        agent_modes[_sm_agent] = _sm_mode
-        await ws.send_json({"type": "mode_update", "agent": _sm_agent, "mode": _sm_mode})
-        _sm_agent_obj = next((a for a in active_agents if a["name"] == _sm_agent), None)
-        if _sm_agent_obj:
-            _notif = build_mode_switch_notification(_sm_agent_obj, _sm_mode)
-            if _notif:
-                await ws.send_json(_notif)
 
 
 def resolve_thinking_model(agent: dict) -> dict | None:
@@ -1318,39 +732,21 @@ async def stream_agent(agent: dict, prompt: str, images: list[dict] | None = Non
             yield chunk
 
 
-def append_memory(agent: dict, topic: str, response: str):
-    today = datetime.now().strftime("%Y-%m-%d")
-    mem_file = agent["workspace"] / "memory" / f"{today}.md"
-    ts = datetime.now().strftime("%H:%M")
-    with mem_file.open("a") as f:
-        f.write(f"\n=====\n[{agent['name']}] {today} {ts}\n\nTopic: {topic}\n\n{response}\n")
+# ── Agent runners ─────────────────────────────────────────────────────────────
 
-
-async def write_daily_summary(agent: dict):
-    today = datetime.now().strftime("%Y-%m-%d")
-    mem_file = agent["workspace"] / "memory" / f"{today}.md"
-    if not mem_file.exists():
-        return
-    raw = mem_file.read_text().strip()
-    if "## Daily Summary" in raw:
-        return
-    prompt = (
-        f"You are {agent['name']}. Below is your raw memory log from today ({today}).\n\n"
-        f"{raw}\n\n---\n\n"
-        f"Write a concise daily summary (3–6 sentences) covering:\n"
-        f"- The main topics discussed today\n"
-        f"- Key ideas or arguments you made or encountered\n"
-        f"- Anything worth remembering for future sessions\n\n"
-        f"Write only the summary text, no headers."
-    )
-    try:
-        summary = await asyncio.wait_for(call_agent(agent, prompt), timeout=60)
-        if summary:
-            ts = datetime.now().strftime("%H:%M")
-            with mem_file.open("a") as f:
-                f.write(f"\n\n## Daily Summary — {today} {ts}\n\n{summary}\n")
-    except Exception:
-        pass
+def save_session_images(session_id: str, images: list[dict]) -> list[dict]:
+    """Save images to history/<session_id>/images/ and return [{name, filename}] references."""
+    if not images:
+        return []
+    img_dir = HISTORY_DIR / session_id / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    refs = []
+    for img in images:
+        suffix = '.' + (img.get('mime', 'image/jpeg').split('/')[-1] or 'jpg')
+        fname = f"{uuid.uuid4().hex}{suffix}"
+        (img_dir / fname).write_bytes(base64.b64decode(img['base64']))
+        refs.append({"name": img.get("name", fname), "filename": fname})
+    return refs
 
 
 def session_dir(session_id: str) -> Path:
@@ -1402,530 +798,36 @@ def save_hidden(ids: set[str]):
 
 # ── HTTP endpoints ────────────────────────────────────────────────────────────
 
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+from routes.health import router as _health_router
+app.include_router(_health_router)
 
 
-@app.get("/")
-async def index():
-    return FileResponse("static/index.html")
 
+from routes.user import router as _user_router
+app.include_router(_user_router)
 
-# ── User ─────────────────────────────────────────────────────────────────────
-
-@app.get("/user/md")
-async def get_user_md():
-    user_md = PROJECT_DIR / "USER.md"
-    return {"content": user_md.read_text() if user_md.exists() else ""}
-
-
-@app.put("/user/md")
-async def put_user_md(body: dict):
-    (PROJECT_DIR / "USER.md").write_text(body.get("content", ""))
-    return {"ok": True}
-
-
-# ── Models ────────────────────────────────────────────────────────────────────
-
-@app.get("/models")
-async def list_models():
-    """Backward-compatible model list — returns adapter_presets if available,
-    otherwise falls back to old models dict."""
-    presets = load_adapter_presets()
-    return [{"id": mid, **m} for mid, m in presets.items()]
-
-
-@app.post("/models")
-async def add_model(body: dict):
-    mid = body.get("id", "").strip().lower()
-    if not mid:
-        raise HTTPException(status_code=400, detail="Model id required")
-    cfg = load_config()
-    if "models" not in cfg:
-        cfg["models"] = {}
-    if mid in cfg["models"]:
-        raise HTTPException(status_code=409, detail="Model already exists")
-    entry: dict = {
-        "type": body.get("type", "cli"),
-        "color": body.get("color", "#888"),
-        "emoji": body.get("emoji", "🤖"),
-        "label": body.get("label", "").strip() or mid,
-    }
-    if entry["type"] == "cli":
-        entry["cmd"] = body.get("cmd", [mid])
-    else:
-        entry["baseUrl"] = body.get("baseUrl", "http://127.0.0.1:11434")
-        entry["apiModel"] = body.get("apiModel", "llama3.2")
-    cfg["models"][mid] = entry
-    save_config(cfg)
-    return {"ok": True}
-
-
-@app.put("/models/{mid}")
-async def update_model(mid: str, body: dict):
-    cfg = load_config()
-    if "models" not in cfg or mid not in cfg["models"]:
-        raise HTTPException(status_code=404, detail="Model not found")
-    body.pop("id", None)
-    cfg["models"][mid].update(body)
-    save_config(cfg)
-    return {"ok": True}
-
-
-@app.delete("/models/{mid}")
-async def delete_model(mid: str):
-    cfg = load_config()
-    cfg.get("models", {}).pop(mid, None)
-    save_config(cfg)
-    return {"ok": True}
-
-
-# ── Adapter Preset CRUD ───────────────────────────────────────────────────────
-
-def _adapter_presets_key(cfg: dict) -> str:
-    """Return the config key that holds adapter presets ('adapter_presets' or 'models')."""
-    return "adapter_presets" if "adapter_presets" in cfg else "models"
-
-
-@app.get("/adapter-presets")
-async def list_adapter_presets():
-    """List all adapter presets from config.json."""
-    presets = load_adapter_presets()
-    return [{"adapter_type": k, **v} for k, v in presets.items()]
-
-
-@app.post("/adapter-presets")
-async def create_adapter_preset(body: dict):
-    """Create a new adapter preset."""
-    adapter_type = body.get("adapter_type", "").strip()
-    if not adapter_type:
-        raise HTTPException(status_code=400, detail="adapter_type required")
-
-    cfg = load_config()
-    key = _adapter_presets_key(cfg)
-    if key not in cfg:
-        cfg[key] = {}
-    if adapter_type in cfg[key]:
-        raise HTTPException(status_code=409, detail="Adapter preset already exists")
-
-    # Build entry from body, excluding adapter_type itself
-    entry = {k: v for k, v in body.items() if k != "adapter_type"}
-    cfg[key][adapter_type] = entry
-    save_config(cfg)
-    return {"ok": True, "adapter_type": adapter_type}
-
-
-@app.put("/adapter-presets/{adapter_type}")
-async def update_adapter_preset(adapter_type: str, body: dict):
-    """Update an existing adapter preset."""
-    cfg = load_config()
-    key = _adapter_presets_key(cfg)
-    if key not in cfg or adapter_type not in cfg[key]:
-        raise HTTPException(status_code=404, detail="Adapter preset not found")
-
-    # Remove adapter_type from body if present (it's in the path)
-    body.pop("adapter_type", None)
-    cfg[key][adapter_type].update(body)
-    save_config(cfg)
-    return {"ok": True}
-
-
-@app.delete("/adapter-presets/{adapter_type}")
-async def delete_adapter_preset(adapter_type: str):
-    """Delete an adapter preset."""
-    cfg = load_config()
-    key = _adapter_presets_key(cfg)
-    cfg.get(key, {}).pop(adapter_type, None)
-    save_config(cfg)
-    return {"ok": True}
-
-
-@app.get("/config")
-async def get_config():
-    return load_config()
-
-
-@app.post("/config")
-async def post_config(body: dict):
-    save_config(body)
-    return {"ok": True}
-
-
-@app.put("/config")
-async def put_config(body: dict):
-    config = load_config()
-    if "summarization_model" in body:
-        v = body["summarization_model"]
-        if not isinstance(v, str):
-            raise HTTPException(status_code=400, detail="summarization_model must be a string")
-        config["summarization_model"] = v
-    if "summary_trigger_threshold" in body:
-        v = body["summary_trigger_threshold"]
-        if not isinstance(v, int) or v < 1:
-            raise HTTPException(status_code=400, detail="summary_trigger_threshold must be a positive integer")
-        config["summary_trigger_threshold"] = v
-    CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False))
-    return {"ok": True}
+from routes.models import router as _models_router
+app.include_router(_models_router)
 
 
 # ── Marketplace ───────────────────────────────────────────────────────────────
 
 MARKETPLACE_DIR = PROJECT_DIR / "marketplace"
 
-
-@app.get("/marketplace/agents")
-async def list_marketplace_agents():
-    if not MARKETPLACE_DIR.exists():
-        return []
-    installed_names = _get_installed_agent_names()
-    result = []
-    for agent_dir in sorted(MARKETPLACE_DIR.iterdir()):
-        if not agent_dir.is_dir():
-            continue
-        config_path = agent_dir / "config.json"
-        if not config_path.exists():
-            continue
-        cfg = json.loads(config_path.read_text())
-        result.append({
-            "id": agent_dir.name,
-            "emoji": cfg.get("emoji", "🤖"),
-            "color": cfg.get("color", "#888"),
-            "description": cfg.get("description", ""),
-            "installed": agent_dir.name in installed_names,
-        })
-    return result
+from routes.marketplace import router as _marketplace_router
+app.include_router(_marketplace_router)
 
 
-@app.get("/marketplace/agents/{agent_id}")
-async def get_marketplace_agent(agent_id: str):
-    src = MARKETPLACE_DIR / agent_id
-    if not src.is_dir():
-        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
-    cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
-    return {
-        "id": agent_id,
-        "emoji": cfg.get("emoji", "🤖"),
-        "color": cfg.get("color", "#888"),
-        "description": cfg.get("description", ""),
-        "agent_md": (src / "AGENT.md").read_text() if (src / "AGENT.md").exists() else "",
-        "identity_md": (src / "IDENTITY.md").read_text() if (src / "IDENTITY.md").exists() else "",
-        "soul_md": (src / "SOUL.md").read_text() if (src / "SOUL.md").exists() else "",
-        "installed": _find_agent_dir(agent_id) is not None,
-    }
-
-
-@app.post("/marketplace/agents")
-async def create_marketplace_agent(body: dict = {}):
-    agent_id = (body.get("id") or "").strip()
-    if not agent_id or re.search(r'[/\\.\s]', agent_id) or len(agent_id) > 64:
-        raise HTTPException(status_code=400, detail="Invalid agent id")
-    MARKETPLACE_DIR.mkdir(parents=True, exist_ok=True)
-    dst = MARKETPLACE_DIR / agent_id
-    if dst.exists():
-        raise HTTPException(status_code=409, detail=f"Marketplace agent '{agent_id}' already exists")
-    dst.mkdir(parents=True)
-    cfg = {
-        "emoji": body.get("emoji", "🤖"),
-        "color": body.get("color", "#888"),
-        "description": body.get("description", ""),
-    }
-    (dst / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-    (dst / "AGENT.md").write_text(body.get("agent_md", ""))
-    (dst / "IDENTITY.md").write_text(body.get("identity_md", ""))
-    (dst / "SOUL.md").write_text(body.get("soul_md", ""))
-    return {"ok": True, "id": agent_id}
-
-
-@app.put("/marketplace/agents/{agent_id}")
-async def update_marketplace_agent(agent_id: str, body: dict = {}):
-    src = MARKETPLACE_DIR / agent_id
-    if not src.is_dir():
-        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
-    cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
-    for key in ("emoji", "color", "description"):
-        if key in body:
-            cfg[key] = body[key]
-    (src / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-    if "agent_md" in body:
-        (src / "AGENT.md").write_text(body["agent_md"])
-    if "identity_md" in body:
-        (src / "IDENTITY.md").write_text(body["identity_md"])
-    if "soul_md" in body:
-        (src / "SOUL.md").write_text(body["soul_md"])
-    return {"ok": True}
-
-
-@app.delete("/marketplace/agents/{agent_id}")
-async def delete_marketplace_agent(agent_id: str):
-    src = MARKETPLACE_DIR / agent_id
-    if not src.is_dir():
-        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
-    import shutil
-    shutil.rmtree(src)
-    return {"ok": True}
-
-
-@app.post("/marketplace/agents/{agent_id}/install")
-async def install_marketplace_agent(agent_id: str, body: dict = {}):
-    src = MARKETPLACE_DIR / agent_id
-    if not src.is_dir():
-        raise HTTPException(status_code=404, detail="Agent not found in marketplace")
-    # Allow caller to override the destination name (e.g. to install same template twice)
-    dest_name = (body.get("name") or agent_id).strip()
-    if not dest_name:
-        raise HTTPException(status_code=400, detail="Name cannot be empty")
-
-    # Check if agent with this display name already exists (v0 or v1)
-    if _find_agent_dir(dest_name) is not None:
-        raise HTTPException(status_code=409, detail=f"Agent '{dest_name}' already exists")
-
-    # Generate UUID and create v1 folder: {short-uuid-8chars}-{name}/
-    new_agent_id = str(uuid.uuid4())
-    short_id = new_agent_id[:8]
-    folder_name = f"{short_id}-{dest_name}"
-    dst = AGENTS_DIR / folder_name
-    dst.mkdir(parents=True)
-    (dst / "memory").mkdir()
-    for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
-        src_file = src / fname
-        if src_file.exists():
-            (dst / fname).write_text(src_file.read_text())
-    # Merge marketplace config into v1 format
-    mkt_cfg = json.loads((src / "config.json").read_text()) if (src / "config.json").exists() else {}
-    cfg = {
-        "configVersion": 1,
-        "id": new_agent_id,
-        "name": dest_name,
-        "role": mkt_cfg.get("role", ""),
-        "title": mkt_cfg.get("title", ""),
-        "emoji": mkt_cfg.get("emoji", "🤖"),
-        "color": mkt_cfg.get("color", "#888"),
-        "description": mkt_cfg.get("description", ""),
-        "enabled": True,
-        "adapter": body.get("model", mkt_cfg.get("adapter", mkt_cfg.get("model", ""))),
-        "adapterConfig": mkt_cfg.get("adapterConfig", {}),
-        "model_tiers": mkt_cfg.get("model_tiers", None),
-        "skills": mkt_cfg.get("skills", []),
-        "reportsTo": mkt_cfg.get("reportsTo", None),
-        "permissions": mkt_cfg.get("permissions", {}),
-        "budget": mkt_cfg.get("budget", {}),
-        "heartbeat": mkt_cfg.get("heartbeat", None),
-    }
-    (dst / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-    (dst / "MEMORY.md").write_text(DEFAULT_MEMORY_MD)
-    return {"ok": True, "name": dest_name, "id": new_agent_id}
-
-
-# ── Agents ────────────────────────────────────────────────────────────────────
-
-@app.get("/agents")
-async def list_agents():
-    registry = get_agent_registry()
-    return [
-        {
-            "name": a["name"],
-            "emoji": a.get("emoji", "🤖"),
-            "color": a.get("color", "#888"),
-            "description": a.get("description", ""),
-            "model": a.get("model_id", ""),
-            "skills": a.get("skills", []),
-            "enabled": a.get("enabled", False),
-            "type": a.get("type", "cli"),
-            "source": "chat",
-            "supportsThinking": a.get("supports_thinking", None),
-            "modelTiers": a.get("model_tiers", None),
-        }
-        for a in registry.values()
-    ]
-
-
-@app.get("/agents/{name}")
-async def get_agent(name: str):
-    agent_dir = _find_agent_dir(name)
-    if agent_dir is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    config_path = agent_dir / "config.json"
-    if not config_path.exists():
-        raise HTTPException(status_code=404, detail="Agent not found")
-    data = json.loads(config_path.read_text())
-    data["name"] = name
-    return data
-
-
-@app.post("/agents")
-async def add_agent(body: dict):
-    name = body.get("name", "").strip()
-    if not name or re.search(r'[/\\.\s]', name) or len(name) > 64:
-        raise HTTPException(status_code=400, detail="Name required (no slashes, dots, or spaces)")
-
-    # Check if agent with this display name already exists (v0 or v1)
-    if _find_agent_dir(name) is not None:
-        raise HTTPException(status_code=409, detail="Agent already exists")
-
-    # Generate UUID and create v1 folder: {short-uuid-8chars}-{name}/
-    agent_id = str(uuid.uuid4())
-    short_id = agent_id[:8]
-    folder_name = f"{short_id}-{name}"
-    agent_dir = AGENTS_DIR / folder_name
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    (agent_dir / "memory").mkdir(exist_ok=True)
-
-    # Copy template files from _default, substituting {name}
-    default_dir = AGENTS_DIR / "_default"
-    for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md", "MEMORY.md"]:
-        src = default_dir / fname
-        dst = agent_dir / fname
-        if src.exists():
-            dst.write_text(src.read_text().replace("{name}", name))
-        elif fname == "MEMORY.md":
-            dst.write_text(DEFAULT_MEMORY_MD)
-
-    # Write v1 config.json
-    config = {
-        "configVersion": 1,
-        "id": agent_id,
-        "name": name,
-        "role": body.get("role", ""),
-        "title": body.get("title", ""),
-        "emoji": body.get("emoji", "🤖"),
-        "color": body.get("color", "#888888"),
-        "description": body.get("description", ""),
-        "enabled": body.get("enabled", False),
-        "adapter": body.get("adapter", body.get("model", "")),
-        "adapterConfig": body.get("adapterConfig", {}),
-        "model_tiers": body.get("model_tiers", None),
-        "skills": body.get("skills") or list_skill_slugs(),
-        "reportsTo": body.get("reportsTo", None),
-        "permissions": body.get("permissions", {}),
-        "budget": body.get("budget", {}),
-        "heartbeat": body.get("heartbeat", None),
-    }
-    (agent_dir / "config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False))
-    return {"ok": True, "name": name, "id": agent_id}
-
-
-@app.put("/agents/{name}")
-async def update_agent(name: str, body: dict):
-    agent_dir = _find_agent_dir(name)
-    if agent_dir is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    config_path = agent_dir / "config.json"
-    if not config_path.exists():
-        raise HTTPException(status_code=404, detail="Agent not found")
-    body.pop("name", None)
-    existing = json.loads(config_path.read_text())
-    existing.update(body)
-    config_path.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
-    return {"ok": True}
-
-
-@app.delete("/agents/{name}")
-async def remove_agent(name: str):
-    agent_dir = _find_agent_dir(name)
-    if agent_dir is not None:
-        config_path = agent_dir / "config.json"
-        if config_path.exists():
-            data = json.loads(config_path.read_text())
-            data["enabled"] = False
-            config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    return {"ok": True}
-
-
-def _read_agent_file(name: str, fname: str) -> str:
-    agent_dir = _find_agent_dir(name)
-    if agent_dir is None:
-        # Fallback: try direct path for _default or unknown
-        agent_dir = AGENTS_DIR / name
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    (agent_dir / "memory").mkdir(exist_ok=True)
-    path = agent_dir / fname
-    if not path.exists():
-        # Ensure workspace for known agents
-        registry = get_agent_registry()
-        if name in registry:
-            ensure_workspace(registry[name])
-        elif name == "_default":
-            ensure_default_template()
-    return path.read_text() if path.exists() else ""
-
-
-def _write_agent_file(name: str, fname: str, content: str):
-    agent_dir = _find_agent_dir(name)
-    if agent_dir is None:
-        agent_dir = AGENTS_DIR / name
-    path = agent_dir / fname
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
-
-
-@app.get("/agents/{name}/agent-md")
-async def get_agent_md(name: str):
-    return {"content": _read_agent_file(name, "AGENT.md")}
-
-
-@app.put("/agents/{name}/agent-md")
-async def put_agent_md(name: str, body: dict):
-    _write_agent_file(name, "AGENT.md", body.get("content", ""))
-    return {"ok": True}
-
-
-@app.get("/agents/{name}/identity")
-async def get_agent_identity(name: str):
-    return {"content": _read_agent_file(name, "IDENTITY.md")}
-
-
-@app.put("/agents/{name}/identity")
-async def put_agent_identity(name: str, body: dict):
-    _write_agent_file(name, "IDENTITY.md", body.get("content", ""))
-    return {"ok": True}
-
-
-@app.get("/agents/{name}/soul")
-async def get_agent_soul(name: str):
-    return {"content": _read_agent_file(name, "SOUL.md")}
-
-
-@app.put("/agents/{name}/soul")
-async def put_agent_soul(name: str, body: dict):
-    _write_agent_file(name, "SOUL.md", body.get("content", ""))
-    return {"ok": True}
-
-
-@app.post("/agents/{name}/test")
-async def test_agent(name: str):
-    registry = get_agent_registry()
-    if name not in registry:
-        return {"ok": False, "error": "Unknown agent"}
-    agent = registry[name]
-    ensure_workspace(agent)
-    try:
-        response = await asyncio.wait_for(
-            call_agent(agent, "Reply with exactly three words: I am ready."),
-            timeout=30,
-        )
-        return {"ok": bool(response), "response": response[:300] if response else "(empty)"}
-    except asyncio.TimeoutError:
-        return {"ok": False, "error": "Timeout (30s)"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-@app.post("/agents/{name}/daily-summary")
-async def trigger_daily_summary(name: str):
-    registry = get_agent_registry()
-    if name not in registry:
-        return {"ok": False, "error": "Unknown agent"}
-    agent = registry[name]
-    ensure_workspace(agent)
-    await write_daily_summary(agent)
-    today = datetime.now().strftime("%Y-%m-%d")
-    mem_file = agent["workspace"] / "memory" / f"{today}.md"
-    summary_written = mem_file.exists() and "## Daily Summary" in mem_file.read_text()
-    return {"ok": summary_written}
+from routes.agents import router as _agents_router
+app.include_router(_agents_router)
 
 
 # ── Skills ────────────────────────────────────────────────────────────────────
+
+# ── Skill helpers (find_skill_file/parse_skill re-exported from core.skills) ──
+
+from core.skills import find_skill_file, parse_skill
+
 
 def list_skill_slugs() -> list[str]:
     """Return sorted list of all skill slugs currently installed."""
@@ -1935,144 +837,8 @@ def list_skill_slugs() -> list[str]:
     return sorted(p.name for p in d.iterdir() if p.is_dir())
 
 
-def find_skill_file(slug_dir: Path) -> Path | None:
-    """Find SKILL.md or SKILLS.md inside a skill directory."""
-    for name in ["SKILL.md", "SKILLS.md"]:
-        f = slug_dir / name
-        if f.exists():
-            return f
-    return None
-
-
-def parse_skill(skill_file: Path) -> dict:
-    raw = skill_file.read_text().strip()
-    name = skill_file.parent.name
-    description = ""
-    source = ""
-    source_url = ""
-    source_version = ""
-    body = raw
-    if raw.startswith("---"):
-        end = raw.find("---", 3)
-        if end != -1:
-            fm = raw[3:end].strip()
-            body = raw[end + 3:].strip()
-            for line in fm.splitlines():
-                if line.startswith("name:"):
-                    name = line[5:].strip()
-                elif line.startswith("description:"):
-                    description = line[12:].strip()
-                elif line.startswith("source:"):
-                    source = line[7:].strip()
-                elif line.startswith("source_url:"):
-                    source_url = line[11:].strip()
-                elif line.startswith("source_version:"):
-                    source_version = line[15:].strip()
-    if not description:
-        lines = [l for l in body.splitlines() if l.strip() and not l.startswith("#")]
-        description = lines[0].strip() if lines else ""
-    return {
-        "name": name,
-        "description": description,
-        "body": body,
-        "source": source,
-        "source_url": source_url,
-        "source_version": source_version,
-    }
-
-
-@app.get("/skills")
-async def list_skills():
-    skills_dir = PROJECT_DIR / "skills"
-    result = []
-    for slug_dir in sorted(skills_dir.iterdir()):
-        if not slug_dir.is_dir():
-            continue
-        sf = find_skill_file(slug_dir)
-        if sf:
-            s = parse_skill(sf)
-            display_name = f"{s['source']}:{s['name']}" if s.get("source") else s["name"]
-            result.append({
-                "slug": slug_dir.name,
-                "name": display_name,
-                "description": s["description"],
-                "missing": False,
-                "source": s["source"],
-                "source_url": s["source_url"],
-                "source_version": s["source_version"],
-            })
-        else:
-            result.append({"slug": slug_dir.name, "name": slug_dir.name, "description": "", "missing": True,
-                           "source": "", "source_url": "", "source_version": ""})
-    return result
-
-
-@app.get("/skills/{slug}")
-async def get_skill(slug: str):
-    sf = find_skill_file(PROJECT_DIR / "skills" / slug)
-    if not sf:
-        raise HTTPException(status_code=404, detail="Skill not found")
-    s = parse_skill(sf)
-    return {"slug": slug, "name": s["name"], "description": s["description"], "body": s["body"],
-            "source": s["source"], "source_url": s["source_url"], "source_version": s["source_version"]}
-
-
-@app.put("/skills/{slug}")
-async def save_skill(slug: str, payload: dict):
-    sf = find_skill_file(PROJECT_DIR / "skills" / slug)
-    if not sf:
-        raise HTTPException(status_code=404, detail="Skill not found")
-    name = payload.get("name", slug)
-    description = payload.get("description", "")
-    body = payload.get("body", "")
-    sf.write_text(f"---\nname: {name}\ndescription: {description}\n---\n\n{body}")
-    return {"ok": True}
-
-
-@app.post("/skills")
-async def create_skill(payload: dict):
-    slug = payload.get("slug", "").strip().lower().replace(" ", "-")
-    if not slug:
-        raise HTTPException(status_code=400, detail="slug required")
-    skill_dir = PROJECT_DIR / "skills" / slug
-    if skill_dir.exists():
-        raise HTTPException(status_code=409, detail="Skill already exists")
-    skill_dir.mkdir(parents=True)
-    name = payload.get("name", slug)
-    description = payload.get("description", "")
-    body = payload.get("body", "")
-    (skill_dir / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n\n{body}")
-    return {"ok": True, "slug": slug}
-
-
-@app.post("/skills/upload")
-async def upload_skills(file: UploadFile = File(...)):
-    if not file.filename.endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Only .zip files are accepted")
-    data = await file.read()
-    created = []
-    skipped = []
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            for member in zf.infolist():
-                parts = Path(member.filename).parts
-                # Expect: <slug>/SKILL.md or <slug>/SKILLS.md (possibly inside a top-level dir)
-                # Normalize: strip a single leading directory if it wraps everything
-                if len(parts) < 2:
-                    continue
-                slug = parts[0]
-                filename = parts[-1]
-                if filename not in ("SKILL.md", "SKILLS.md"):
-                    continue
-                skill_dir = PROJECT_DIR / "skills" / slug
-                skill_dir.mkdir(parents=True, exist_ok=True)
-                dest = skill_dir / filename
-                dest.write_bytes(zf.read(member.filename))
-                if slug not in created:
-                    created.append(slug)
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Invalid zip file")
-    return {"ok": True, "created": created, "skipped": skipped}
+from routes.skills import router as _skills_router
+app.include_router(_skills_router)
 
 
 # ── Workspaces ────────────────────────────────────────────────────────────────
@@ -2094,376 +860,22 @@ def load_workspace_config(workspace_id: str) -> dict:
     return json.loads(p.read_text())
 
 
-@app.get("/workspaces")
-async def list_workspaces():
-    result = []
-    for d in sorted(WORKSPACES_DIR.iterdir(), key=lambda x: x.name):
-        if not d.is_dir():
-            continue
-        cp = d / "config.json"
-        if not cp.exists():
-            continue
-        try:
-            cfg = json.loads(cp.read_text())
-            result.append(cfg)
-        except Exception:
-            pass
-    return result
-
-
-@app.post("/workspaces")
-async def create_workspace(body: dict):
-    name = (body.get("name") or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="name required")
-    workspace_id = re.sub(r"[^a-z0-9_-]", "-", name.lower()).strip("-") or "workspace"
-    # Ensure unique id
-    base = workspace_id
-    idx = 2
-    while (WORKSPACES_DIR / workspace_id).exists():
-        workspace_id = f"{base}-{idx}"
-        idx += 1
-    d = WORKSPACES_DIR / workspace_id
-    d.mkdir(parents=True)
-    (d / "files").mkdir()
-    cfg = {
-        "id": workspace_id,
-        "name": name,
-        "description": body.get("description", ""),
-        "system_prompt": body.get("system_prompt", ""),
-        "default_agents": body.get("default_agents", []),
-        "created_at": datetime.now().isoformat(),
-    }
-    (d / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-    return cfg
-
-
-@app.get("/workspaces/{workspace_id}")
-async def get_workspace(workspace_id: str):
-    cfg = load_workspace_config(workspace_id)
-    files_dir = WORKSPACES_DIR / workspace_id / "files"
-    files = [f.name for f in files_dir.iterdir() if f.is_file()] if files_dir.exists() else []
-    return {**cfg, "files": sorted(files)}
-
-
-@app.put("/workspaces/{workspace_id}")
-async def update_workspace(workspace_id: str, body: dict):
-    cfg = load_workspace_config(workspace_id)
-    for key in ("name", "description", "system_prompt", "default_agents"):
-        if key in body:
-            cfg[key] = body[key]
-    workspace_config_path(workspace_id).write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-    return {"ok": True}
-
-
-@app.delete("/workspaces/{workspace_id}")
-async def delete_workspace(workspace_id: str):
-    import shutil
-    d = WORKSPACES_DIR / workspace_id
-    if not d.exists():
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    shutil.rmtree(d)
-    # Detach sessions that belonged to this workspace
-    for session_dir in HISTORY_DIR.iterdir():
-        if not session_dir.is_dir():
-            continue
-        mf = session_dir / "messages.json"
-        if not mf.exists():
-            continue
-        try:
-            msgs = json.loads(mf.read_text())
-            changed = False
-            for m in msgs:
-                if m.get("workspace_id") == workspace_id:
-                    m["workspace_id"] = None
-                    changed = True
-            if changed:
-                mf.write_text(json.dumps(msgs, indent=2, ensure_ascii=False))
-        except Exception:
-            pass
-    return {"ok": True}
-
-
-@app.post("/workspaces/{workspace_id}/files")
-async def upload_workspace_file(workspace_id: str, file: UploadFile = File(...)):
-    d = WORKSPACES_DIR / workspace_id / "files"
-    if not d.exists():
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    try:
-        validate_filename(file.filename)
-        safe_workspace_path(str(d), file.filename)
-    except ValueError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    content = await file.read()
-    (d / file.filename).write_bytes(content)
-    return {"ok": True, "filename": file.filename}
-
-
-@app.delete("/workspaces/{workspace_id}/files/{filename}")
-async def delete_workspace_file(workspace_id: str, filename: str):
-    p = WORKSPACES_DIR / workspace_id / "files" / filename
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    p.unlink()
-    return {"ok": True}
-
-
-@app.put("/sessions/{session_id}/workspace")
-async def move_session_to_workspace(session_id: str, body: dict):
-    """Change the workspace_id field in a session's messages."""
-    mf = session_messages_path(session_id)
-    if not mf.exists():
-        raise HTTPException(status_code=404, detail="Session not found")
-    workspace_id = body.get("workspace_id")  # None to detach
-    if workspace_id and not (WORKSPACES_DIR / workspace_id).exists():
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    msgs = json.loads(mf.read_text())
-    for m in msgs:
-        m["workspace_id"] = workspace_id
-    mf.write_text(json.dumps(msgs, indent=2, ensure_ascii=False))
-    return {"ok": True}
+from routes.workspaces import router as _workspaces_router
+app.include_router(_workspaces_router)
 
 
 # ── Scenarios ─────────────────────────────────────────────────────────────────
 
-@app.get("/scenarios")
-async def list_scenarios():
-    """Return all scenario JSON files from the scenarios/ directory."""
-    if not SCENARIOS_DIR.exists():
-        return []
-    result = []
-    for f in sorted(SCENARIOS_DIR.glob("*.json")):
-        try:
-            result.append(json.loads(f.read_text()))
-        except Exception:
-            pass  # skip malformed files
-    return result
+from routes.scenarios import router as _scenarios_router
+app.include_router(_scenarios_router)
 
 
-@app.get("/scenarios/{scenario_id}")
-async def get_scenario(scenario_id: str):
-    f = SCENARIOS_DIR / f"{scenario_id}.json"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="Scenario not found")
-    return json.loads(f.read_text())
+from routes.sessions import router as _sessions_router
+app.include_router(_sessions_router)
 
 
-@app.post("/scenarios")
-async def create_scenario(body: dict = {}):
-    sid = (body.get("id") or "").strip()
-    if not sid or re.search(r'[/\\.\s]', sid) or len(sid) > 64:
-        raise HTTPException(status_code=400, detail="Invalid scenario id")
-    SCENARIOS_DIR.mkdir(parents=True, exist_ok=True)
-    f = SCENARIOS_DIR / f"{sid}.json"
-    if f.exists():
-        raise HTTPException(status_code=409, detail=f"Scenario '{sid}' already exists")
-    data = {
-        "id": sid,
-        "name": body.get("name", sid),
-        "description": body.get("description", ""),
-        "system_prompt": body.get("system_prompt", ""),
-        "suggested_agents": body.get("suggested_agents", []),
-        "topic_hint": body.get("topic_hint", ""),
-    }
-    f.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    return {"ok": True, "id": sid}
-
-
-@app.put("/scenarios/{scenario_id}")
-async def update_scenario(scenario_id: str, body: dict = {}):
-    f = SCENARIOS_DIR / f"{scenario_id}.json"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="Scenario not found")
-    data = json.loads(f.read_text())
-    for key in ("name", "description", "system_prompt", "suggested_agents", "topic_hint"):
-        if key in body:
-            data[key] = body[key]
-    f.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    return {"ok": True}
-
-
-@app.delete("/scenarios/{scenario_id}")
-async def delete_scenario(scenario_id: str):
-    f = SCENARIOS_DIR / f"{scenario_id}.json"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="Scenario not found")
-    f.unlink()
-    return {"ok": True}
-
-
-# ── Sessions ──────────────────────────────────────────────────────────────────
-
-@app.get("/sessions")
-async def list_sessions(limit: int = 30, offset: int = 0):
-    hidden = load_hidden()
-    all_dirs = sorted(
-        (d for d in HISTORY_DIR.iterdir() if d.is_dir() and d.name not in hidden and (d / "messages.json").exists()),
-        key=lambda x: x.stat().st_mtime, reverse=True,
-    )
-    total = len(all_dirs)
-    page = all_dirs[offset: offset + limit]
-    sessions = []
-    for d in page:
-        try:
-            msgs = json.loads((d / "messages.json").read_text())
-            sys_msg = next((m for m in msgs if m.get("type") == "system"), None)
-            sessions.append({
-                "id": d.name,
-                "message_count": len([m for m in msgs if m.get("type") == "message"]),
-                "first_message": (sys_msg["text"] if sys_msg else "")[:60],
-                "workspace_id": sys_msg.get("workspace_id") if sys_msg else None,
-            })
-        except Exception:
-            pass
-    return {"sessions": sessions, "total": total, "offset": offset, "limit": limit}
-
-
-@app.post("/sessions")
-async def create_session():
-    session_id = str(uuid.uuid4())
-    session_path = HISTORY_DIR / session_id
-    session_path.mkdir(parents=True, exist_ok=True)
-    (session_path / "messages.json").write_text("[]")
-    return {"id": session_id, "name": f"Session {session_id[:8]}"}
-
-
-@app.delete("/sessions/{session_id}")
-async def hide_session(session_id: str):
-    hidden = load_hidden()
-    hidden.add(session_id)
-    save_hidden(hidden)
-    return {"ok": True}
-
-
-@app.get("/sessions/{session_id}")
-async def get_session(session_id: str):
-    f = session_messages_path(session_id)
-    if not f.exists():
-        return []
-    return json.loads(f.read_text())
-
-
-@app.get("/sessions/{session_id}/images/{filename}")
-async def get_session_image(session_id: str, filename: str):
-    p = HISTORY_DIR / session_id / "images" / filename
-    if not p.exists() or not p.is_file():
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(str(p))
-
-
-@app.get("/sessions/{session_id}/summary")
-async def get_session_summary(session_id: str):
-    """Get the cached summary for a session."""
-    path = HISTORY_DIR / session_id / "summary.json"
-    if not path.exists():
-        return {"exists": False}
-    try:
-        data = json.loads(path.read_text())
-        if data.get("failed"):
-            return {"exists": False}
-        return {"exists": True, **data}
-    except Exception:
-        return {"exists": False}
-
-
-@app.post("/sessions/{session_id}/recompress")
-async def recompress_session(session_id: str, body: dict = {}):
-    """Force re-summarization with optional direction hint. Runs inline."""
-    from history_manager import compress_history
-    hint = body.get("hint", "")
-    cfg = load_config()
-    summ_model = cfg.get("summarization_model", "")
-    if not summ_model:
-        raise HTTPException(status_code=400, detail="No summarization_model configured")
-
-    msg_path = session_messages_path(session_id)
-    if not msg_path.exists():
-        raise HTTPException(status_code=404, detail="Session not found")
-    messages = json.loads(msg_path.read_text())
-
-    # Delete existing cache to force fresh compression
-    summary_path = HISTORY_DIR / session_id / "summary.json"
-    if summary_path.exists():
-        summary_path.unlink()
-
-    max_rounds = cfg.get("max_history_rounds", 30)
-    summary_text, _ = await compress_history(
-        session_id, messages, window_size=max_rounds,
-        summary_model=summ_model, trigger_threshold=0,  # 0 forces trigger
-    )
-    return {"ok": True, "summary_text": summary_text}
-
-
-@app.put("/sessions/{session_id}/topic")
-async def rename_session(session_id: str, body: dict):
-    """Update the Topic text in the first system message."""
-    new_topic = (body.get("topic") or "").strip()
-    if not new_topic:
-        raise HTTPException(status_code=400, detail="topic required")
-    f = session_messages_path(session_id)
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="Session not found")
-    msgs = json.loads(f.read_text())
-    for m in msgs:
-        if m.get("type") == "system":
-            m["text"] = f"Topic: {new_topic}"
-            break
-    f.write_text(json.dumps(msgs, indent=2, ensure_ascii=False))
-    return {"ok": True}
-
-
-# ── Ollama model list ─────────────────────────────────────────────────────────
-
-def _resolve_ollama_base_url() -> str:
-    """Resolve Ollama base URL from adapter_presets (v1) or models (v0)."""
-    presets = load_adapter_presets()
-    # v1: adapter_presets has "ollama_api" with baseUrl
-    if "ollama_api" in presets and "baseUrl" in presets["ollama_api"]:
-        return presets["ollama_api"]["baseUrl"]
-    # v0: models has "ollama" with baseUrl (also found in converted presets)
-    if "ollama" in presets and "baseUrl" in presets["ollama"]:
-        return presets["ollama"]["baseUrl"]
-    return "http://127.0.0.1:11434"
-
-
-@app.get("/providers/ollama/models")
-async def ollama_models(base_url: str = ""):
-    if not base_url:
-        base_url = _resolve_ollama_base_url()
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get(f"{base_url}/api/tags")
-            r.raise_for_status()
-            result = [m["name"] for m in r.json().get("models", [])]
-            return {"ok": True, "models": result}
-    except Exception as e:
-        return {"ok": False, "models": [], "error": str(e)}
-
-
-
-
-@app.post("/providers/ollama/pull")
-async def ollama_pull(payload: dict):
-    base_url = payload.get("base_url", "").strip()
-    if not base_url:
-        base_url = _resolve_ollama_base_url()
-    model_name = payload.get("model", "").strip()
-    if not model_name:
-        raise HTTPException(status_code=400, detail="model required")
-
-    async def generate():
-        try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("POST", f"{base_url}/api/pull",
-                                         json={"name": model_name}) as r:
-                    async for line in r.aiter_lines():
-                        if line.strip():
-                            yield f"data: {line}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(generate(), media_type="text/event-stream")
+from routes.providers import router as _providers_router
+app.include_router(_providers_router)
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────

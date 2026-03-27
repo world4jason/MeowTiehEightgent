@@ -2695,3 +2695,273 @@ class TestOllamaResolveFromPresets:
         assert r.status_code == 200
         call_url = mock_client.get.call_args[0][0]
         assert "127.0.0.1:11434" in call_url
+
+
+# ── Kanban in build_prompt ─────────────────────────────────────────────────
+
+class TestKanbanPromptInjection:
+    """Tests for kanban state injection into agent prompts."""
+
+    def _make_agent(self, tmp_project):
+        agent_dir = tmp_project / "agents" / "test-agent"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are a test agent.")
+        return {"name": "test-agent", "workspace": agent_dir}
+
+    def test_kanban_state_injected(self, tmp_project):
+        """Kanban items appear in the prompt under Discussion Board."""
+        import app as a
+        agent = self._make_agent(tmp_project)
+        kanban = [
+            {"id": 1, "text": "Design API", "status": "done"},
+            {"id": 2, "text": "Implement feature", "status": "wip"},
+            {"id": 3, "text": "Write tests", "status": "todo"},
+        ]
+        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        assert "## Discussion Board" in prompt
+        assert "**In Progress:** Implement feature" in prompt
+        assert "**TODO:** Write tests" in prompt
+        assert "**Done:** Design API" in prompt
+
+    def test_kanban_empty_not_injected(self, tmp_project):
+        """Empty kanban list does not inject Discussion Board."""
+        import app as a
+        agent = self._make_agent(tmp_project)
+        prompt = a.build_prompt(agent, "history", kanban_state=[])
+        assert "Discussion Board" not in prompt
+
+    def test_kanban_none_not_injected(self, tmp_project):
+        """None kanban does not inject Discussion Board."""
+        import app as a
+        agent = self._make_agent(tmp_project)
+        prompt = a.build_prompt(agent, "history", kanban_state=None)
+        assert "Discussion Board" not in prompt
+
+    def test_kanban_multiple_wip_items(self, tmp_project):
+        """Multiple in-progress items are comma-separated."""
+        import app as a
+        agent = self._make_agent(tmp_project)
+        kanban = [
+            {"id": 1, "text": "Task A", "status": "wip"},
+            {"id": 2, "text": "Task B", "status": "wip"},
+        ]
+        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        assert "**In Progress:** Task A, Task B" in prompt
+
+    def test_kanban_only_done_still_injected(self, tmp_project):
+        """Even if all items are done, board is still shown."""
+        import app as a
+        agent = self._make_agent(tmp_project)
+        kanban = [{"id": 1, "text": "Completed task", "status": "done"}]
+        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        assert "## Discussion Board" in prompt
+        assert "**Done:** Completed task" in prompt
+
+    def test_kanban_with_scenario_both_injected(self, tmp_project):
+        """Kanban and scenario context can coexist in the prompt."""
+        import app as a
+        agent = self._make_agent(tmp_project)
+        kanban = [{"id": 1, "text": "Review code", "status": "wip"}]
+        prompt = a.build_prompt(
+            agent, "history",
+            scenario_system_prompt="This is a code review session.",
+            kanban_state=kanban,
+        )
+        assert "## Session Context" in prompt
+        assert "code review session" in prompt
+        assert "## Discussion Board" in prompt
+        assert "Review code" in prompt
+
+    def test_kanban_focus_instruction_present(self, tmp_project):
+        """Prompt includes instruction to focus on In Progress items."""
+        import app as a
+        agent = self._make_agent(tmp_project)
+        kanban = [{"id": 1, "text": "Current task", "status": "wip"}]
+        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        assert "Focus on In Progress items" in prompt
+
+
+# ── Scenario CRUD ──────────────────────────────────────────────────────────
+
+class TestScenarioCRUD:
+    """Full CRUD tests for scenario endpoints."""
+
+    def test_create_scenario(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        with TestClient(a.app) as client:
+            r = client.post("/scenarios", json={
+                "id": "test-scenario",
+                "name": "Test Scenario",
+                "description": "A test",
+                "system_prompt": "Be helpful.",
+                "topic_hint": "Tell me...",
+            })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["id"] == "test-scenario"
+        assert (scenarios_dir / "test-scenario.json").exists()
+
+    def test_create_scenario_invalid_id(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        with TestClient(a.app) as client:
+            r = client.post("/scenarios", json={
+                "id": "../escape",
+                "name": "Bad",
+            })
+        assert r.status_code == 400
+
+    def test_get_single_scenario(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        (scenarios_dir / "my-sc.json").write_text(json.dumps({
+            "id": "my-sc", "name": "My Scenario",
+            "description": "desc", "system_prompt": "prompt",
+        }))
+        with TestClient(a.app) as client:
+            r = client.get("/scenarios/my-sc")
+        assert r.status_code == 200
+        assert r.json()["name"] == "My Scenario"
+
+    def test_get_nonexistent_scenario_404(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        with TestClient(a.app) as client:
+            r = client.get("/scenarios/no-exist")
+        assert r.status_code == 404
+
+    def test_update_scenario(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        (scenarios_dir / "upd.json").write_text(json.dumps({
+            "id": "upd", "name": "Original",
+            "description": "old", "system_prompt": "old prompt",
+        }))
+        with TestClient(a.app) as client:
+            r = client.put("/scenarios/upd", json={
+                "name": "Updated",
+                "description": "new desc",
+                "system_prompt": "new prompt",
+            })
+        assert r.status_code == 200
+        saved = json.loads((scenarios_dir / "upd.json").read_text())
+        assert saved["name"] == "Updated"
+        assert saved["system_prompt"] == "new prompt"
+
+    def test_update_nonexistent_scenario_404(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        with TestClient(a.app) as client:
+            r = client.put("/scenarios/ghost", json={"name": "X"})
+        assert r.status_code == 404
+
+    def test_delete_scenario(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        (scenarios_dir / "del-me.json").write_text(json.dumps({
+            "id": "del-me", "name": "Delete Me",
+        }))
+        with TestClient(a.app) as client:
+            r = client.delete("/scenarios/del-me")
+        assert r.status_code == 200
+        assert not (scenarios_dir / "del-me.json").exists()
+
+    def test_delete_nonexistent_scenario_404(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        with TestClient(a.app) as client:
+            r = client.delete("/scenarios/nope")
+        assert r.status_code == 404
+
+    def test_list_scenarios_returns_all(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        for i in range(3):
+            (scenarios_dir / f"s{i}.json").write_text(json.dumps({
+                "id": f"s{i}", "name": f"Scenario {i}",
+            }))
+        with TestClient(a.app) as client:
+            r = client.get("/scenarios")
+        assert r.status_code == 200
+        assert len(r.json()) == 3
+
+    def test_create_duplicate_scenario_fails(self, tmp_project):
+        import app as a
+        scenarios_dir = tmp_project / "scenarios"
+        scenarios_dir.mkdir(exist_ok=True)
+        (scenarios_dir / "dup.json").write_text(json.dumps({"id": "dup", "name": "Dup"}))
+        with TestClient(a.app) as client:
+            r = client.post("/scenarios", json={"id": "dup", "name": "Dup 2"})
+        # Should fail because file already exists
+        assert r.status_code in (400, 409)
+
+
+# ── Build prompt integration ───────────────────────────────────────────────
+
+class TestBuildPromptIntegration:
+    """Integration tests for build_prompt with various combinations."""
+
+    def _make_agent(self, tmp_project, name="agent1"):
+        agent_dir = tmp_project / "agents" / name
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text(f"You are {name}.")
+        return {"name": name, "workspace": agent_dir}
+
+    def test_scenario_overrides_workspace(self, tmp_project):
+        """Scenario context takes priority over workspace guide."""
+        import app as a
+        ws_dir = tmp_project / "workspaces" / "ws1"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "config.json").write_text(json.dumps({
+            "id": "ws1", "name": "WS", "system_prompt": "Workspace guide here"
+        }))
+        agent = self._make_agent(tmp_project)
+        prompt = a.build_prompt(
+            agent, "history",
+            workspace_id="ws1",
+            scenario_system_prompt="Scenario context here",
+        )
+        assert "Scenario context here" in prompt
+        assert "Workspace guide here" not in prompt
+
+    def test_all_agents_listed_in_prompt(self, tmp_project):
+        """When all_agents is provided, other agents are mentioned."""
+        import app as a
+        agent = self._make_agent(tmp_project, "claude")
+        all_agents = [
+            {"name": "claude", "emoji": "🤖"},
+            {"name": "gemini", "emoji": "💚"},
+        ]
+        prompt = a.build_prompt(agent, "history", all_agents=all_agents)
+        assert "gemini" in prompt
+
+    def test_kanban_plus_scenario_plus_workspace(self, tmp_project):
+        """Scenario wins over workspace; kanban is always added."""
+        import app as a
+        ws_dir = tmp_project / "workspaces" / "ws2"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "config.json").write_text(json.dumps({
+            "id": "ws2", "name": "WS2", "system_prompt": "WS guide"
+        }))
+        agent = self._make_agent(tmp_project)
+        kanban = [{"id": 1, "text": "Fix bug", "status": "wip"}]
+        prompt = a.build_prompt(
+            agent, "history",
+            workspace_id="ws2",
+            scenario_system_prompt="Code review mode",
+            kanban_state=kanban,
+        )
+        assert "Code review mode" in prompt
+        assert "WS guide" not in prompt
+        assert "Fix bug" in prompt
+        assert "Discussion Board" in prompt
