@@ -206,15 +206,239 @@ if memory_dir.exists():
 - 跟 **Substantive Gate** 整合 — 判斷哪些值得記
 - 為未來的 **跨 Session 向量記憶** 鋪路 — entities.json 可作為向量化的來源
 
+## Edge Cases & 防禦設計
+
+### 核心原則
+
+**Memory flush 絕對不能影響主對話流程。** 任何 extraction 失敗都必須靜默降級，不能中斷 compress_history()，更不能中斷 WS session。
+
+### Edge Case 分析
+
+#### EC-1: Extraction LLM 呼叫失敗（timeout、API error、model 不存在）
+
+**問題：** `extract_facts()` 呼叫 LLM 失敗，如果沒 catch 住會讓 `compress_history()` 整個 crash，導致 agent 拿不到 history → 回應錯亂。
+
+**防禦：**
+```python
+async def extract_facts(...):
+    try:
+        result = await _call_agent(agent_dict, prompt)
+        ...
+    except Exception as exc:
+        logger.warning("Fact extraction failed: %s", exc)
+        return []  # 空列表，靜默降級
+```
+
+- `compress_history()` 裡用 try/except 包住整個 extraction 區塊
+- Extraction 失敗 → 跳過，直接做原本的摘要壓縮
+- **不設 cooldown** — extraction 失敗不影響 compression 本身的 cooldown
+
+#### EC-2: Extraction 耗時過長，阻塞下一輪 agent 回應
+
+**問題：** 現在 `compress_history()` 是在主迴圈的 agent turn 之前同步呼叫的（ws.py:249）。如果 extraction 加在 compression 前面，兩次 LLM 呼叫會讓延遲加倍。
+
+**防禦：**
+- **Extraction 跟 compression 並行**（`asyncio.gather`），而不是串行
+- 或者：**extraction 放 background task**，不阻塞 compression
+- 具體做法：
+
+```python
+async def compress_history(...):
+    # ... existing overflow check ...
+
+    # Phase 1: Fire-and-forget fact extraction (background)
+    if overflow and agent_workspaces:
+        asyncio.create_task(_safe_extract_facts(overflow, ...))
+
+    # Phase 2: Original compression (不等 extraction 完成)
+    summary_text = await _call_agent(...)
+    ...
+```
+
+- `_safe_extract_facts()` 是包了 try/except 的 wrapper
+- 就算 extraction 比 compression 慢，也不影響對話
+
+#### EC-3: 多個 agent 同時觸發 extraction，寫同一個檔案
+
+**問題：** 聊天室有 3 個 agent，compress_history 每輪都呼叫。如果 agent A 的 turn 觸發 extraction 正在寫 `memory/2026-03-29.md`，agent B 的 turn 又觸發，可能 race condition。
+
+**防禦：**
+- **Extraction 只觸發一次 per compression event** — 不是 per agent
+- 用 flag：`_extraction_done_for_count` 記錄已經 extract 過的 overflow_count
+- 或更簡單：**只在 summary cache miss 時觸發**（跟 compression 同時機）
+
+```python
+# Only extract when we actually need to recompress
+if new_overflow >= trigger_threshold:
+    await _safe_extract_facts(...)  # 只在新壓縮時做
+    summary_text = await _call_agent(...)
+```
+
+#### EC-4: 對話剛開始就結束（< window_size 條訊息），從沒觸發過 compression
+
+**問題：** 短對話不觸發 compression → 不觸發 extraction → 沒有 memory flush。可能有重要決策在短對話中做出但沒被記錄。
+
+**防禦：**
+- **Session 結束時的 daily summary（`write_daily_summary()`）已經存在** — 這個覆蓋了短對話場景
+- 不需要額外處理 — extraction 是壓縮的附屬品，短對話直接靠 daily summary
+
+#### EC-5: Memory 檔案損壞（disk full、寫入中斷、encoding error）
+
+**問題：** 寫入 `memory/YYYY-MM-DD.md` 或 `entities.json` 失敗。
+
+**防禦：**
+```python
+def _flush_facts_to_file(memory_dir, facts):
+    try:
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        path = memory_dir / f"{datetime.now().strftime('%Y-%m-%d')}.md"
+        # Append mode — 不覆蓋既有內容
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(...)
+    except Exception as exc:
+        logger.warning("Failed to flush facts to %s: %s", path, exc)
+        # 靜默失敗 — 對話繼續
+```
+
+- 用 append mode，不用 read-modify-write
+- 任何 IO 錯誤 → log warning → 繼續
+
+#### EC-6: LLM 回傳垃圾（不是 fact 格式、回傳 code block、幻覺事實）
+
+**問題：** Prompt 要求一行一個 fact，但 LLM 可能回傳 markdown code block、長篇大論、或純幻覺。
+
+**防禦：**
+- 只保留 `- [DECISION]`、`- [ACTION]`、`- [FINDING]`、`- [PREFERENCE]` 開頭的行
+- 其他行全部丟棄
+- 單行超過 200 字 → 截斷
+
+```python
+def _parse_facts(raw: str) -> list[str]:
+    valid_prefixes = ("- [DECISION]", "- [ACTION]", "- [FINDING]", "- [PREFERENCE]")
+    facts = []
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if line.startswith(valid_prefixes):
+            facts.append(line[:200])  # 截斷過長的
+    return facts
+```
+
+- 如果解析後空列表 → 不寫檔案
+
+#### EC-7: Entity extraction 回傳無效 JSON
+
+**問題：** LLM 回傳的不是合法 JSON。
+
+**防禦：**
+```python
+def _parse_entities(raw: str) -> dict:
+    # 嘗試提取 JSON block
+    import re
+    m = re.search(r'\{[^{}]+\}', raw, re.DOTALL)
+    if not m:
+        return {}
+    try:
+        data = json.loads(m.group())
+        # 只保留 str → str 的 entries
+        return {k: str(v)[:200] for k, v in data.items() if isinstance(k, str)}
+    except json.JSONDecodeError:
+        return {}
+```
+
+#### EC-8: 去重判斷錯誤（把新 fact 誤判為重複）
+
+**問題：** 簡單字串比對可能把「決定用 Python」和「決定用 Python 3.12」判為重複。
+
+**防禦：**
+- **Phase 1 不做去重** — 先求不漏
+- 重複 facts 在 memory 檔案裡不會造成嚴重問題（只是冗餘）
+- 未來再加語義去重（Phase 4 向量記憶時）
+
+#### EC-9: build_prompt 注入記憶太多，擠壓 history 空間
+
+**問題：** 3 天的 facts + entities 可能很長，擠壓了實際 history 的 token 預算。
+
+**防禦：**
+- **硬限 token budget** — facts 最多注入 500 字，entities 最多 300 字
+- 超過就只載最近 1 天
+
+```python
+def _load_recent_facts(memory_dir, max_chars=500):
+    # 從最新的開始載，累積到 max_chars 為止
+    ...
+```
+
+#### EC-10: Session resume（斷線重連）後 extraction 重複執行
+
+**問題：** WS 斷線重連時，`compress_history()` 會重新跑，可能重複 extract 已經 extract 過的訊息。
+
+**防禦：**
+- **Extraction 跟 compression 共用 cache 機制** — 在 `summary.json` 裡記錄 `facts_extracted_count`
+- 只 extract `overflow_count - facts_extracted_count` 的新訊息
+- 或更簡單：extraction 是 append mode，重複幾個 facts 不會壞事（EC-8 的延伸）
+
+### 防禦設計總結
+
+```
+compress_history() 呼叫
+  │
+  ├── overflow check（現有）
+  │   └── 沒有 overflow → return（不做任何 extraction）
+  │
+  ├── cache check（現有）
+  │   └── cache 新鮮 → return（不做任何 extraction）
+  │
+  ├── Step 1: Fact Extraction（新增，background task）
+  │   ├── try/except 包全部
+  │   ├── LLM 呼叫失敗 → log + 跳過
+  │   ├── 回傳解析失敗 → log + 跳過
+  │   ├── 檔案寫入失敗 → log + 跳過
+  │   └── 任何異常都不影響 Step 2
+  │
+  └── Step 2: Compression（現有，不等 Step 1）
+      └── 原本的邏輯完全不變
+```
+
+**一句話：extraction 是 best-effort 的附加品，所有路徑都有 fallback 到「不做」。**
+
+## 修訂後的實作步驟
+
+### Phase 1: Fact Extraction（最小可行）
+1. `history_manager.py` 加 `_safe_extract_facts()` — try/except 包全部
+2. `_parse_facts()` — 嚴格格式驗證，丟棄不合格的行
+3. `_flush_facts_to_file()` — append mode 寫入
+4. `compress_history()` 在 cache miss 時觸發 background extraction
+5. 測試：正常路徑 + LLM 失敗 + 解析失敗 + IO 失敗
+
+### Phase 2: Entity Extraction
+1. `_safe_extract_entities()` — try/except 包全部
+2. `_parse_entities()` — 容錯 JSON 解析
+3. merge 邏輯（新覆蓋舊）
+4. 測試
+
+### Phase 3: Memory Injection
+1. `core/prompt.py` 加 `_load_recent_facts(max_chars=500)` + `_load_entities(max_chars=300)`
+2. `build_prompt()` 注入 — 有 budget 限制
+3. 測試
+
+### Phase 4: 觀察 & 調整
+1. 觀察實際 extraction 品質
+2. 調整 prompt
+3. 視需要加去重
+4. 視需要加 entities 過期機制
+
 ## 風險與考量
 
 | 風險 | 緩解 |
 |------|------|
 | LLM extraction 成本 | 用便宜 model，只在壓縮時觸發（不是每輪） |
-| 事實品質差 | Prompt 明確分類，加 NONE 選項避免硬擠 |
-| 記憶膨脹 | 每日一個檔案，build_prompt 只載最近 3 天 |
+| 事實品質差 | 嚴格格式驗證 + NONE 選項 |
+| 記憶膨脹 | 硬限注入字數，每日一個檔案 |
 | Entity 衝突 | 新覆蓋舊，以最新為準 |
-| 延遲 | Extraction 跟 compression 可以並行（asyncio.gather） |
+| 延遲 | Background task，不阻塞 compression |
+| 主流程中斷 | **全路徑 try/except，所有失敗靜默降級** |
+| 記憶錯亂 | Append mode，嚴格格式過濾，不做危險的 read-modify-write |
+| 重複 extraction | Cache flag 或容忍少量重複（不會壞事） |
 
 ## 與 TODO.md 的關係
 
