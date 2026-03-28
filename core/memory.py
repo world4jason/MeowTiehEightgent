@@ -94,10 +94,10 @@ def flush_facts_to_memory(facts: list[dict], agent_workspaces: dict[str, str]) -
 
 # ── Memory injection helpers (Phase 1) ───────────────────────────────────────
 
-def load_recent_facts(memory_dir: Path | str, max_chars: int = 500) -> str:
+def load_recent_facts(memory_dir: Path | str, max_chars: int = 500, max_days: int = 3) -> str:
     """Load recent facts with importance-weighted selection + read-time dedup.
 
-    Reads last 3 days of memory files, parses ``- [TYPE] text`` lines,
+    Reads last *max_days* of memory files, parses ``- [TYPE] text`` lines,
     sorts by importance DESC then recency DESC, accumulates to *max_chars*.
     """
     memory_dir = Path(memory_dir)
@@ -108,7 +108,7 @@ def load_recent_facts(memory_dir: Path | str, max_chars: int = 500) -> str:
     entries: list[dict[str, Any]] = []
     seen_hashes: set[str] = set()
 
-    for day_offset in range(3):
+    for day_offset in range(max_days):
         date = (today - timedelta(days=day_offset)).strftime("%Y-%m-%d")
         path = memory_dir / f"{date}.md"
         if not path.exists():
@@ -382,8 +382,139 @@ async def distill_session(
         for _agent_name, ws in agent_workspaces.items():
             if entities:
                 flush_entities(ws, entities)
+        # Stage 4: Persist to session history
+        _persist_session_memory(session_id, facts, entities)
+
+        # Stage 5: Consolidate into agent MEMORY.md
+        for _agent_name, ws in agent_workspaces.items():
+            await _consolidate_agent_memory(ws, model_config)
     except Exception as exc:
         logger.warning("distill_session_failed session=%s error=%s", session_id, exc)
+
+
+def _persist_session_memory(session_id: str, facts: list[dict], entities: dict[str, str]) -> None:
+    """Save extracted facts and entities to history/{session_id}/ for session-level records."""
+    try:
+        import app as _app
+        session_dir = _app.HISTORY_DIR / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        if facts:
+            facts_path = session_dir / "facts.json"
+            facts_path.write_text(json.dumps(facts, ensure_ascii=False, indent=2))
+
+        if entities:
+            entities_path = session_dir / "entities.json"
+            entities_path.write_text(json.dumps(entities, ensure_ascii=False, indent=2))
+    except Exception as exc:
+        logger.warning("persist_session_memory_failed session=%s: %s", session_id, exc)
+
+
+# ── MEMORY.md consolidation ───────────────────────────────────────────────
+
+CONSOLIDATE_PROMPT = """\
+You are consolidating an agent's recent session facts into a curated memory file.
+
+Recent facts to consolidate:
+{recent_facts}
+
+Known entities:
+{entities}
+
+Rules:
+- Group facts by category with markdown headers:
+  ## Decisions, ## Preferences, ## Findings, ## Lessons Learned, ## Action Items
+- "Lessons Learned" MUST include mistakes to avoid and corrections (e.g. "do NOT do X")
+- Remove duplicates (keep the most complete version)
+- Drop trivial or superseded facts
+- Each fact one bullet point, concise
+- Write in the conversation's primary language
+- If nothing worth consolidating, output "NONE"
+
+Output ONLY the consolidated markdown content (no preamble)."""
+
+MEMORY_INDEX_SECTION = "## Session Memory"
+
+
+async def _consolidate_agent_memory(workspace: str | Path, model_config: dict) -> None:
+    """Consolidate daily facts + entities into a dated memory file, update MEMORY.md index.
+
+    MEMORY.md is an INDEX — it points to memory files, not raw facts.
+    The actual consolidated content goes to memory/consolidated-YYYY-MM-DD.md.
+
+    Runs as part of post-session distillation. Silent on failure.
+    """
+    try:
+        import app as _app
+
+        workspace = Path(workspace)
+        memory_md = workspace / "MEMORY.md"
+        memory_dir = workspace / "memory"
+
+        if not memory_dir.exists():
+            return
+
+        # Read recent facts (last 7 days, wider window for consolidation)
+        recent_facts = load_recent_facts(memory_dir, max_chars=3000, max_days=7)
+        entities_text = load_entities(memory_dir, max_chars=1000)
+
+        if not recent_facts and not entities_text:
+            return
+
+        prompt = CONSOLIDATE_PROMPT.format(
+            recent_facts=recent_facts or "(none)",
+            entities=entities_text or "(none)",
+        )
+
+        result = await _app.call_agent(model_config, prompt)
+        if not result or result.strip() == "NONE" or len(result.strip()) < 10:
+            return
+
+        # Write consolidated file
+        today = datetime.now().strftime("%Y-%m-%d")
+        consolidated_path = memory_dir / f"consolidated-{today}.md"
+        consolidated_path.write_text(
+            f"# Consolidated Memory — {today}\n\n{result.strip()}\n",
+            encoding="utf-8",
+        )
+
+        # Update MEMORY.md index
+        _update_memory_index(memory_md, today, consolidated_path.name)
+
+        logger.info("memory_consolidated workspace=%s file=%s", workspace.name, consolidated_path.name)
+    except Exception as exc:
+        logger.warning("consolidate_memory_failed workspace=%s: %s", workspace, exc)
+
+
+def _update_memory_index(memory_md: Path, date: str, filename: str) -> None:
+    """Add or update an entry in MEMORY.md's Session Memory section."""
+    try:
+        current = memory_md.read_text(encoding="utf-8") if memory_md.exists() else ""
+        entry = f"- [memory/{filename}](memory/{filename}) — {date} session consolidation"
+
+        # Check if this date's entry already exists
+        if filename in current:
+            return  # already indexed
+
+        # Find or create the Session Memory section
+        if MEMORY_INDEX_SECTION in current:
+            # Append after the section header
+            lines = current.split("\n")
+            new_lines = []
+            inserted = False
+            for line in lines:
+                new_lines.append(line)
+                if line.strip() == MEMORY_INDEX_SECTION and not inserted:
+                    new_lines.append(entry)
+                    inserted = True
+            current = "\n".join(new_lines)
+        else:
+            # Add section at the end
+            current = current.rstrip() + f"\n\n{MEMORY_INDEX_SECTION}\n{entry}\n"
+
+        memory_md.write_text(current, encoding="utf-8")
+    except Exception as exc:
+        logger.warning("update_memory_index_failed: %s", exc)
 
 
 async def safe_distill(

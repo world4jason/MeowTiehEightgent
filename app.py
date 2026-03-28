@@ -270,6 +270,9 @@ from core.memory import (
     _triage_session,
     _llm_extract_facts,
     _llm_extract_entities,
+    _persist_session_memory,
+    _consolidate_agent_memory,
+    _update_memory_index,
 )
 
 # ── Security helpers (re-exported from core.security) ─────────────────────────

@@ -3406,3 +3406,121 @@ class TestAppendMemoryRawPath:
         # Should NOT be in memory/ root
         root_file = ws / "memory" / f"{today}.md"
         assert not root_file.exists()
+
+
+# ── Memory: session persistence + MEMORY.md consolidation ────────────────
+
+class TestSessionMemoryPersistence:
+    """Test facts/entities saved to history/{session_id}/."""
+
+    def test_persist_session_memory(self, tmp_project):
+        from core.memory import _persist_session_memory
+        facts = [{"type": "DECISION", "text": "Use Python", "importance": 7}]
+        entities = {"Jason": "Project lead"}
+        _persist_session_memory("test-session-1", facts, entities)
+        import app as a
+        sess_dir = a.HISTORY_DIR / "test-session-1"
+        assert (sess_dir / "facts.json").exists()
+        assert (sess_dir / "entities.json").exists()
+        saved_facts = json.loads((sess_dir / "facts.json").read_text())
+        assert saved_facts[0]["text"] == "Use Python"
+        saved_ents = json.loads((sess_dir / "entities.json").read_text())
+        assert saved_ents["Jason"] == "Project lead"
+
+    def test_persist_empty_facts(self, tmp_project):
+        from core.memory import _persist_session_memory
+        _persist_session_memory("test-session-2", [], {})
+        import app as a
+        sess_dir = a.HISTORY_DIR / "test-session-2"
+        assert not (sess_dir / "facts.json").exists()
+        assert not (sess_dir / "entities.json").exists()
+
+    def test_persist_failure_is_silent(self, tmp_project, monkeypatch):
+        from core.memory import _persist_session_memory
+        import app as a
+        monkeypatch.setattr(a, "HISTORY_DIR", Path("/nonexistent/path"))
+        # Should not raise
+        _persist_session_memory("bad-session", [{"type": "X", "text": "Y"}], {"A": "B"})
+
+
+class TestMemoryConsolidation:
+    """Test MEMORY.md index update and consolidated file creation."""
+
+    def test_update_memory_index_new_section(self, tmp_path):
+        from core.memory import _update_memory_index
+        md = tmp_path / "MEMORY.md"
+        md.write_text("# MEMORY.md\n\n_Sessions will be recorded here._\n")
+        _update_memory_index(md, "2026-03-29", "consolidated-2026-03-29.md")
+        content = md.read_text()
+        assert "## Session Memory" in content
+        assert "consolidated-2026-03-29.md" in content
+
+    def test_update_memory_index_existing_section(self, tmp_path):
+        from core.memory import _update_memory_index
+        md = tmp_path / "MEMORY.md"
+        md.write_text("# MEMORY.md\n\n## Session Memory\n- [old](old) — old entry\n")
+        _update_memory_index(md, "2026-03-29", "consolidated-2026-03-29.md")
+        content = md.read_text()
+        assert "old entry" in content  # preserved
+        assert "consolidated-2026-03-29.md" in content  # added
+
+    def test_update_memory_index_no_duplicate(self, tmp_path):
+        from core.memory import _update_memory_index
+        md = tmp_path / "MEMORY.md"
+        md.write_text("# MEMORY.md\n\n## Session Memory\n- [memory/consolidated-2026-03-29.md](memory/consolidated-2026-03-29.md) — existing\n")
+        _update_memory_index(md, "2026-03-29", "consolidated-2026-03-29.md")
+        content = md.read_text()
+        assert content.count("consolidated-2026-03-29.md") == 2  # link + path, not doubled
+
+    @pytest.mark.asyncio
+    async def test_consolidate_agent_memory(self, tmp_path):
+        from core.memory import _consolidate_agent_memory, flush_facts_to_memory
+        from datetime import datetime
+        ws = tmp_path / "agent1"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        (ws / "MEMORY.md").write_text("# MEMORY.md\n\n_Sessions._\n")
+        # Write some facts first
+        flush_facts_to_memory(
+            [{"type": "DECISION", "text": "Use FastAPI", "importance": 7}],
+            {"agent1": str(ws)},
+        )
+        mock_result = "## Decisions\n- Use FastAPI for the backend\n\n## Lessons Learned\n- Do not hardcode templates"
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_result):
+            await _consolidate_agent_memory(str(ws), {"name": "_test"})
+        today = datetime.now().strftime("%Y-%m-%d")
+        consolidated = ws / "memory" / f"consolidated-{today}.md"
+        assert consolidated.exists()
+        content = consolidated.read_text()
+        assert "FastAPI" in content
+        assert "Lessons Learned" in content
+        # MEMORY.md should have the index entry
+        md_content = (ws / "MEMORY.md").read_text()
+        assert "Session Memory" in md_content
+        assert f"consolidated-{today}.md" in md_content
+
+    @pytest.mark.asyncio
+    async def test_consolidate_skips_when_no_facts(self, tmp_path):
+        from core.memory import _consolidate_agent_memory
+        ws = tmp_path / "agent2"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        (ws / "MEMORY.md").write_text("# MEMORY.md\n")
+        with patch("app.call_agent", new_callable=AsyncMock) as mock_call:
+            await _consolidate_agent_memory(str(ws), {"name": "_test"})
+        mock_call.assert_not_called()  # No facts → skip LLM call
+
+    @pytest.mark.asyncio
+    async def test_consolidate_failure_is_silent(self, tmp_path):
+        from core.memory import _consolidate_agent_memory, flush_facts_to_memory
+        ws = tmp_path / "agent3"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        (ws / "MEMORY.md").write_text("# MEMORY.md\n")
+        flush_facts_to_memory(
+            [{"type": "FINDING", "text": "Something important", "importance": 6}],
+            {"agent3": str(ws)},
+        )
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=Exception("LLM down")):
+            # Should not raise
+            await _consolidate_agent_memory(str(ws), {"name": "_test"})
