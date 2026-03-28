@@ -130,32 +130,91 @@
 
 ---
 
-## 5. OpenClaw（推測機制）
+## 5. OpenClaw Memory Stack 0.5.7（實際 source code 分析）
 
-**核心概念：** Pre-compaction memory flush — 上下文快滿前先靜默寫入 Markdown，再做摘要壓縮。
+**來源：** `openclaw-memory-stack-0.5.7`（商業產品，$49 one-time，proprietary license）
+**核心概念：** 5 引擎並行搜索 + 3-stage distillation + L0/L1/L2 token 控制
 
-### 推測流程
+### 架構總覽
 
 ```
-對話進行中
-  ↓
-偵測到 context 即將滿（token threshold）
-  ↓
-Phase 1: Fact Extraction（靜默）
-  - LLM 抽取重要事實、決策、待辦
-  - 寫入 agent 的 memory/ 目錄（Markdown）
-  ↓
-Phase 2: Summary Compaction
-  - 將舊對話摘要化
-  - 摘要替代原文，釋放 context 空間
-  ↓
-繼續對話（帶著摘要 + 記憶）
+┌─ SEARCH PIPELINE（每輪對話觸發）─────────────────┐
+│  E1: Full-text (FTS5)                            │
+│  E2: Vector (QMD)                                │
+│  E3: DAG 壓縮歷史                                │
+│  E4: Fact Store (SQLite structured)              │
+│  E5: Markdown 掃描                               │
+│        → RRF Rank Fusion → Reranking             │
+│        → L0 (~100t) / L1 (~800t) / L2 (full)    │
+└──────────────────────────────────────────────────┘
+┌─ CAPTURE（每輪/session 結束後）───────────────────┐
+│  Fact Extraction (8 types, importance 1-10)       │
+│  Entity Tracking (queryable)                     │
+│  Dedup & Supersede (3-level)                     │
+└──────────────────────────────────────────────────┘
 ```
+
+### 3-Stage Distillation Pipeline（`lib/distill.sh`）
+
+**Stage 1: Triage** — 先評估 session 是否值得蒸餾
+- LLM 評分 1-10（model: `qwen2.5:7b`，本地 Ollama）
+- 低於閾值（預設 4）直接跳過
+- LLM 不可用時有 **heuristic fallback**：用 regex 找 `decided/chose/prefer/bug/config` 等關鍵字 + 行數加分
+
+**Stage 2: Extract** — LLM 抽取原子事實
+- 輸出格式：`[{fact, importance: 1-10, tags: [...]}]`
+- 最多 20 個 facts
+- 截斷到 12000 chars
+- LLM 不可用時有 **heuristic fallback**：regex 抓 decision/preference/bugfix/config 模式
+- 結果驗證：JSON 解析 + 結構校驗（必須有 `fact` 欄位）
+
+**Stage 3: Store** — 寫入 Total Recall 或 daily markdown
+- 每個 fact 一個 slug 檔案
+- 格式：Markdown（`# Distilled Fact\n\n{fact}\n\nTags: {tags}\nExtracted: {timestamp}`）
+
+### Structured Facts SQLite（`lib/facts.sh`）
+
+- **DB 路徑：** `~/.openclaw/memory/facts.sqlite`
+- **Schema：** `id, type, content, key, value, scope, confidence, entities, timestamp`
+- **FTS5 全文搜索**：`facts_fts` 表
+- **8 種 fact 類型：** decisions, deadlines, requirements, entities, preferences, workflows, relationships, corrections
+- **Supersede 機制：** 同 `type+key` 的新 fact 會把舊的存入 `facts_archive`（保留 audit trail），再插入新的
+- **去重：** exact value match → 跳過；different value → archive + replace
+
+### L0/L1/L2 Tiered Loading（`lib/tiered-loading.sh`）
+
+| Tier | Token 預算 | 內容 | 取得方式 |
+|------|-----------|------|---------|
+| L0 | ~100 | 一句話摘要 | Heuristic（首行非空/非標題文字）或 LLM |
+| L1 | ~2000 | 概要（~500 字） | Heuristic（前 N chars 截斷到段落邊界）或 LLM |
+| L2 | 完整 | 原文 | grep 搜索 |
+
+- Sidecar 檔案：`.abstract`（L0）、`.overview`（L1）存在同目錄
+- Auto-expand：L0 相關度 score ≥ threshold → 自動升級到 L1/L2
+- LLM 生成 tier 時有 heuristic fallback
+
+### 其他設計
+
+- **Cross-agent sharing：** CLI API（`query/add/recent`）+ Drop zone（`~/.openclaw/memory/external/`）
+- **Self-healing：** 24h maintenance cycle，自動重建 index、archive stale facts
+- **License：** 7 天 re-verify，10 天 offline grace period
+- **LLM：** 優先本地（Ollama/MLX），fallback 到 OpenAI API（可選）
 
 ### 適用性評估
 
-- **最直接適用** — Meow 已有 Phase 2（compress_history），只需加 Phase 1
-- 格式用 Markdown 存在 `agents/{name}/memory/` — 跟 Meow 現有結構一致
+- **我們採用的：**
+  - 3-stage distillation pipeline 結構（triage → extract → store）
+  - Heuristic fallback（LLM 不可用時 regex 降級）
+  - Importance scoring（1-10，低於 4 不存）
+  - Supersede 概念（新覆蓋舊，不刪除）
+  - Post-session hook 觸發時機（不阻塞對話）
+  - 截斷輸入到 LLM（12000→8000 chars）
+- **我們不採用的：**
+  - 5 引擎並行 + RRF（過度工程，Meow 記憶量不大）
+  - SQLite FTS5（多依賴，Markdown 檔案夠用）
+  - L0/L1/L2 sidecar 檔案（未來 Phase 4 再考慮）
+  - DAG 壓縮 + PageRank 知識圖譜（複雜度太高）
+  - Cross-agent CLI API（Meow 的 agent 共用同一個 session，不需跨 agent 通訊記憶）
 
 ---
 
