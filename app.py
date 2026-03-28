@@ -273,6 +273,7 @@ from core.memory import (
     _persist_session_memory,
     _consolidate_agent_memory,
     _update_memory_index,
+    _cross_validate_facts,
 )
 
 # ── Security helpers (re-exported from core.security) ─────────────────────────

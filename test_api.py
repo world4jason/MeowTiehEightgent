@@ -4524,3 +4524,113 @@ class TestMemoryIntegrationEndToEnd:
         assert "**Redis**" in result
         assert "**PostgreSQL**" in result
         assert "主資料庫" in result
+
+
+# ── Memory: Cross-validation (anti-hallucination) ────────────────────────
+
+class TestCrossValidation:
+    """Test multi-LLM cross-validation of extracted facts."""
+
+    @pytest.mark.asyncio
+    async def test_valid_facts_kept(self):
+        from core.memory import _cross_validate_facts
+        facts = [
+            {"type": "DECISION", "text": "Use Python for backend", "importance": 7},
+            {"type": "FINDING", "text": "FastAPI is fast", "importance": 6},
+        ]
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided to use Python for backend. FastAPI is fast."}]
+        validation_response = json.dumps([
+            {"index": 0, "valid": True, "reason": "supported"},
+            {"index": 1, "valid": True, "reason": "supported"},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=validation_response):
+            with patch("app.load_config", return_value={"summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku", "type": "cli"}}):
+                    result = await _cross_validate_facts(facts, msgs, {"name": "_test"})
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_hallucinated_fact_rejected(self):
+        from core.memory import _cross_validate_facts
+        facts = [
+            {"type": "DECISION", "text": "Use MongoDB", "importance": 7},
+            {"type": "FINDING", "text": "Python is great", "importance": 6},
+        ]
+        msgs = [{"type": "message", "agent": "Claude", "text": "We will NOT use MongoDB. Python is great."}]
+        validation_response = json.dumps([
+            {"index": 0, "valid": False, "reason": "conversation says NOT MongoDB"},
+            {"index": 1, "valid": True, "reason": "supported"},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=validation_response):
+            with patch("app.load_config", return_value={"summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku", "type": "cli"}}):
+                    result = await _cross_validate_facts(facts, msgs, {"name": "_test"})
+        assert len(result) == 1
+        assert result[0]["text"] == "Python is great"
+
+    @pytest.mark.asyncio
+    async def test_all_facts_rejected(self):
+        from core.memory import _cross_validate_facts
+        facts = [
+            {"type": "DECISION", "text": "Hallucinated fact", "importance": 7},
+        ]
+        msgs = [{"type": "message", "agent": "Claude", "text": "We discussed nothing specific."}]
+        validation_response = json.dumps([
+            {"index": 0, "valid": False, "reason": "not in conversation"},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=validation_response):
+            with patch("app.load_config", return_value={"summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku", "type": "cli"}}):
+                    result = await _cross_validate_facts(facts, msgs, {"name": "_test"})
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_validation_failure_keeps_all(self):
+        """If cross-validation LLM fails, keep all facts (safe fallback)."""
+        from core.memory import _cross_validate_facts
+        facts = [
+            {"type": "DECISION", "text": "Important decision", "importance": 7},
+        ]
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided something."}]
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=Exception("LLM down")):
+            with patch("app.load_config", return_value={}):
+                with patch("app.load_models", return_value={}):
+                    result = await _cross_validate_facts(facts, msgs, {"name": "_test"})
+        assert len(result) == 1  # kept despite failure
+
+    @pytest.mark.asyncio
+    async def test_garbage_validation_response_keeps_all(self):
+        from core.memory import _cross_validate_facts
+        facts = [{"type": "DECISION", "text": "Something", "importance": 7}]
+        msgs = [{"type": "message", "agent": "Claude", "text": "text"}]
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="not json at all"):
+            with patch("app.load_config", return_value={"summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku", "type": "cli"}}):
+                    result = await _cross_validate_facts(facts, msgs, {"name": "_test"})
+        assert len(result) == 1  # kept
+
+    @pytest.mark.asyncio
+    async def test_empty_facts_returns_empty(self):
+        from core.memory import _cross_validate_facts
+        result = await _cross_validate_facts([], [], {"name": "_test"})
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_partial_validation_response(self):
+        """Only some facts have validation results — others kept."""
+        from core.memory import _cross_validate_facts
+        facts = [
+            {"type": "DECISION", "text": "Fact A", "importance": 7},
+            {"type": "FINDING", "text": "Fact B", "importance": 6},
+            {"type": "ACTION", "text": "Fact C", "importance": 5},
+        ]
+        msgs = [{"type": "message", "agent": "Claude", "text": "context"}]
+        # Only validate index 1, skip 0 and 2
+        validation_response = json.dumps([
+            {"index": 1, "valid": False, "reason": "not supported"},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=validation_response):
+            with patch("app.load_config", return_value={"summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku", "type": "cli"}}):
+                    result = await _cross_validate_facts(facts, msgs, {"name": "_test"})
+        assert len(result) == 2  # 0 and 2 kept, 1 rejected

@@ -501,6 +501,110 @@ def flush_entities(workspace: str | Path, entities: dict[str, str]) -> None:
         logger.warning("flush_entities_failed workspace=%s: %s", workspace, exc)
 
 
+# ── Cross-validation (anti-hallucination) ─────────────────────────────────────
+
+_CROSS_VALIDATE_PROMPT = """\
+You are a fact-checker. Verify each claimed fact against the actual conversation.
+
+Claimed facts:
+{facts_json}
+
+Actual conversation:
+{conversation}
+
+For each fact, respond with a JSON array:
+[{{"index": 0, "valid": true/false, "reason": "..."}}]
+
+Rules:
+- Mark "valid": true ONLY if the fact is directly supported by the conversation text
+- Mark "valid": false if the fact is hallucinated, exaggerated, or not supported
+- Be strict: if the conversation says "considering X" but the fact says "decided X", that is false
+- Negation check: if the conversation says "NOT X" but the fact says "X", that is false
+- If unsure, mark false (err on the side of caution)
+
+Respond with ONLY the JSON array."""
+
+
+async def _cross_validate_facts(
+    facts: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
+    model_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Use LLM to verify extracted facts against the actual conversation.
+
+    Removes facts the validator marks as hallucinated or unsupported.
+    Returns the filtered list. On any failure, returns the original list unchanged.
+    """
+    if not facts:
+        return facts
+    try:
+        import app as _app
+
+        facts_json = json.dumps(
+            [{"index": i, "type": f["type"], "text": f["text"]} for i, f in enumerate(facts)],
+            ensure_ascii=False,
+        )
+        conversation = _truncate_messages_text(messages, max_chars=6000)
+
+        prompt = _CROSS_VALIDATE_PROMPT.format(
+            facts_json=facts_json,
+            conversation=conversation,
+        )
+
+        # Use a different model if available for true cross-validation
+        # Fall back to same model if only one is configured
+        cfg = _app.load_config()
+        validator_model_key = cfg.get("summarization_model", "")  # use cheap model for validation
+        models = _app.load_models()
+        validator_cfg = models.get(validator_model_key, {})
+
+        if validator_cfg and validator_cfg != model_config:
+            validator_agent = {
+                "name": f"_validator_{validator_model_key}",
+                "workspace": model_config.get("workspace", "."),
+                **validator_cfg,
+            }
+        else:
+            # Same model fallback — still useful for self-consistency check
+            validator_agent = model_config
+
+        result = await _app.call_agent(validator_agent, prompt)
+
+        # Parse validation results
+        json_match = re.search(r'\[.*\]', result or "", re.DOTALL)
+        if not json_match:
+            return facts  # can't parse → keep all
+
+        validations = json.loads(json_match.group(0))
+        if not isinstance(validations, list):
+            return facts
+
+        # Build set of invalid indices
+        invalid_indices: set[int] = set()
+        for v in validations:
+            if isinstance(v, dict) and v.get("valid") is False:
+                idx = v.get("index")
+                if isinstance(idx, int) and 0 <= idx < len(facts):
+                    invalid_indices.add(idx)
+                    logger.info(
+                        "fact_rejected index=%d type=%s reason=%s",
+                        idx, facts[idx].get("type"), v.get("reason", ""),
+                    )
+
+        if invalid_indices:
+            validated = [f for i, f in enumerate(facts) if i not in invalid_indices]
+            logger.info(
+                "cross_validation_complete total=%d rejected=%d kept=%d",
+                len(facts), len(invalid_indices), len(validated),
+            )
+            return validated
+
+        return facts
+    except Exception as exc:
+        logger.warning("cross_validate_failed: %s — keeping all facts", exc)
+        return facts  # on failure, keep everything (safe fallback)
+
+
 # ── Distillation pipeline (Phase 2a + 2b) ────────────────────────────────────
 
 async def distill_session(
@@ -530,6 +634,10 @@ async def distill_session(
         # Stage 2: Extract facts + entities
         facts = await _llm_extract_facts(messages, model_config)
         entities = await _llm_extract_entities(messages, model_config)
+
+        # Stage 2.5: Cross-validate facts to reduce hallucination
+        if facts:
+            facts = await _cross_validate_facts(facts, messages, model_config)
 
         # Stage 3: Store facts + entities to agent workspaces
         if facts:

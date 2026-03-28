@@ -540,23 +540,24 @@ async def websocket_endpoint(ws: WebSocket):
         recv_task.cancel()
         _app.save_history(session_id, messages)
         try:
-            await ws.send_json({"type": "system", "text": "Session ended. Writing daily summaries…"})
+            await ws.send_json({"type": "system", "text": "Session ended. Processing memory…"})
         except Exception:
             pass
-        for agent in active_agents:
-            asyncio.create_task(write_daily_summary(agent))
-        # Post-session distillation (background, non-blocking)
+        # Post-session distillation (replaces write_daily_summary when available)
         _distill_cfg = _app.load_config()
         _distill_min = _distill_cfg.get("distill_min_messages", 5)
-        if messages and len(messages) > _distill_min:
-            _distill_model_key = _distill_cfg.get("distillation_model") or _distill_cfg.get("summarization_model", "")
-            if _distill_model_key:
-                _models = _app.load_models()
-                _dm = _models.get(_distill_model_key, {})
-                _distill_agent = {
-                    "name": f"_distiller_{_distill_model_key}",
-                    "workspace": str(_app.HISTORY_DIR / session_id),
-                    **_dm,
-                }
-                _agent_ws = _build_agent_workspaces()
-                asyncio.create_task(safe_distill(session_id, messages, _agent_ws, _distill_agent))
+        _distill_model_key = _distill_cfg.get("distillation_model") or _distill_cfg.get("summarization_model", "")
+        if messages and len(messages) > _distill_min and _distill_model_key:
+            _models = _app.load_models()
+            _dm = _models.get(_distill_model_key, {})
+            _distill_agent = {
+                "name": f"_distiller_{_distill_model_key}",
+                "workspace": str(_app.HISTORY_DIR / session_id),
+                **_dm,
+            }
+            _agent_ws = _build_agent_workspaces()
+            asyncio.create_task(safe_distill(session_id, messages, _agent_ws, _distill_agent))
+        else:
+            # Fallback: write_daily_summary when distillation is not available
+            for agent in active_agents:
+                asyncio.create_task(write_daily_summary(agent))
