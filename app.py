@@ -254,6 +254,24 @@ from core.runner import (
 
 from history_manager import truncate_history, apply_sliding_window, TRUNCATION_MARKER, compress_history, load_session_config, _format_history_text
 
+# ── Memory helpers (re-exported from core.memory) ──────────────────────────
+
+from core.memory import (
+    FACT_PATTERNS,
+    heuristic_extract_facts,
+    flush_facts_to_memory,
+    load_recent_facts,
+    load_entities,
+    flush_entities,
+    distill_session,
+    safe_distill,
+    _distill_semaphore,
+    _distilling_sessions,
+    _triage_session,
+    _llm_extract_facts,
+    _llm_extract_entities,
+)
+
 # ── Security helpers (re-exported from core.security) ─────────────────────────
 
 from core.security import (

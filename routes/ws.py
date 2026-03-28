@@ -35,6 +35,7 @@ async def websocket_endpoint(ws: WebSocket):
         load_session_config,
         _format_history_text,
     )
+    from core.memory import safe_distill
 
     client_ip = ws.client.host if ws.client else "unknown"
     if _active_ws.count(client_ip) >= _WS_LIMIT_PER_IP:
@@ -111,6 +112,9 @@ async def websocket_endpoint(ws: WebSocket):
     _max_rounds = _session_cfg.get("max_history_rounds", _max_rounds)
     _summ_threshold = _session_cfg.get("summary_trigger_threshold", _summ_threshold)
 
+    def _build_agent_workspaces() -> dict[str, str]:
+        return {a["name"]: str(a["workspace"]) for a in active_agents}
+
     async def _compression_progress(text: str):
         await ws.send_json({"type": "system", "text": text})
 
@@ -120,6 +124,7 @@ async def websocket_endpoint(ws: WebSocket):
                 session_id, messages, window_size=_max_rounds,
                 summary_model=_summ_model, trigger_threshold=_summ_threshold,
                 on_progress=_compression_progress,
+                agent_workspaces=_build_agent_workspaces(),
             )
         else:
             _summary_prefix = ""
@@ -250,6 +255,7 @@ async def websocket_endpoint(ws: WebSocket):
                     session_id, messages, window_size=_max_rounds,
                     summary_model=_summ_model, trigger_threshold=_summ_threshold,
                     on_progress=_compression_progress,
+                    agent_workspaces=_build_agent_workspaces(),
                 )
                 _rebuilt_history = _format_history_text(topic, _summary_prefix, _windowed)
             else:
@@ -539,3 +545,18 @@ async def websocket_endpoint(ws: WebSocket):
             pass
         for agent in active_agents:
             asyncio.create_task(write_daily_summary(agent))
+        # Post-session distillation (background, non-blocking)
+        _distill_cfg = _app.load_config()
+        _distill_min = _distill_cfg.get("distill_min_messages", 5)
+        if messages and len(messages) > _distill_min:
+            _distill_model_key = _distill_cfg.get("distillation_model") or _distill_cfg.get("summarization_model", "")
+            if _distill_model_key:
+                _models = _app.load_models()
+                _dm = _models.get(_distill_model_key, {})
+                _distill_agent = {
+                    "name": f"_distiller_{_distill_model_key}",
+                    "workspace": str(_app.HISTORY_DIR / session_id),
+                    **_dm,
+                }
+                _agent_ws = _build_agent_workspaces()
+                asyncio.create_task(safe_distill(session_id, messages, _agent_ws, _distill_agent))

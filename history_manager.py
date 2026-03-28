@@ -92,6 +92,7 @@ async def compress_history(
     summary_model: str = "haiku",
     trigger_threshold: int = 5,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
+    agent_workspaces: dict[str, str] | None = None,
 ) -> tuple[str, list]:
     """Compress history: summarize overflow messages beyond the sliding window.
 
@@ -140,6 +141,16 @@ async def compress_history(
         cached["total_message_count"] = total
         _write_summary_cache(summary_path, cached)
         return cached["summary_text"], windowed
+
+    # Pre-compaction heuristic extraction — save important facts before they get summarized
+    if agent_workspaces:
+        try:
+            from core.memory import heuristic_extract_facts, flush_facts_to_memory
+            heuristic_facts = heuristic_extract_facts(overflow)
+            if heuristic_facts:
+                flush_facts_to_memory(heuristic_facts, agent_workspaces)
+        except Exception as exc:
+            logger.warning("Pre-compaction fact extraction failed: %s", exc)
 
     # Build overflow text for summarization
     overflow_text_lines = []

@@ -163,6 +163,20 @@ def build_prompt(
     if user_md.exists():
         parts.append(user_md.read_text().strip())
 
+    # Long-term memory injection (budget-limited, importance-weighted)
+    memory_dir = ws / "memory"
+    if memory_dir.exists():
+        try:
+            from core.memory import load_recent_facts, load_entities
+            recent_facts = load_recent_facts(memory_dir, max_chars=500)
+            if recent_facts:
+                parts.append(f"## Recent Memory\n\n{recent_facts}")
+            entities_text = load_entities(memory_dir, max_chars=300)
+            if entities_text:
+                parts.append(f"## Known Entities\n\n{entities_text}")
+        except Exception:
+            pass  # Memory injection must never break prompt building
+
     today = datetime.now().strftime("%Y-%m-%d")
     mem_file = ws / "memory" / f"{today}.md"
     if mem_file.exists():

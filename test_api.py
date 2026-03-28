@@ -2965,3 +2965,444 @@ class TestBuildPromptIntegration:
         assert "WS guide" not in prompt
         assert "Fix bug" in prompt
         assert "Discussion Board" in prompt
+
+
+# ── Memory: Heuristic Extraction ──────────────────────────────────────────
+
+class TestMemoryHeuristic:
+    """Test regex-based fact extraction."""
+
+    def test_extract_decision(self):
+        from core.memory import heuristic_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided to use PostgreSQL for the database."}]
+        facts = heuristic_extract_facts(msgs)
+        assert len(facts) >= 1
+        assert facts[0]["type"] == "DECISION"
+        assert facts[0]["agent"] == "Claude"
+        assert facts[0]["importance"] == 7
+
+    def test_extract_preference(self):
+        from core.memory import heuristic_extract_facts
+        msgs = [{"type": "message", "agent": "Human", "text": "user prefers dark mode for the UI display settings"}]
+        facts = heuristic_extract_facts(msgs)
+        assert len(facts) >= 1
+        assert facts[0]["type"] == "PREFERENCE"
+
+    def test_extract_finding(self):
+        from core.memory import heuristic_extract_facts
+        msgs = [{"type": "message", "agent": "Gemini", "text": "root cause is a race condition in the event loop"}]
+        facts = heuristic_extract_facts(msgs)
+        assert len(facts) >= 1
+        assert facts[0]["type"] == "FINDING"
+
+    def test_extract_action(self):
+        from core.memory import heuristic_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "todo: refactor the authentication module before release"}]
+        facts = heuristic_extract_facts(msgs)
+        assert len(facts) >= 1
+        assert facts[0]["type"] == "ACTION"
+
+    def test_skip_non_message(self):
+        from core.memory import heuristic_extract_facts
+        msgs = [{"type": "system", "text": "We decided to use Python."}]
+        facts = heuristic_extract_facts(msgs)
+        assert len(facts) == 0
+
+    def test_dedup(self):
+        from core.memory import heuristic_extract_facts
+        msgs = [
+            {"type": "message", "agent": "Claude", "text": "We decided to use PostgreSQL for database storage."},
+            {"type": "message", "agent": "Gemini", "text": "We decided to use PostgreSQL for database storage."},
+        ]
+        facts = heuristic_extract_facts(msgs)
+        assert len(facts) == 1
+
+    def test_empty_messages(self):
+        from core.memory import heuristic_extract_facts
+        assert heuristic_extract_facts([]) == []
+
+    def test_flush_to_file(self, tmp_path):
+        from core.memory import flush_facts_to_memory
+        ws = str(tmp_path / "agent1")
+        facts = [{"type": "DECISION", "text": "Use Redis for caching", "importance": 7, "agent": "Claude"}]
+        flush_facts_to_memory(facts, {"agent1": ws})
+        import glob
+        md_files = list((tmp_path / "agent1" / "memory").glob("*.md"))
+        assert len(md_files) == 1
+        content = md_files[0].read_text()
+        assert "[DECISION]" in content
+        assert "Redis" in content
+
+    def test_flush_skips_low_importance(self, tmp_path):
+        from core.memory import flush_facts_to_memory
+        ws = str(tmp_path / "agent1")
+        facts = [{"type": "ACTION", "text": "Minor cleanup needed", "importance": 2, "agent": "Claude"}]
+        flush_facts_to_memory(facts, {"agent1": ws})
+        mem_dir = tmp_path / "agent1" / "memory"
+        if mem_dir.exists():
+            md_files = list(mem_dir.glob("*.md"))
+            for f in md_files:
+                assert "[ACTION]" not in f.read_text()
+
+    def test_flush_failure_is_silent(self):
+        from core.memory import flush_facts_to_memory
+        facts = [{"type": "DECISION", "text": "Use Redis for caching", "importance": 7, "agent": "Claude"}]
+        # Writing to an invalid path should not raise
+        flush_facts_to_memory(facts, {"agent1": "/nonexistent/path/that/cannot/exist"})
+
+    def test_flush_empty_facts(self, tmp_path):
+        from core.memory import flush_facts_to_memory
+        ws = str(tmp_path / "agent1")
+        flush_facts_to_memory([], {"agent1": ws})
+        mem_dir = tmp_path / "agent1" / "memory"
+        assert not mem_dir.exists()
+
+
+# ── Memory: Injection (load_recent_facts / load_entities) ──────────────────
+
+class TestMemoryInjection:
+    """Test memory loading and injection into prompts."""
+
+    def test_load_recent_facts(self, tmp_path):
+        from core.memory import load_recent_facts
+        from datetime import datetime
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        today = datetime.now().strftime("%Y-%m-%d")
+        (mem_dir / f"{today}.md").write_text(
+            "## 2026-03-27 10:00 — Session Extract\n"
+            "- [DECISION] Use PostgreSQL\n"
+            "- [FINDING] Root cause is race condition\n"
+        )
+        result = load_recent_facts(mem_dir, max_chars=500)
+        assert "[DECISION]" in result
+        assert "[FINDING]" in result
+
+    def test_load_recent_facts_importance_sort(self, tmp_path):
+        from core.memory import load_recent_facts
+        from datetime import datetime
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        today = datetime.now().strftime("%Y-%m-%d")
+        (mem_dir / f"{today}.md").write_text(
+            "- [ACTION] Do something minor\n"
+            "- [DECISION] Critical architecture choice\n"
+        )
+        result = load_recent_facts(mem_dir, max_chars=500)
+        lines = result.strip().split("\n")
+        # DECISION (importance=7) should come before ACTION (importance=5)
+        assert "[DECISION]" in lines[0]
+
+    def test_load_recent_facts_dedup(self, tmp_path):
+        from core.memory import load_recent_facts
+        from datetime import datetime
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        today = datetime.now().strftime("%Y-%m-%d")
+        (mem_dir / f"{today}.md").write_text(
+            "- [DECISION] Use PostgreSQL\n"
+            "- [DECISION] Use PostgreSQL\n"
+        )
+        result = load_recent_facts(mem_dir, max_chars=500)
+        assert result.count("[DECISION]") == 1
+
+    def test_load_recent_facts_budget(self, tmp_path):
+        from core.memory import load_recent_facts
+        from datetime import datetime
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        today = datetime.now().strftime("%Y-%m-%d")
+        lines = "\n".join(f"- [DECISION] Fact number {i} with some extra text padding" for i in range(50))
+        (mem_dir / f"{today}.md").write_text(lines)
+        result = load_recent_facts(mem_dir, max_chars=100)
+        assert len(result) <= 150  # Some tolerance for single line overflow
+
+    def test_load_recent_facts_nonexistent(self):
+        from core.memory import load_recent_facts
+        result = load_recent_facts(Path("/nonexistent/path"))
+        assert result == ""
+
+    def test_load_entities(self, tmp_path):
+        from core.memory import load_entities
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        (mem_dir / "entities.json").write_text(json.dumps({
+            "PostgreSQL": "Primary database for the project",
+            "Redis": "Caching layer",
+        }))
+        result = load_entities(mem_dir, max_chars=300)
+        assert "PostgreSQL" in result
+        assert "Redis" in result
+
+    def test_load_entities_budget(self, tmp_path):
+        from core.memory import load_entities
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        data = {f"entity_{i}": f"Description for entity {i} with some padding text" for i in range(50)}
+        (mem_dir / "entities.json").write_text(json.dumps(data))
+        result = load_entities(mem_dir, max_chars=100)
+        assert len(result) <= 200  # Some tolerance
+
+    def test_load_entities_nonexistent(self, tmp_path):
+        from core.memory import load_entities
+        result = load_entities(tmp_path / "nope")
+        assert result == ""
+
+    def test_load_entities_skips_internal_keys(self, tmp_path):
+        from core.memory import load_entities
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        (mem_dir / "entities.json").write_text(json.dumps({
+            "_internal": "should be skipped",
+            "Visible": "should appear",
+        }))
+        result = load_entities(mem_dir, max_chars=300)
+        assert "_internal" not in result
+        assert "Visible" in result
+
+    def test_build_prompt_includes_recent_memory(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "mem_agent"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are mem_agent.")
+        mem_dir = agent_dir / "memory"
+        mem_dir.mkdir()
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        (mem_dir / f"{today}.md").write_text("- [DECISION] Use FastAPI\n")
+        agent = {"name": "mem_agent", "workspace": agent_dir}
+        prompt = a.build_prompt(agent, "history")
+        assert "Recent Memory" in prompt
+        assert "[DECISION]" in prompt
+
+    def test_build_prompt_without_memory_dir(self, tmp_project):
+        import app as a
+        agent_dir = tmp_project / "agents" / "no_mem"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "AGENT.md").write_text("You are no_mem.")
+        agent = {"name": "no_mem", "workspace": agent_dir}
+        # Should not crash even without memory dir
+        prompt = a.build_prompt(agent, "history")
+        assert "no_mem" in prompt
+
+
+# ── Memory: Distill Session ───────────────────────────────────────────────
+
+class TestDistillSession:
+    """Test post-session LLM distillation pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_triage_heuristic_fallback(self):
+        """When LLM fails, triage should use heuristic fallback."""
+        from core.memory import _triage_session
+        msgs = [
+            {"type": "message", "agent": "Claude", "text": "We decided to use Redis. The bug fix is complete."},
+            {"type": "message", "agent": "Human", "text": "Great, the todo is done."},
+        ] * 5
+        # Pass invalid model config so LLM call fails
+        score = await _triage_session(msgs, {"name": "_test", "cmd": ["false"]})
+        assert isinstance(score, int)
+        assert 1 <= score <= 10
+
+    @pytest.mark.asyncio
+    async def test_triage_with_mock_llm(self):
+        from core.memory import _triage_session
+        msgs = [{"type": "message", "agent": "Claude", "text": "Test conversation"}]
+        mock_model = {"name": "_test"}
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="7"):
+            score = await _triage_session(msgs, mock_model)
+        assert score == 7
+
+    @pytest.mark.asyncio
+    async def test_triage_clamps_score(self):
+        from core.memory import _triage_session
+        msgs = [{"type": "message", "agent": "Claude", "text": "Test"}]
+        mock_model = {"name": "_test"}
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="15"):
+            score = await _triage_session(msgs, mock_model)
+        assert score == 10
+
+    @pytest.mark.asyncio
+    async def test_llm_extract_facts_valid_json(self):
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided to use Redis."}]
+        mock_response = json.dumps([
+            {"type": "DECISION", "text": "Use Redis for caching", "importance": 7, "entities": ["Redis"]},
+            {"type": "ACTION", "text": "Minor cleanup", "importance": 2, "entities": []},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_response):
+            facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        # importance < 4 should be filtered
+        assert len(facts) == 1
+        assert facts[0]["type"] == "DECISION"
+
+    @pytest.mark.asyncio
+    async def test_llm_extract_facts_garbage_output(self):
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "Test"}]
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="This is not JSON at all!"):
+            facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert facts == []
+
+    @pytest.mark.asyncio
+    async def test_llm_extract_facts_llm_failure(self):
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "Test"}]
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=Exception("LLM down")):
+            facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert facts == []
+
+    @pytest.mark.asyncio
+    async def test_llm_extract_entities_valid(self):
+        from core.memory import _llm_extract_entities
+        msgs = [{"type": "message", "agent": "Claude", "text": "Redis is our caching layer."}]
+        mock_response = json.dumps({"Redis": "Caching layer", "PostgreSQL": "Primary DB"})
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_response):
+            entities = await _llm_extract_entities(msgs, {"name": "_test"})
+        assert "Redis" in entities
+        assert "PostgreSQL" in entities
+
+    @pytest.mark.asyncio
+    async def test_llm_extract_entities_garbage(self):
+        from core.memory import _llm_extract_entities
+        msgs = [{"type": "message", "agent": "Claude", "text": "Test"}]
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="Not valid JSON"):
+            entities = await _llm_extract_entities(msgs, {"name": "_test"})
+        assert entities == {}
+
+    def test_flush_entities_merge(self, tmp_path):
+        from core.memory import flush_entities
+        ws = tmp_path / "agent1"
+        # First flush
+        flush_entities(str(ws), {"Redis": "Cache", "PG": "Database"})
+        path = ws / "memory" / "entities.json"
+        assert path.exists()
+        data = json.loads(path.read_text())
+        assert data["Redis"] == "Cache"
+        # Second flush — overwrite Redis, keep PG
+        flush_entities(str(ws), {"Redis": "Updated cache layer"})
+        data2 = json.loads(path.read_text())
+        assert data2["Redis"] == "Updated cache layer"
+        assert data2["PG"] == "Database"
+
+    def test_flush_entities_empty(self, tmp_path):
+        from core.memory import flush_entities
+        ws = str(tmp_path / "agent1")
+        flush_entities(ws, {})
+        assert not (tmp_path / "agent1" / "memory" / "entities.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_distill_session_full_pipeline(self, tmp_path):
+        from core.memory import distill_session
+        msgs = [
+            {"type": "message", "agent": "Claude", "text": "We decided to use Redis."},
+        ] * 10
+        ws = str(tmp_path / "agent1")
+        agent_ws = {"agent1": ws}
+        triage_response = "7"
+        facts_response = json.dumps([
+            {"type": "DECISION", "text": "Use Redis", "importance": 8, "entities": ["Redis"]},
+        ])
+        entities_response = json.dumps({"Redis": "Caching layer"})
+
+        call_count = 0
+        async def mock_call_agent(agent, prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return triage_response
+            elif call_count == 2:
+                return facts_response
+            else:
+                return entities_response
+
+        with patch("app.call_agent", side_effect=mock_call_agent):
+            await distill_session("test-sess", msgs, agent_ws, {"name": "_test"})
+
+        # Verify facts were written
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        fact_file = tmp_path / "agent1" / "memory" / f"{today}.md"
+        assert fact_file.exists()
+        assert "[DECISION]" in fact_file.read_text()
+
+        # Verify entities were written
+        entity_file = tmp_path / "agent1" / "memory" / "entities.json"
+        assert entity_file.exists()
+        assert "Redis" in entity_file.read_text()
+
+    @pytest.mark.asyncio
+    async def test_distill_session_low_triage_skips(self):
+        from core.memory import distill_session
+        msgs = [{"type": "message", "agent": "Claude", "text": "Hello"}]
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="2"):
+            await distill_session("test-sess", msgs, {}, {"name": "_test"})
+        # No error = success (low score means skip)
+
+    @pytest.mark.asyncio
+    async def test_safe_distill_dedup(self):
+        from core.memory import safe_distill, _distilling_sessions
+        # Manually add session to set
+        _distilling_sessions.add("dup-sess")
+        try:
+            await safe_distill("dup-sess", [], {}, {"name": "_test"})
+            # Should return immediately without error
+        finally:
+            _distilling_sessions.discard("dup-sess")
+
+    @pytest.mark.asyncio
+    async def test_safe_distill_timeout(self):
+        from core.memory import safe_distill
+
+        async def slow_call(agent, prompt):
+            await asyncio.sleep(100)
+            return "5"
+
+        msgs = [{"type": "message", "agent": "Claude", "text": "Test"}] * 10
+        with patch("app.call_agent", side_effect=slow_call):
+            # Should not hang — timeout after 60s (we'll use a shorter real timeout)
+            with patch("core.memory.distill_session", new_callable=AsyncMock) as mock_distill:
+                mock_distill.side_effect = asyncio.TimeoutError()
+                # Force the wait_for timeout by making distill_session itself timeout-like
+                await safe_distill("timeout-sess", msgs, {}, {"name": "_test"})
+
+    @pytest.mark.asyncio
+    async def test_safe_distill_semaphore(self):
+        from core.memory import safe_distill, _distill_semaphore
+        # Just verify it runs without error under semaphore
+        with patch("core.memory.distill_session", new_callable=AsyncMock):
+            await safe_distill("sem-sess", [], {}, {"name": "_test"})
+
+
+# ── Memory: append_memory raw path ────────────────────────────────────────
+
+class TestAppendMemoryRawPath:
+    """Test that append_memory writes to memory/raw/ subdirectory."""
+
+    def test_append_memory_writes_to_raw(self, tmp_path):
+        from core.runner import append_memory
+        from datetime import datetime
+        ws = tmp_path / "agent1"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        agent = {"name": "Claude", "workspace": ws}
+        append_memory(agent, "Test topic", "Test response")
+        today = datetime.now().strftime("%Y-%m-%d")
+        raw_file = ws / "memory" / "raw" / f"{today}.md"
+        assert raw_file.exists()
+        content = raw_file.read_text()
+        assert "Test topic" in content
+        assert "Test response" in content
+
+    def test_append_memory_not_in_root(self, tmp_path):
+        from core.runner import append_memory
+        from datetime import datetime
+        ws = tmp_path / "agent2"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        agent = {"name": "Claude", "workspace": ws}
+        append_memory(agent, "Topic", "Response")
+        today = datetime.now().strftime("%Y-%m-%d")
+        # Should NOT be in memory/ root
+        root_file = ws / "memory" / f"{today}.md"
+        assert not root_file.exists()

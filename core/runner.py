@@ -430,7 +430,9 @@ async def _handle_set_mode(ws, evt, agent_modes: dict, active_agents: list):
 
 def append_memory(agent: dict, topic: str, response: str):
     today = datetime.now().strftime("%Y-%m-%d")
-    mem_file = agent["workspace"] / "memory" / f"{today}.md"
+    raw_dir = agent["workspace"] / "memory" / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    mem_file = raw_dir / f"{today}.md"
     ts = datetime.now().strftime("%H:%M")
     with mem_file.open("a") as f:
         f.write(f"\n=====\n[{agent['name']}] {today} {ts}\n\nTopic: {topic}\n\n{response}\n")
