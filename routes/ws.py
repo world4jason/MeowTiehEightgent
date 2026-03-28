@@ -319,6 +319,11 @@ async def websocket_endpoint(ws: WebSocket):
                         break
                     elif t in ("add_agent", "remove_agent"):
                         await handle_member_event(evt)
+                        # If the currently speaking agent was removed, cancel its task
+                        if t == "remove_agent" and evt.get("agent") == agent["name"]:
+                            agent_task.cancel()
+                            cancelled = True
+                            break
                     elif t == "set_mode":
                         await _handle_set_mode(ws, evt, agent_modes, active_agents)
                     elif t == "kanban_update":
@@ -327,6 +332,9 @@ async def websocket_endpoint(ws: WebSocket):
                         pending_humans.append(evt)
 
             if cancelled:
+                # If cancelled due to agent removal (not stop), continue to next agent
+                if running:
+                    continue
                 break
 
             # Handle subprocess error sentinel
