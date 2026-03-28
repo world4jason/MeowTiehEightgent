@@ -18,9 +18,26 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+#: Maximum character length for extracted fact text.
+_MAX_FACT_TEXT_LEN = 200
+
+#: Maximum character length for extracted fact type labels.
+_MAX_FACT_TYPE_LEN = 20
+
+#: Maximum character length for entity keys.
+_MAX_ENTITY_KEY_LEN = 100
+
+#: Maximum character length for entity values.
+_MAX_ENTITY_VALUE_LEN = 200
+
+#: Minimum importance score for a fact to be stored.
+_MIN_IMPORTANCE_THRESHOLD = 4
+
 # ── Heuristic fact extraction (Phase 1) ──────────────────────────────────────
 
-# Tightened regex patterns with importance scores (修改 3)
+# Tightened regex patterns with importance scores
 FACT_PATTERNS: list[tuple[str, str, int]] = [
     (r'(?i)(?:we |team |已)\s*(decided|chose|確定|決定)\s+(?:to\s+)?(.{10,200})', 'DECISION', 7),
     (r'(?i)(?:user |使用者\s*)(prefer|偏好|要求)\s*:?\s*(.{10,200})', 'PREFERENCE', 6),
@@ -34,13 +51,34 @@ _TYPE_IMPORTANCE: dict[str, int] = {
     'WORKFLOW': 5, 'RELATIONSHIP': 4, 'CORRECTION': 7, 'CONFIG': 4,
 }
 
+#: Keywords used for heuristic triage scoring when LLM is unavailable.
+_TRIAGE_KEYWORDS: list[str] = [
+    'decided', 'chose', 'bug', 'fix', 'todo', 'action', 'prefer',
+    '決定', '確定', '原因', '修正',
+]
 
-def heuristic_extract_facts(messages: list[dict]) -> list[dict]:
+
+def _format_fact_line(fact_type: str, fact_text: str) -> str:
+    """Format a single fact as a markdown bullet line.
+
+    Consistent format: ``- [TYPE] text``
+    """
+    return f"- [{fact_type}] {fact_text}"
+
+
+def heuristic_extract_facts(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Fast regex-based fact extraction — no LLM, < 10ms.
 
-    Returns list of {type, text, importance, agent}.
+    Scans messages of type ``"message"`` for known patterns (decisions,
+    preferences, findings, actions) and returns structured facts.
+
+    Args:
+        messages: List of message dicts with keys ``type``, ``text``, ``agent``.
+
+    Returns:
+        List of ``{type, text, importance, agent}`` dicts.
     """
-    facts: list[dict] = []
+    facts: list[dict[str, Any]] = []
     seen: set[str] = set()
     for m in messages:
         if m.get("type") != "message":
@@ -49,7 +87,7 @@ def heuristic_extract_facts(messages: list[dict]) -> list[dict]:
         agent = m.get("agent", "?")
         for pattern, fact_type, importance in FACT_PATTERNS:
             for match in re.finditer(pattern, text):
-                fact_text = match.group(0)[:200].strip()
+                fact_text = match.group(0)[:_MAX_FACT_TEXT_LEN].strip()
                 if fact_text not in seen:
                     seen.add(fact_text)
                     facts.append({
@@ -61,27 +99,33 @@ def heuristic_extract_facts(messages: list[dict]) -> list[dict]:
     return facts
 
 
-def flush_facts_to_memory(facts: list[dict], agent_workspaces: dict[str, str]) -> None:
+def flush_facts_to_memory(facts: list[dict[str, Any]], agent_workspaces: dict[str, str]) -> None:
     """Write extracted facts to each agent's daily memory file.
 
+    Facts with importance below ``_MIN_IMPORTANCE_THRESHOLD`` are filtered out.
     Silently ignores all errors — must never break the caller.
+
+    Args:
+        facts: List of fact dicts with keys ``type``, ``text``, ``importance``.
+        agent_workspaces: Mapping of agent name to workspace directory path.
     """
     if not facts:
         return
-    today = datetime.now().strftime("%Y-%m-%d")
-    timestamp = datetime.now().strftime("%H:%M")
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    timestamp = now.strftime("%H:%M")
     # Format facts as markdown
     lines: list[str] = [f"\n## {today} {timestamp} — Session Extract\n"]
     for f in facts:
         importance = f.get("importance", 5)
-        if importance < 4:
+        if importance < _MIN_IMPORTANCE_THRESHOLD:
             continue
-        lines.append(f"- [{f['type']}] {f['text']}")
+        lines.append(_format_fact_line(f["type"], f["text"]))
     if len(lines) <= 1:  # Only header, no facts worth keeping
         return
     content = "\n".join(lines) + "\n"
     # Write to each agent's memory
-    for name, workspace in agent_workspaces.items():
+    for agent_name, workspace in agent_workspaces.items():
         try:
             memory_dir = Path(workspace) / "memory"
             memory_dir.mkdir(parents=True, exist_ok=True)
@@ -89,7 +133,7 @@ def flush_facts_to_memory(facts: list[dict], agent_workspaces: dict[str, str]) -
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(content)
         except Exception as exc:
-            logger.warning("Failed to flush facts for %s: %s", name, exc)
+            logger.warning("flush_facts_failed agent=%s workspace=%s: %s", agent_name, workspace, exc)
 
 
 # ── Memory injection helpers (Phase 1) ───────────────────────────────────────
@@ -99,6 +143,14 @@ def load_recent_facts(memory_dir: Path | str, max_chars: int = 500, max_days: in
 
     Reads last *max_days* of memory files, parses ``- [TYPE] text`` lines,
     sorts by importance DESC then recency DESC, accumulates to *max_chars*.
+
+    Args:
+        memory_dir: Path to the agent's ``memory/`` directory.
+        max_chars: Character budget for the returned text.
+        max_days: Number of recent days to scan.
+
+    Returns:
+        Formatted fact lines as a single string, or ``""`` if nothing found.
     """
     memory_dir = Path(memory_dir)
     if not memory_dir.exists():
@@ -123,7 +175,7 @@ def load_recent_facts(memory_dir: Path | str, max_chars: int = 500, max_days: in
                 continue
             fact_type = m.group(1)
             fact_text = m.group(2).strip()
-            # Dedup via hash
+            # Dedup via hash (case-insensitive)
             h = hashlib.md5(fact_text.lower().encode()).hexdigest()
             if h in seen_hashes:
                 continue
@@ -143,7 +195,7 @@ def load_recent_facts(memory_dir: Path | str, max_chars: int = 500, max_days: in
     result_lines: list[str] = []
     total = 0
     for e in entries:
-        line = f"- [{e['type']}] {e['text']}"
+        line = _format_fact_line(e["type"], e["text"])
         if total + len(line) > max_chars:
             break
         result_lines.append(line)
@@ -152,7 +204,17 @@ def load_recent_facts(memory_dir: Path | str, max_chars: int = 500, max_days: in
 
 
 def load_entities(memory_dir: Path | str, max_chars: int = 300) -> str:
-    """Read entities.json and format as ``- **key**: value``, budget-limited."""
+    """Read entities.json and format as ``- **key**: value``, budget-limited.
+
+    Keys starting with ``_`` are treated as internal and skipped.
+
+    Args:
+        memory_dir: Path to the agent's ``memory/`` directory.
+        max_chars: Character budget for the returned text.
+
+    Returns:
+        Formatted entity lines as a single string, or ``""`` if nothing found.
+    """
     memory_dir = Path(memory_dir)
     path = memory_dir / "entities.json"
     if not path.exists():
@@ -183,33 +245,72 @@ _distill_semaphore = asyncio.Semaphore(3)
 _distilling_sessions: set[str] = set()
 
 
-def _sample_messages_text(messages: list[dict], max_chars: int = 3000) -> str:
-    """Sample begin + mid + end of message texts (1000 chars each)."""
-    texts: list[str] = []
-    for m in messages:
-        if m.get("type") == "message":
-            texts.append(f"[{m.get('agent', '?')}]: {m.get('text', '')}")
-    full = "\n".join(texts)
+def _flatten_message_texts(messages: list[dict[str, Any]]) -> list[str]:
+    """Extract formatted text lines from messages of type ``"message"``.
+
+    Args:
+        messages: List of message dicts.
+
+    Returns:
+        List of ``[agent]: text`` formatted strings.
+    """
+    return [
+        f"[{m.get('agent', '?')}]: {m.get('text', '')}"
+        for m in messages
+        if m.get("type") == "message"
+    ]
+
+
+def _sample_messages_text(messages: list[dict[str, Any]], max_chars: int = 3000) -> str:
+    """Sample begin + mid + end of message texts (1/3 budget each).
+
+    Used for triage scoring where a representative sample suffices.
+
+    Args:
+        messages: List of message dicts.
+        max_chars: Maximum total character budget.
+
+    Returns:
+        Sampled text string.
+    """
+    full = "\n".join(_flatten_message_texts(messages))
     if len(full) <= max_chars:
         return full
     third = max_chars // 3
-    return full[:third] + "\n...\n" + full[len(full) // 2 - third // 2:len(full) // 2 + third // 2] + "\n...\n" + full[-third:]
+    mid_start = len(full) // 2 - third // 2
+    mid_end = len(full) // 2 + third // 2
+    return full[:third] + "\n...\n" + full[mid_start:mid_end] + "\n...\n" + full[-third:]
 
 
-def _truncate_messages_text(messages: list[dict], max_chars: int = 8000) -> str:
-    """Flatten messages to text, truncated to max_chars."""
-    texts: list[str] = []
-    for m in messages:
-        if m.get("type") == "message":
-            texts.append(f"[{m.get('agent', '?')}]: {m.get('text', '')}")
-    full = "\n".join(texts)
+def _truncate_messages_text(messages: list[dict[str, Any]], max_chars: int = 8000) -> str:
+    """Flatten messages to text, truncated to max_chars.
+
+    Args:
+        messages: List of message dicts.
+        max_chars: Maximum character length of result.
+
+    Returns:
+        Concatenated message text, possibly truncated.
+    """
+    full = "\n".join(_flatten_message_texts(messages))
     if len(full) > max_chars:
         return full[:max_chars]
     return full
 
 
-async def _triage_session(messages: list[dict], model_config: dict) -> int:
-    """Score session 1-10. Heuristic fallback if LLM fails."""
+async def _triage_session(messages: list[dict[str, Any]], model_config: dict[str, Any]) -> int:
+    """Score session 1-10 for durable knowledge content.
+
+    Attempts LLM scoring first; falls back to keyword-based heuristic
+    if the LLM call fails or returns unparseable output.
+
+    Args:
+        messages: Conversation messages to evaluate.
+        model_config: Model configuration for LLM calls.
+
+    Returns:
+        Integer score in range [1, 10].
+    """
     import app as _app
 
     sample = _sample_messages_text(messages, max_chars=3000)
@@ -229,13 +330,27 @@ async def _triage_session(messages: list[dict], model_config: dict) -> int:
     except Exception as exc:
         logger.warning("triage_llm_failed: %s — using heuristic", exc)
 
-    # Heuristic fallback: line count + keyword scoring
+    # Heuristic fallback: keyword scoring + message count
+    return _triage_heuristic(messages)
+
+
+def _triage_heuristic(messages: list[dict[str, Any]]) -> int:
+    """Keyword-based heuristic scoring when LLM is unavailable.
+
+    Scores baseline 3, adds +1 per matched keyword, +1 if > 20 messages.
+    Clamped to [1, 10].
+
+    Args:
+        messages: Conversation messages.
+
+    Returns:
+        Integer score in range [1, 10].
+    """
     text = _truncate_messages_text(messages, max_chars=5000)
     score = 3  # baseline
-    keywords = ['decided', 'chose', 'bug', 'fix', 'todo', 'action', 'prefer',
-                'decided', '決定', '確定', '原因', '修正']
-    for kw in keywords:
-        if kw.lower() in text.lower():
+    text_lower = text.lower()
+    for kw in _TRIAGE_KEYWORDS:
+        if kw.lower() in text_lower:
             score += 1
     msg_count = sum(1 for m in messages if m.get("type") == "message")
     if msg_count > 20:
@@ -243,8 +358,21 @@ async def _triage_session(messages: list[dict], model_config: dict) -> int:
     return min(10, score)
 
 
-async def _llm_extract_facts(messages: list[dict], model_config: dict) -> list[dict]:
-    """LLM-based fact extraction. Truncates input to 8000 chars."""
+async def _llm_extract_facts(
+    messages: list[dict[str, Any]], model_config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """LLM-based fact extraction. Truncates input to 8000 chars.
+
+    Parses the LLM response as a JSON array, validates each item, and
+    filters out facts below the importance threshold.
+
+    Args:
+        messages: Conversation messages.
+        model_config: Model configuration for LLM calls.
+
+    Returns:
+        List of validated fact dicts, or ``[]`` on failure.
+    """
     import app as _app
 
     text = _truncate_messages_text(messages, max_chars=8000)
@@ -281,18 +409,18 @@ async def _llm_extract_facts(messages: list[dict], model_config: dict) -> list[d
         if not isinstance(parsed, list):
             return []
         # Validate and filter
-        valid: list[dict] = []
+        valid: list[dict[str, Any]] = []
         for item in parsed[:20]:
             if not isinstance(item, dict):
                 continue
             if "type" not in item or "text" not in item:
                 continue
             importance = int(item.get("importance", 5))
-            if importance < 4:
+            if importance < _MIN_IMPORTANCE_THRESHOLD:
                 continue
             valid.append({
-                "type": str(item["type"])[:20],
-                "text": str(item["text"])[:200],
+                "type": str(item["type"])[:_MAX_FACT_TYPE_LEN],
+                "text": str(item["text"])[:_MAX_FACT_TEXT_LEN],
                 "importance": importance,
                 "agent": "llm-distill",
             })
@@ -304,8 +432,21 @@ async def _llm_extract_facts(messages: list[dict], model_config: dict) -> list[d
 
 # ── Entity extraction (Phase 2b) ─────────────────────────────────────────────
 
-async def _llm_extract_entities(messages: list[dict], model_config: dict) -> dict[str, str]:
-    """LLM entity extraction. Truncates input to 8000 chars."""
+async def _llm_extract_entities(
+    messages: list[dict[str, Any]], model_config: dict[str, Any]
+) -> dict[str, str]:
+    """LLM entity extraction. Truncates input to 8000 chars.
+
+    Parses the LLM response as a JSON object and converts all values to
+    truncated strings.
+
+    Args:
+        messages: Conversation messages.
+        model_config: Model configuration for LLM calls.
+
+    Returns:
+        Dict of ``{entity_name: description}``, or ``{}`` on failure.
+    """
     import app as _app
 
     text = _truncate_messages_text(messages, max_chars=8000)
@@ -325,10 +466,10 @@ async def _llm_extract_entities(messages: list[dict], model_config: dict) -> dic
         parsed = json.loads(json_match.group(0))
         if not isinstance(parsed, dict):
             return {}
-        # Validate: all values must be strings
+        # Validate: all values converted to truncated strings
         validated: dict[str, str] = {}
         for k, v in parsed.items():
-            validated[str(k)[:100]] = str(v)[:200]
+            validated[str(k)[:_MAX_ENTITY_KEY_LEN]] = str(v)[:_MAX_ENTITY_VALUE_LEN]
         return validated
     except Exception as exc:
         logger.warning("llm_extract_entities_failed: %s", exc)
@@ -336,7 +477,15 @@ async def _llm_extract_entities(messages: list[dict], model_config: dict) -> dic
 
 
 def flush_entities(workspace: str | Path, entities: dict[str, str]) -> None:
-    """Merge new entities into entities.json. New overwrites old (no archive per CTO review)."""
+    """Merge new entities into entities.json.
+
+    New values overwrite existing ones for the same key (no archive per CTO review).
+    Silently ignores all errors.
+
+    Args:
+        workspace: Agent workspace directory path.
+        entities: New entities to merge.
+    """
     if not entities:
         return
     try:
@@ -345,43 +494,50 @@ def flush_entities(workspace: str | Path, entities: dict[str, str]) -> None:
         if path.exists():
             existing = json.loads(path.read_text(encoding="utf-8"))
         for key, new_val in entities.items():
-            existing[key] = str(new_val)[:200]
+            existing[key] = str(new_val)[:_MAX_ENTITY_VALUE_LEN]
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(existing, ensure_ascii=False, indent=2))
     except Exception as exc:
-        logger.warning("Failed to flush entities: %s", exc)
+        logger.warning("flush_entities_failed workspace=%s: %s", workspace, exc)
 
 
 # ── Distillation pipeline (Phase 2a + 2b) ────────────────────────────────────
 
 async def distill_session(
     session_id: str,
-    messages: list[dict],
+    messages: list[dict[str, Any]],
     agent_workspaces: dict[str, str],
-    model_config: dict,
+    model_config: dict[str, Any],
 ) -> None:
     """Post-session fact distillation. Runs as background task.
 
-    Pipeline: triage -> extract facts + entities -> store.
+    Pipeline: triage -> extract facts + entities -> store -> consolidate.
     All wrapped in try/except — failures are silent.
+
+    Args:
+        session_id: Unique session identifier.
+        messages: Conversation messages from the session.
+        agent_workspaces: Mapping of agent name to workspace path.
+        model_config: Model configuration for LLM calls.
     """
     try:
         # Stage 1: Triage
         score = await _triage_session(messages, model_config)
         logger.info("distill_triage session=%s score=%d", session_id, score)
-        if score < 4:
+        if score < _MIN_IMPORTANCE_THRESHOLD:
             return
 
         # Stage 2: Extract facts + entities
         facts = await _llm_extract_facts(messages, model_config)
         entities = await _llm_extract_entities(messages, model_config)
 
-        # Stage 3: Store
+        # Stage 3: Store facts + entities to agent workspaces
         if facts:
             flush_facts_to_memory(facts, agent_workspaces)
         for _agent_name, ws in agent_workspaces.items():
             if entities:
                 flush_entities(ws, entities)
+
         # Stage 4: Persist to session history
         _persist_session_memory(session_id, facts, entities)
 
@@ -389,11 +545,19 @@ async def distill_session(
         for _agent_name, ws in agent_workspaces.items():
             await _consolidate_agent_memory(ws, model_config)
     except Exception as exc:
-        logger.warning("distill_session_failed session=%s error=%s", session_id, exc)
+        logger.warning("distill_session_failed session=%s: %s", session_id, exc)
 
 
-def _persist_session_memory(session_id: str, facts: list[dict], entities: dict[str, str]) -> None:
-    """Save extracted facts and entities to history/{session_id}/ for session-level records."""
+def _persist_session_memory(
+    session_id: str, facts: list[dict[str, Any]], entities: dict[str, str]
+) -> None:
+    """Save extracted facts and entities to history/{session_id}/ for session-level records.
+
+    Args:
+        session_id: Unique session identifier.
+        facts: Extracted facts to persist.
+        entities: Extracted entities to persist.
+    """
     try:
         import app as _app
         session_dir = _app.HISTORY_DIR / session_id
@@ -435,14 +599,23 @@ Output ONLY the consolidated markdown content (no preamble)."""
 
 MEMORY_INDEX_SECTION = "## Session Memory"
 
+#: Minimum length of LLM consolidation output to be considered valid.
+_MIN_CONSOLIDATION_LEN = 10
 
-async def _consolidate_agent_memory(workspace: str | Path, model_config: dict) -> None:
+
+async def _consolidate_agent_memory(
+    workspace: str | Path, model_config: dict[str, Any]
+) -> None:
     """Consolidate daily facts + entities into a dated memory file, update MEMORY.md index.
 
     MEMORY.md is an INDEX — it points to memory files, not raw facts.
-    The actual consolidated content goes to memory/consolidated-YYYY-MM-DD.md.
+    The actual consolidated content goes to ``memory/consolidated-YYYY-MM-DD.md``.
 
     Runs as part of post-session distillation. Silent on failure.
+
+    Args:
+        workspace: Agent workspace directory path.
+        model_config: Model configuration for LLM calls.
     """
     try:
         import app as _app
@@ -467,7 +640,7 @@ async def _consolidate_agent_memory(workspace: str | Path, model_config: dict) -
         )
 
         result = await _app.call_agent(model_config, prompt)
-        if not result or result.strip() == "NONE" or len(result.strip()) < 10:
+        if not result or result.strip() == "NONE" or len(result.strip()) < _MIN_CONSOLIDATION_LEN:
             return
 
         # Write consolidated file
@@ -487,7 +660,15 @@ async def _consolidate_agent_memory(workspace: str | Path, model_config: dict) -
 
 
 def _update_memory_index(memory_md: Path, date: str, filename: str) -> None:
-    """Add or update an entry in MEMORY.md's Session Memory section."""
+    """Add or update an entry in MEMORY.md's Session Memory section.
+
+    Idempotent: skips if the filename is already present in the file.
+
+    Args:
+        memory_md: Path to the MEMORY.md file.
+        date: Date string (YYYY-MM-DD) for the entry label.
+        filename: Name of the consolidated file to link.
+    """
     try:
         current = memory_md.read_text(encoding="utf-8") if memory_md.exists() else ""
         entry = f"- [memory/{filename}](memory/{filename}) — {date} session consolidation"
@@ -500,7 +681,7 @@ def _update_memory_index(memory_md: Path, date: str, filename: str) -> None:
         if MEMORY_INDEX_SECTION in current:
             # Append after the section header
             lines = current.split("\n")
-            new_lines = []
+            new_lines: list[str] = []
             inserted = False
             for line in lines:
                 new_lines.append(line)
@@ -514,16 +695,25 @@ def _update_memory_index(memory_md: Path, date: str, filename: str) -> None:
 
         memory_md.write_text(current, encoding="utf-8")
     except Exception as exc:
-        logger.warning("update_memory_index_failed: %s", exc)
+        logger.warning("update_memory_index_failed path=%s: %s", memory_md, exc)
 
 
 async def safe_distill(
     session_id: str,
-    messages: list[dict],
+    messages: list[dict[str, Any]],
     agent_workspaces: dict[str, str],
-    model_config: dict,
+    model_config: dict[str, Any],
 ) -> None:
-    """Semaphore + timeout + session dedup + structured logging."""
+    """Entry point for post-session distillation with safety guards.
+
+    Guards: semaphore (max 3 concurrent), timeout (60s), session dedup.
+
+    Args:
+        session_id: Unique session identifier.
+        messages: Conversation messages from the session.
+        agent_workspaces: Mapping of agent name to workspace path.
+        model_config: Model configuration for LLM calls.
+    """
     if session_id in _distilling_sessions:
         return  # already in progress
     async with _distill_semaphore:
@@ -536,7 +726,7 @@ async def safe_distill(
         except asyncio.TimeoutError:
             logger.warning("distill_timeout session=%s", session_id)
         except Exception as exc:
-            logger.warning("distill_failed session=%s error=%s", session_id, exc)
+            logger.warning("distill_failed session=%s: %s", session_id, exc)
         finally:
             _distilling_sessions.discard(session_id)
             logger.info("distill_complete session=%s", session_id)
