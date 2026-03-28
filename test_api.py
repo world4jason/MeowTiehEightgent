@@ -4620,6 +4620,189 @@ class TestMultiRoundExtraction:
                 facts = await _llm_extract_facts(msgs, {"name": "_test"})
         assert len(facts) <= 20
 
+
+# ── Memory: Agent-scoped extraction ──────────────────────────────────────
+
+class TestAgentScopedExtraction:
+    """Test first-person agent-scoped fact extraction."""
+
+    @pytest.mark.asyncio
+    async def test_extracts_agent_specific_facts(self, tmp_path):
+        from core.memory import _agent_scoped_extract
+        ws = tmp_path / "claude"
+        ws.mkdir()
+        (ws / "AGENT.md").write_text("You are Claude, a coding assistant.")
+        (ws / "IDENTITY.md").write_text("Name: Claude")
+        msgs = [
+            {"type": "message", "agent": "Claude", "text": "I'll refactor app.py"},
+            {"type": "message", "agent": "Human", "text": "Don't use double quotes in onclick"},
+        ]
+        mock_response = json.dumps([
+            {"type": "SELF_CORRECTION", "text": "Do not use double quotes in onclick attributes", "importance": 8},
+            {"type": "FEEDBACK", "text": "User wants single quotes in HTML event handlers", "importance": 7},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_response):
+            facts = await _agent_scoped_extract("Claude", str(ws), msgs, {"name": "_test"})
+        assert len(facts) == 2
+        assert facts[0]["agent"] == "Claude"
+        assert facts[0]["type"] == "SELF_CORRECTION"
+
+    @pytest.mark.asyncio
+    async def test_uses_agent_identity_in_prompt(self, tmp_path):
+        from core.memory import _agent_scoped_extract
+        ws = tmp_path / "gemini"
+        ws.mkdir()
+        (ws / "AGENT.md").write_text("You are Gemini, a research specialist.")
+        msgs = [{"type": "message", "agent": "Gemini", "text": "I found a bug."}]
+        mock_response = "[]"
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_response) as mock_call:
+            await _agent_scoped_extract("Gemini", str(ws), msgs, {"name": "_test"})
+        prompt_sent = mock_call.call_args[0][1]
+        assert "You are Gemini" in prompt_sent
+        assert "research specialist" in prompt_sent
+
+    @pytest.mark.asyncio
+    async def test_no_identity_files_uses_fallback(self, tmp_path):
+        from core.memory import _agent_scoped_extract
+        ws = tmp_path / "new-agent"
+        ws.mkdir()
+        # No AGENT.md or IDENTITY.md
+        msgs = [{"type": "message", "agent": "new-agent", "text": "Hello."}]
+        mock_response = "[]"
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_response) as mock_call:
+            await _agent_scoped_extract("new-agent", str(ws), msgs, {"name": "_test"})
+        prompt_sent = mock_call.call_args[0][1]
+        assert "You are new-agent" in prompt_sent
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_returns_empty(self, tmp_path):
+        from core.memory import _agent_scoped_extract
+        ws = tmp_path / "agent"
+        ws.mkdir()
+        msgs = [{"type": "message", "agent": "agent", "text": "text"}]
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=Exception("LLM down")):
+            facts = await _agent_scoped_extract("agent", str(ws), msgs, {"name": "_test"})
+        assert facts == []
+
+    @pytest.mark.asyncio
+    async def test_garbage_response_returns_empty(self, tmp_path):
+        from core.memory import _agent_scoped_extract
+        ws = tmp_path / "agent"
+        ws.mkdir()
+        msgs = [{"type": "message", "agent": "agent", "text": "text"}]
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="not json at all"):
+            facts = await _agent_scoped_extract("agent", str(ws), msgs, {"name": "_test"})
+        assert facts == []
+
+    @pytest.mark.asyncio
+    async def test_importance_filtering_applied(self, tmp_path):
+        from core.memory import _agent_scoped_extract
+        ws = tmp_path / "agent"
+        ws.mkdir()
+        msgs = [{"type": "message", "agent": "agent", "text": "text"}]
+        mock_response = json.dumps([
+            {"type": "FEEDBACK", "text": "Important feedback", "importance": 7},
+            {"type": "ACTION", "text": "Minor task", "importance": 2},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_response):
+            facts = await _agent_scoped_extract("agent", str(ws), msgs, {"name": "_test"})
+        assert len(facts) == 1
+        assert facts[0]["text"] == "Important feedback"
+
+
+class TestDistillSessionAgentScoped:
+    """Test that distill_session uses agent-scoped extraction."""
+
+    @pytest.mark.asyncio
+    async def test_distill_uses_agent_scoped_not_global_for_agent_memory(self, tmp_path):
+        """Global facts go to session record; agent-scoped facts go to agent memory."""
+        from core.memory import distill_session
+        import app as a
+
+        ws = tmp_path / "claude"
+        ws.mkdir()
+        (ws / "AGENT.md").write_text("You are Claude.")
+        (ws / "memory").mkdir()
+
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided to use Python."}] * 10
+
+        # Mock: triage=7, global facts, global entities, cross-validate pass, agent-scoped facts
+        global_facts = json.dumps([{"type": "DECISION", "text": "Use Python globally", "importance": 7}])
+        global_entities = json.dumps({"Python": "Backend language"})
+        validate_response = json.dumps([{"index": 0, "valid": True}])
+        agent_facts = json.dumps([{"type": "SELF_CORRECTION", "text": "I should use single quotes", "importance": 8}])
+
+        call_count = {"n": 0}
+        async def mock_call_agent(cfg, prompt):
+            call_count["n"] += 1
+            if "Rate this conversation" in prompt:
+                return "7"
+            if "Extract durable facts" in prompt:
+                return global_facts
+            if "Extract key entities" in prompt:
+                return global_entities
+            if "fact-checker" in prompt:
+                return validate_response
+            if "relevant to YOU" in prompt:
+                return agent_facts
+            if "consolidating" in prompt.lower() or "consolidate" in prompt.lower():
+                return "NONE"
+            return "[]"
+
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=mock_call_agent):
+            with patch("app.load_config", return_value={"extraction_rounds": 1, "summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku"}}):
+                    with patch.object(a, "HISTORY_DIR", tmp_path / "history"):
+                        await distill_session("test-sess", msgs, {"Claude": str(ws)}, {"name": "_test"})
+
+        # Agent memory should have agent-scoped fact, not global
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        memory_file = ws / "memory" / f"{today}.md"
+        assert memory_file.exists()
+        content = memory_file.read_text()
+        assert "single quotes" in content  # agent-scoped fact
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_global_when_agent_scoped_empty(self, tmp_path):
+        """If agent-scoped extraction finds nothing, fall back to global facts."""
+        from core.memory import distill_session
+        import app as a
+
+        ws = tmp_path / "agent1"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+
+        msgs = [{"type": "message", "agent": "agent1", "text": "We decided X."}] * 10
+
+        async def mock_call_agent(cfg, prompt):
+            if "Rate this conversation" in prompt:
+                return "7"
+            if "Extract durable facts" in prompt:
+                return json.dumps([{"type": "DECISION", "text": "Global decision X", "importance": 7}])
+            if "Extract key entities" in prompt:
+                return "{}"
+            if "fact-checker" in prompt:
+                return json.dumps([{"index": 0, "valid": True}])
+            if "relevant to YOU" in prompt:
+                return "[]"  # agent-scoped finds nothing
+            if "consolidat" in prompt.lower():
+                return "NONE"
+            return "[]"
+
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=mock_call_agent):
+            with patch("app.load_config", return_value={"extraction_rounds": 1, "summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku"}}):
+                    with patch.object(a, "HISTORY_DIR", tmp_path / "history"):
+                        await distill_session("test-sess2", msgs, {"agent1": str(ws)}, {"name": "_test"})
+
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        memory_file = ws / "memory" / f"{today}.md"
+        assert memory_file.exists()
+        content = memory_file.read_text()
+        assert "Global decision X" in content  # fallback to global
+
     @pytest.mark.asyncio
     async def test_config_clamped_to_max_3(self):
         """extraction_rounds > 3 is clamped to 3."""

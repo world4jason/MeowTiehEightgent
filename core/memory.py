@@ -496,6 +496,99 @@ async def _llm_extract_facts(
         return []
 
 
+# ── Agent-scoped extraction ───────────────────────────────────────────────────
+
+_AGENT_SCOPED_PROMPT = """\
+You are {agent_name}. Review this conversation and extract facts relevant to YOU specifically.
+
+Your identity:
+{agent_identity}
+
+Focus on:
+- Decisions that affect YOUR work or responsibilities
+- Feedback directed at YOU (things you should do differently next time)
+- Mistakes YOU made that you must NOT repeat
+- User preferences that affect how YOU should respond
+- Knowledge about other agents that helps you collaborate better
+
+Do NOT extract:
+- Facts about other agents' internal errors (not your concern)
+- General project history that doesn't affect your behavior
+- Things already covered in your AGENT.md or IDENTITY.md
+
+Fact types:
+- DECISION: choices affecting your work
+- SELF_CORRECTION: mistakes you made, do NOT repeat
+- FEEDBACK: user/agent feedback directed at you
+- PREFERENCE: user preferences for how you should behave
+- COLLABORATION: how to work with other agents
+- FINDING: technical knowledge relevant to your role
+- ACTION: tasks assigned to you
+
+Output as JSON array:
+[{{"type": "...", "text": "...", "importance": 1-10}}]
+
+If nothing relevant to you, return [].
+
+Conversation:
+{conversation}"""
+
+
+async def _agent_scoped_extract(
+    agent_name: str,
+    workspace: str,
+    messages: list[dict[str, Any]],
+    model_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Extract facts relevant to a specific agent (first-person perspective).
+
+    Uses the agent's identity (AGENT.md, IDENTITY.md) to scope extraction.
+    Returns agent-specific facts. On failure, returns empty list.
+
+    Args:
+        agent_name: Name of the agent.
+        workspace: Agent workspace path (contains AGENT.md, IDENTITY.md).
+        messages: Conversation messages.
+        model_config: Model configuration for LLM calls.
+    """
+    import app as _app
+
+    try:
+        ws = Path(workspace)
+        # Load agent identity for context
+        identity_parts: list[str] = []
+        for fname in ["AGENT.md", "IDENTITY.md"]:
+            f = ws / fname
+            if f.exists():
+                try:
+                    content = f.read_text(encoding="utf-8")[:500]  # cap identity size
+                    identity_parts.append(content)
+                except Exception:
+                    pass
+        agent_identity = "\n".join(identity_parts) if identity_parts else f"You are {agent_name}."
+
+        conversation = _truncate_messages_text(messages, max_chars=6000)
+
+        prompt = _AGENT_SCOPED_PROMPT.format(
+            agent_name=agent_name,
+            agent_identity=agent_identity,
+            conversation=conversation,
+        )
+
+        result = await _app.call_agent(model_config, prompt)
+        facts = _parse_llm_facts_response(result)
+
+        # Tag with agent name
+        for f in facts:
+            f["agent"] = agent_name
+
+        logger.info("agent_scoped_extract agent=%s facts=%d", agent_name, len(facts))
+        return facts
+    except Exception as exc:
+        logger.warning("agent_scoped_extract_failed agent=%s: %s", agent_name, exc)
+        return []
+
+
 # ── Entity extraction (Phase 2b) ─────────────────────────────────────────────
 
 async def _llm_extract_entities(
@@ -697,23 +790,36 @@ async def distill_session(
         if score < _MIN_IMPORTANCE_THRESHOLD:
             return
 
-        # Stage 2: Extract facts + entities
-        facts = await _llm_extract_facts(messages, model_config)
-        entities = await _llm_extract_entities(messages, model_config)
+        # Stage 2: Global extraction (for Session Record — third-person)
+        global_facts = await _llm_extract_facts(messages, model_config)
+        global_entities = await _llm_extract_entities(messages, model_config)
 
-        # Stage 2.5: Cross-validate facts to reduce hallucination
-        if facts:
-            facts = await _cross_validate_facts(facts, messages, model_config)
+        # Stage 2.5: Cross-validate global facts
+        if global_facts:
+            global_facts = await _cross_validate_facts(global_facts, messages, model_config)
 
-        # Stage 3: Store facts + entities to agent workspaces
-        if facts:
-            flush_facts_to_memory(facts, agent_workspaces)
-        for _agent_name, ws in agent_workspaces.items():
-            if entities:
-                flush_entities(ws, entities)
+        # Stage 3: Persist to Session Record (history/{session_id}/)
+        _persist_session_memory(session_id, global_facts, global_entities)
 
-        # Stage 4: Persist to session history
-        _persist_session_memory(session_id, facts, entities)
+        # Stage 4: Agent-scoped extraction + storage (first-person, per agent)
+        for agent_name, ws in agent_workspaces.items():
+            try:
+                agent_facts = await _agent_scoped_extract(
+                    agent_name, ws, messages, model_config,
+                )
+                if agent_facts:
+                    flush_facts_to_memory(agent_facts, {agent_name: ws})
+                else:
+                    # Fallback: use global facts if agent-scoped extraction found nothing
+                    if global_facts:
+                        flush_facts_to_memory(global_facts, {agent_name: ws})
+                if global_entities:
+                    flush_entities(ws, global_entities)
+            except Exception as exc:
+                logger.warning("agent_memory_failed agent=%s: %s", agent_name, exc)
+                # Fallback: store global facts
+                if global_facts:
+                    flush_facts_to_memory(global_facts, {agent_name: ws})
 
         # Stage 5: Consolidate into agent MEMORY.md
         for _agent_name, ws in agent_workspaces.items():

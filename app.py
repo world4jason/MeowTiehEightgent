@@ -274,6 +274,7 @@ from core.memory import (
     _consolidate_agent_memory,
     _update_memory_index,
     _cross_validate_facts,
+    _agent_scoped_extract,
 )
 
 # ── Security helpers (re-exported from core.security) ─────────────────────────
