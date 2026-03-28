@@ -1,7 +1,7 @@
-# Plan: Pre-Compaction Memory Flush + Entity Extraction (v2)
+# Plan: Pre-Compaction Memory Flush + Entity Extraction (v3 — Post-Review)
 
-**Date:** 2026-03-29 (updated)
-**Status:** Final Draft — 待 AI Engineer / LLMOps / CTO review
+**Date:** 2026-03-29 (v3)
+**Status:** APPROVED WITH CHANGES — 三方 review 完成，已整合修改
 **Survey:** [docs/specs/memory-flush-survey.md](../specs/memory-flush-survey.md)
 
 ---
@@ -389,33 +389,156 @@ finally:
 | EC-11 | Triage LLM 不可用 | Heuristic fallback：行數 + 關鍵字計分（借鏡 OpenClaw `_triage_heuristic`） |
 | EC-12 | Entity supersede 衝突 | 新覆蓋舊 + 舊值存檔到 `_archived`（borrowing OpenClaw supersede 機制） |
 
-## 實作步驟
+## 三方 Review 結果摘要
 
-### Phase 1: Pre-Compaction Heuristic（最小可行，零 LLM 成本）
-1. `history_manager.py` 加 `_heuristic_extract_facts()` — regex 抓取
-2. `history_manager.py` 加 `_flush_facts_to_memory()` — append 寫入
-3. `compress_history()` 在 cache miss 時呼叫 heuristic extraction
-4. 測試：正常路徑 + regex 匹配 + 寫入失敗
+### AI Engineer — APPROVE WITH CHANGES
+- **必做**：釐清跟現有 `append_memory`/`write_daily_summary` 的關係
+- **必做**：`_load_recent_facts` 用 importance-weighted selection
+- **必做**：Heuristic regex 加 importance scoring + 收緊 pattern
+- 建議：Triage 取 begin+mid+end 不只 tail；entity extraction 要 agent-scoped
 
-### Phase 2: Post-Session LLM Distillation
-1. `history_manager.py` 加 `distill_session()` — 三階段 pipeline
-2. `_triage_session()` — LLM 評分 + heuristic fallback
-3. `_llm_extract_facts()` — LLM 抽取 + 格式驗證
-4. `_llm_extract_entities()` — LLM 抽取 + JSON 解析
-5. `_flush_entities()` — merge + supersede
-6. `routes/ws.py` finally 區塊觸發 background distillation
-7. 測試
+### LLMOps — APPROVE WITH CHANGES
+- **必做**：distillation 加 60s timeout
+- **必做**：加 concurrency semaphore (max 3)
+- **必做**：加 structured logging
+- **必做**：extraction prompt 截斷輸入 (max 8000 chars)
+- 建議：合併 triage+extraction 為 1-2 次 LLM 呼叫；`distillation_model` config key
 
-### Phase 3: Memory Injection
-1. `core/prompt.py` 加 `_load_recent_facts(max_chars=500)` + `_load_entities(max_chars=300)`
-2. `build_prompt()` 注入 Recent Memory + Known Entities
-3. 測試
+### CTO — APPROVE WITH CHANGES
+- **必做**：Phase 重排 — injection 提前到 Phase 1.5
+- **必做**：新模組 `core/memory.py`，不塞 `history_manager.py`
+- 建議：Phase 2 拆成 2a/2b；用現有 `call_agent` 不另建 LLM 路徑；砍掉 `_archived`
 
-### Phase 4: 觀察 & 進階（未來）
-- 觀察 extraction 品質，調整 prompt
+## Review 後的修改
+
+### 修改 1：跟現有記憶系統的關係（AI Engineer R2）
+
+現有 `agents/{name}/memory/YYYY-MM-DD.md` 有四個 writer：
+1. `append_memory()` — 每輪 raw dump
+2. `write_daily_summary()` — session 結束時 LLM 摘要
+3. 新增：heuristic extraction — 壓縮時 regex 抓取
+4. 新增：LLM distillation — session 結束時 LLM 抽取
+
+**決定**：
+- `append_memory()` 的 raw dump 移到 `memory/raw/YYYY-MM-DD.md`（分開檔案，不混入結構化 facts）
+- `write_daily_summary()` 在 LLM distillation 實作後**降級為 fallback** — 只在 distillation 失敗時才寫
+- 結構化 facts 寫入 `memory/YYYY-MM-DD.md`（乾淨、只有 `- [TYPE] text` 格式）
+
+### 修改 2：新模組 core/memory.py（CTO 建議 3）
+
+所有記憶相關邏輯放 `core/memory.py`，不塞 `history_manager.py`：
+- `heuristic_extract_facts()`
+- `flush_facts_to_memory()`
+- `distill_session()`
+- `load_recent_facts()`
+- `load_entities()`
+- `flush_entities()`
+
+`history_manager.py` 只在 `compress_history()` 中呼叫 `core.memory` 的函數。
+
+### 修改 3：Heuristic 加 importance + 收緊 regex（AI Engineer R1）
+
+```python
+FACT_PATTERNS = [
+    # 要求 keyword 後接 verb+object 結構，避免 "I must consider" 之類的噪音
+    (r'(?i)(?:we |team |已)\s*(decided|chose|確定|決定)\s+(?:to\s+)?(.{10,200})', 'DECISION', 7),
+    (r'(?i)(?:user |使用者\s*)(prefer|偏好|要求)\s*:?\s*(.{10,200})', 'PREFERENCE', 6),
+    (r'(?i)(?:root cause|原因|bug)\s*(?:is|was|：|:)\s*(.{10,200})', 'FINDING', 6),
+    (r'(?i)(?:todo|action item|待辦)\s*:?\s*(.{10,200})', 'ACTION', 5),
+]
+```
+
+### 修改 4：Importance-weighted selection（AI Engineer R3）
+
+```python
+def load_recent_facts(memory_dir, max_chars=500):
+    # 1. 讀取最近 3 天的 facts
+    # 2. 解析每行的 [TYPE] → 推斷 importance（DECISION=7, FINDING=6, etc.）
+    # 3. 按 importance DESC, recency DESC 排序
+    # 4. 累積到 max_chars 為止
+    # 5. Read-time dedup: hash(normalized text) → 跳過重複
+```
+
+### 修改 5：Distillation 加 timeout + semaphore + logging（LLMOps C2/C4/C6）
+
+```python
+_distill_semaphore = asyncio.Semaphore(3)
+_distilling_sessions: set[str] = set()
+
+async def _safe_distill(session_id, messages, agent_ws):
+    if session_id in _distilling_sessions:
+        return  # 已在進行中
+    async with _distill_semaphore:
+        _distilling_sessions.add(session_id)
+        try:
+            await asyncio.wait_for(
+                distill_session(session_id, messages, agent_ws),
+                timeout=60,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("distill_timeout session=%s", session_id)
+        except Exception as exc:
+            logger.warning("distill_failed session=%s error=%s", session_id, exc)
+        finally:
+            _distilling_sessions.discard(session_id)
+            logger.info("distill_complete session=%s", session_id)
+```
+
+### 修改 6：Extraction prompt 截斷（LLMOps C8）
+
+Triage: 取 first 1000 + middle 1000 + last 1000 chars（AI Engineer R4）
+Fact extraction: 截斷到 max 8000 chars
+Entity extraction: 截斷到 max 8000 chars
+
+### 修改 7：entities.json 去掉 _archived（CTO 建議 4）
+
+v1 不做 archive，YAGNI。直接覆蓋。
+
+### 修改 8：用現有 call_agent（CTO 建議 6）
+
+Distillation 用 `call_agent()` 而不是新建 LLM 呼叫路徑，跟 `compress_history` 一致。
+
+### 修改 9：distillation_model config（LLMOps C1）
+
+`config.json` 新增 `distillation_model` key，預設 fallback 到 `summarization_model`。
+
+### 修改 10：min_messages configurable（LLMOps C10）
+
+`config.json` 新增 `distill_min_messages`，預設 5。
+
+## 修訂後的實作步驟
+
+### Phase 1: Pre-Compaction Heuristic + Minimal Injection
+1. 新建 `core/memory.py`
+2. `heuristic_extract_facts()` — 收緊的 regex + importance scoring
+3. `flush_facts_to_memory()` — append 寫入 `memory/YYYY-MM-DD.md`
+4. `compress_history()` 在 cache miss 時呼叫 heuristic extraction
+5. `load_recent_facts()` — importance-weighted selection + read-time dedup
+6. `build_prompt()` 注入 `## Recent Memory`（facts only）
+7. 修改 `append_memory()` 寫入 `memory/raw/` 子目錄
+8. 測試：regex 匹配 + 寫入 + 讀取 + 注入 + 失敗降級
+
+### Phase 2a: Post-Session Triage + Fact Distillation
+1. `core/memory.py` 加 `distill_session()` — triage + fact extraction
+2. Triage: begin+mid+end sampling + LLM 評分 + heuristic fallback
+3. Fact extraction: LLM + 截斷 8000 chars + 格式驗證
+4. `routes/ws.py` finally 加 `_safe_distill()`（semaphore + timeout + logging）
+5. `config.json` 加 `distillation_model` + `distill_min_messages`
+6. 測試
+
+### Phase 2b: Entity Extraction
+1. Entity extraction prompt + 截斷
+2. `flush_entities()` — JSON merge（無 archive）
+3. `load_entities()` — budget-limited
+4. `build_prompt()` 注入 `## Known Entities`
+5. `write_daily_summary()` 降級為 distillation fallback
+6. 測試
+
+### Phase 3: 觀察 & 進階（未來）
+- 觀察 extraction 品質，調整 prompt 和 regex patterns
+- Token budget 實測（量測 prompt 各部分佔比）
 - 考慮 mem0 或 chromadb 做向量記憶
-- Entity 過期機制
-- L0/L1/L2 tiered loading（借鏡 OpenClaw）
+- L0/L1/L2 tiered loading
 - 跟 TODO.md 的 Changedoc/Substantive Gate 整合
 
 ## 與 TODO.md 的關係
