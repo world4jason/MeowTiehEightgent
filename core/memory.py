@@ -358,13 +358,54 @@ def _triage_heuristic(messages: list[dict[str, Any]]) -> int:
     return min(10, score)
 
 
+def _parse_llm_facts_response(raw: str | None) -> list[dict[str, Any]]:
+    """Parse and validate an LLM fact extraction response.
+
+    Extracts a JSON array, validates structure, filters by importance.
+    Returns empty list on any parsing failure.
+    """
+    if not raw:
+        return []
+    json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+    if not json_match:
+        return []
+    try:
+        parsed = json.loads(json_match.group(0))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    valid: list[dict[str, Any]] = []
+    for item in parsed[:20]:
+        if not isinstance(item, dict):
+            continue
+        if "type" not in item or "text" not in item:
+            continue
+        try:
+            importance = int(item.get("importance", 5))
+        except (ValueError, TypeError):
+            importance = 5
+        if importance < _MIN_IMPORTANCE_THRESHOLD:
+            continue
+        valid.append({
+            "type": str(item["type"])[:_MAX_FACT_TYPE_LEN],
+            "text": str(item["text"])[:_MAX_FACT_TEXT_LEN],
+            "importance": importance,
+            "agent": "llm-distill",
+        })
+    return valid
+
+
 async def _llm_extract_facts(
     messages: list[dict[str, Any]], model_config: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """LLM-based fact extraction. Truncates input to 8000 chars.
+    """LLM-based fact extraction with multi-round support.
 
-    Parses the LLM response as a JSON array, validates each item, and
-    filters out facts below the importance threshold.
+    Round 1: Initial extraction from conversation.
+    Round 2+: Supplementary extraction focusing on missed facts
+    (implicit decisions, cross-turn conclusions, negations).
+
+    Number of rounds controlled by config ``extraction_rounds`` (default 1, max 3).
 
     Args:
         messages: Conversation messages.
@@ -376,55 +417,80 @@ async def _llm_extract_facts(
     import app as _app
 
     text = _truncate_messages_text(messages, max_chars=8000)
-    prompt = (
-        "Extract durable facts from this conversation as a JSON array.\n"
-        'Each fact: {"type": "...", "text": "...", "importance": 1-10, "entities": ["..."]}\n\n'
-        "Types:\n"
-        "- DECISION: choices made, directions agreed upon\n"
-        "- ACTION: tasks assigned, commitments, deadlines\n"
-        "- FINDING: technical discoveries, bug causes, conclusions\n"
-        "- PREFERENCE: user preferences, constraints, requirements\n"
-        "- WORKFLOW: processes established, patterns agreed\n"
-        "- RELATIONSHIP: who does what, team structure\n"
-        "- CORRECTION: mistakes identified, 'do NOT do X'\n"
-        "- CONFIG: configuration details, environment specifics\n\n"
-        "Rules:\n"
-        "- Each fact must be self-contained and understandable without context\n"
-        "- Skip greetings, small talk, meta-discussion\n"
-        "- Maximum 20 facts\n"
-        "- importance 8-10: critical decisions, hard-won insights\n"
-        "- importance 5-7: useful patterns, preferences\n"
-        "- importance 1-4: minor details (will be filtered out)\n"
-        "- Preserve negations exactly: 'We will NOT use MongoDB'\n"
-        "- If nothing worth remembering, return []\n\n"
-        f"Conversation:\n{text}"
-    )
+
+    # Determine extraction rounds from config
     try:
-        result = await _app.call_agent(model_config, prompt)
-        # Extract JSON array from response
-        json_match = re.search(r'\[.*\]', result or "", re.DOTALL)
-        if not json_match:
-            return []
-        parsed = json.loads(json_match.group(0))
-        if not isinstance(parsed, list):
-            return []
-        # Validate and filter
-        valid: list[dict[str, Any]] = []
-        for item in parsed[:20]:
-            if not isinstance(item, dict):
-                continue
-            if "type" not in item or "text" not in item:
-                continue
-            importance = int(item.get("importance", 5))
-            if importance < _MIN_IMPORTANCE_THRESHOLD:
-                continue
-            valid.append({
-                "type": str(item["type"])[:_MAX_FACT_TYPE_LEN],
-                "text": str(item["text"])[:_MAX_FACT_TEXT_LEN],
-                "importance": importance,
-                "agent": "llm-distill",
-            })
-        return valid
+        cfg = _app.load_config()
+        rounds = max(1, min(3, int(cfg.get("extraction_rounds", 1))))
+    except Exception:
+        rounds = 1
+
+    all_facts: list[dict[str, Any]] = []
+
+    try:
+        # Round 1: Initial extraction
+        round1_prompt = (
+            "Extract durable facts from this conversation as a JSON array.\n"
+            'Each fact: {"type": "...", "text": "...", "importance": 1-10, "entities": ["..."]}\n\n'
+            "Types:\n"
+            "- DECISION: choices made, directions agreed upon\n"
+            "- ACTION: tasks assigned, commitments, deadlines\n"
+            "- FINDING: technical discoveries, bug causes, conclusions\n"
+            "- PREFERENCE: user preferences, constraints, requirements\n"
+            "- WORKFLOW: processes established, patterns agreed\n"
+            "- RELATIONSHIP: who does what, team structure\n"
+            "- CORRECTION: mistakes identified, 'do NOT do X'\n"
+            "- CONFIG: configuration details, environment specifics\n\n"
+            "Rules:\n"
+            "- Each fact must be self-contained and understandable without context\n"
+            "- Skip greetings, small talk, meta-discussion\n"
+            "- Maximum 20 facts\n"
+            "- importance 8-10: critical decisions, hard-won insights\n"
+            "- importance 5-7: useful patterns, preferences\n"
+            "- importance 1-4: minor details (will be filtered out)\n"
+            "- Preserve negations exactly: 'We will NOT use MongoDB'\n"
+            "- If nothing worth remembering, return []\n\n"
+            f"Conversation:\n{text}"
+        )
+
+        round1_facts = _parse_llm_facts_response(
+            await _app.call_agent(model_config, round1_prompt)
+        )
+        all_facts.extend(round1_facts)
+        logger.info("extract_round=1 facts=%d", len(round1_facts))
+
+        # Round 2+: Supplementary extraction (look for what was missed)
+        for round_num in range(2, rounds + 1):
+            if not all_facts:
+                break  # nothing found in round 1, no point continuing
+            existing_summary = "\n".join(
+                f"- [{f['type']}] {f['text']}" for f in all_facts
+            )
+            supplement_prompt = (
+                "A previous extraction found these facts from the conversation:\n\n"
+                f"{existing_summary}\n\n"
+                "Review the conversation again. Extract ONLY facts that were MISSED "
+                "in the previous extraction. Focus on:\n"
+                "- Implicit decisions (not stated as 'we decided' but implied by actions)\n"
+                "- Cross-turn conclusions (problem in one turn, solution in another)\n"
+                "- Negations and constraints ('do NOT', 'never', 'avoid')\n"
+                "- Relationships between people/tools/concepts\n"
+                "- Configuration details mentioned in passing\n\n"
+                "Return a JSON array of NEW facts only. If nothing was missed, return [].\n\n"
+                f"Conversation:\n{text}"
+            )
+            new_facts = _parse_llm_facts_response(
+                await _app.call_agent(model_config, supplement_prompt)
+            )
+            # Dedup against existing facts
+            existing_texts = {f["text"].lower() for f in all_facts}
+            genuinely_new = [
+                f for f in new_facts if f["text"].lower() not in existing_texts
+            ]
+            all_facts.extend(genuinely_new)
+            logger.info("extract_round=%d new=%d dedup_kept=%d", round_num, len(new_facts), len(genuinely_new))
+
+        return all_facts[:20]  # cap total
     except Exception as exc:
         logger.warning("llm_extract_facts_failed: %s", exc)
         return []

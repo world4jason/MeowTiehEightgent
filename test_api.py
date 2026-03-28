@@ -4526,6 +4526,112 @@ class TestMemoryIntegrationEndToEnd:
         assert "主資料庫" in result
 
 
+# ── Memory: Multi-round extraction ───────────────────────────────────────
+
+class TestMultiRoundExtraction:
+    """Test GraphRAG-style multi-round fact extraction."""
+
+    @pytest.mark.asyncio
+    async def test_single_round_default(self):
+        """extraction_rounds defaults to 1 — only one LLM call."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided to use Python."}]
+        mock_response = json.dumps([
+            {"type": "DECISION", "text": "Use Python", "importance": 7},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=mock_response) as mock_call:
+            facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert len(facts) == 1
+        assert mock_call.call_count == 1  # only 1 round
+
+    @pytest.mark.asyncio
+    async def test_two_rounds_finds_missed_facts(self):
+        """Round 2 finds facts missed in round 1."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided Python. Also never use eval()."}]
+        round1 = json.dumps([{"type": "DECISION", "text": "Use Python", "importance": 7}])
+        round2 = json.dumps([{"type": "CORRECTION", "text": "Never use eval()", "importance": 8}])
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=[round1, round2]) as mock_call:
+            with patch("app.load_config", return_value={"extraction_rounds": 2}):
+                facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert len(facts) == 2
+        assert mock_call.call_count == 2
+        types = {f["type"] for f in facts}
+        assert "DECISION" in types
+        assert "CORRECTION" in types
+
+    @pytest.mark.asyncio
+    async def test_round2_dedup_existing(self):
+        """Round 2 returns duplicate of round 1 — deduped."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided Python."}]
+        same_fact = json.dumps([{"type": "DECISION", "text": "Use Python", "importance": 7}])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=same_fact):
+            with patch("app.load_config", return_value={"extraction_rounds": 2}):
+                facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert len(facts) == 1  # deduped, not 2
+
+    @pytest.mark.asyncio
+    async def test_round2_empty_no_extra_facts(self):
+        """Round 2 finds nothing new — returns round 1 only."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "We decided Python."}]
+        round1 = json.dumps([{"type": "DECISION", "text": "Use Python", "importance": 7}])
+        round2 = "[]"
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=[round1, round2]):
+            with patch("app.load_config", return_value={"extraction_rounds": 2}):
+                facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert len(facts) == 1
+
+    @pytest.mark.asyncio
+    async def test_three_rounds(self):
+        """Three rounds accumulate progressively."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "Complex discussion."}]
+        r1 = json.dumps([{"type": "DECISION", "text": "Fact A", "importance": 7}])
+        r2 = json.dumps([{"type": "FINDING", "text": "Fact B", "importance": 6}])
+        r3 = json.dumps([{"type": "CORRECTION", "text": "Fact C", "importance": 8}])
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=[r1, r2, r3]) as mock_call:
+            with patch("app.load_config", return_value={"extraction_rounds": 3}):
+                facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert len(facts) == 3
+        assert mock_call.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_round2_skipped_when_round1_empty(self):
+        """If round 1 finds nothing, skip round 2."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "Hello."}]
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="[]") as mock_call:
+            with patch("app.load_config", return_value={"extraction_rounds": 2}):
+                facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert len(facts) == 0
+        assert mock_call.call_count == 1  # skipped round 2
+
+    @pytest.mark.asyncio
+    async def test_total_capped_at_20(self):
+        """Multi-round total is capped at 20 facts."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "Lots of decisions."}]
+        r1 = json.dumps([{"type": "DECISION", "text": f"Fact {i}", "importance": 7} for i in range(15)])
+        r2 = json.dumps([{"type": "FINDING", "text": f"New {i}", "importance": 6} for i in range(10)])
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=[r1, r2]):
+            with patch("app.load_config", return_value={"extraction_rounds": 2}):
+                facts = await _llm_extract_facts(msgs, {"name": "_test"})
+        assert len(facts) <= 20
+
+    @pytest.mark.asyncio
+    async def test_config_clamped_to_max_3(self):
+        """extraction_rounds > 3 is clamped to 3."""
+        from core.memory import _llm_extract_facts
+        msgs = [{"type": "message", "agent": "Claude", "text": "text"}]
+        response = json.dumps([{"type": "DECISION", "text": "Fact", "importance": 7}])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=response) as mock_call:
+            with patch("app.load_config", return_value={"extraction_rounds": 10}):
+                await _llm_extract_facts(msgs, {"name": "_test"})
+        assert mock_call.call_count <= 3
+
+
 # ── Memory: Cross-validation (anti-hallucination) ────────────────────────
 
 class TestCrossValidation:
