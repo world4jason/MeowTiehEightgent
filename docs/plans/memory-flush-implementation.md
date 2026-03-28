@@ -537,9 +537,43 @@ Distillation 用 `call_agent()` 而不是新建 LLM 呼叫路徑，跟 `compress
 ### Phase 3: 觀察 & 進階（未來）
 - 觀察 extraction 品質，調整 prompt 和 regex patterns
 - Token budget 實測（量測 prompt 各部分佔比）
-- 考慮 mem0 或 chromadb 做向量記憶
 - L0/L1/L2 tiered loading
 - 跟 TODO.md 的 Changedoc/Substantive Gate 整合
+
+### Phase 4: Graph RAG 整合（未來）
+
+**目標：** 把 entity extraction 從 flat dict 升級為知識圖譜，保留實體間關係。
+應用於兩個層面：
+- **Agent 記憶** — 每個 agent 自己的知識圖譜（跨 session 累積）
+- **Session 共享** — 多 agent 聊天的 session-level 圖譜（agent 間共享上下文）
+
+**候選方案（按推薦順序）：**
+
+| 方案 | 適用場景 | 改動量 |
+|------|---------|--------|
+| nano-graphrag（1100 行） | PoC / 入門 | 最小 |
+| Graph RAG Lite | 只要 entity+relationship，不要 community | 小 |
+| fast-graphrag（PageRank） | 生產級，incremental update | 中 |
+| LightRAG（4 query modes） | 需要 local/global/hybrid 查詢 | 中-大 |
+| mem0 / cognee | 向量 + 圖混合 | 中 |
+
+**整合路徑：**
+- Phase 4a: nano-graphrag PoC — 替換 `_llm_extract_entities()`，圖存 NetworkX/SQLite
+- Phase 4b: 升級 fast-graphrag — PageRank retrieval，persistent graph
+- Phase 4c: 視需要加 LightRAG 的 community detection
+
+**多 agent session 的圖譜設計：**
+```
+Agent-level graph（跨 session）:
+  agents/{name}/memory/knowledge.graph
+  → 每個 agent 自己的知識累積
+
+Session-level graph（session 內共享）:
+  history/{session_id}/session.graph
+  → 多 agent 對話中的共享知識
+  → inject 到所有 agent 的 build_prompt
+  → session 結束後 merge 回各 agent 的 graph
+```
 
 ## 與 TODO.md 的關係
 
