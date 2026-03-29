@@ -179,6 +179,7 @@ async def test_model(model_id: str):
         return {"ok": False, "error": "CLI model missing command — check adapter preset or add command field"}
 
     # Build a minimal agent dict for call_agent
+    # Use small/fast model for connectivity test — we just need to know if CLI/API works
     test_agent = {
         "name": f"_test_{model_id}",
         "workspace": str(_app.PROJECT_DIR),
@@ -187,6 +188,23 @@ async def test_model(model_id: str):
     # For API models, ensure "model" key is set (load_models uses "apiModel")
     if agent_type == "api" and not test_agent.get("model") and test_agent.get("apiModel"):
         test_agent["model"] = test_agent["apiModel"]
+    # Override to fastest model variant for CLI agents
+    _FAST_MODELS = {
+        "claude": "claude-haiku-4-5-20251001",
+        "gemini": "gemini-2.5-flash",
+    }
+    if agent_type == "cli" and test_agent.get("cmd"):
+        binary = test_agent["cmd"][0]
+        if binary in _FAST_MODELS:
+            # Inject --model flag for fast test
+            test_agent["cmd"] = list(test_agent["cmd"])
+            if "--model" in test_agent["cmd"]:
+                idx = test_agent["cmd"].index("--model")
+                test_agent["cmd"][idx + 1] = _FAST_MODELS[binary]
+            else:
+                test_agent["cmd"].extend(["--model", _FAST_MODELS[binary]])
+            # Remove extra_flags model override to avoid conflict
+            test_agent.pop("extra_flags", None)
     try:
         response = await asyncio.wait_for(
             _app.call_agent(test_agent, "Reply with exactly three words: I am ready."),
