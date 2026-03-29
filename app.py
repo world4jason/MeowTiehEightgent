@@ -254,27 +254,33 @@ from core.runner import (
 
 from history_manager import truncate_history, apply_sliding_window, TRUNCATION_MARKER, compress_history, load_session_config, _format_history_text
 
-# ── Memory helpers (re-exported from core.memory) ──────────────────────────
+# ── Memory helpers (re-exported from core.memory submodules) ─────────────────
 
-from core.memory import (
+from core.memory_utils import (
     FACT_PATTERNS,
+)
+from core.agent_memory import (
     heuristic_extract_facts,
     flush_facts_to_memory,
     load_recent_facts,
     load_entities,
     flush_entities,
-    distill_session,
-    safe_distill,
-    _distill_semaphore,
-    _distilling_sessions,
+    _consolidate_agent_memory,
+    _update_memory_index,
+    _agent_scoped_extract,
+)
+from core.session_memory import (
     _triage_session,
     _llm_extract_facts,
     _llm_extract_entities,
     _persist_session_memory,
-    _consolidate_agent_memory,
-    _update_memory_index,
     _cross_validate_facts,
-    _agent_scoped_extract,
+)
+from core.memory_pipeline import (
+    distill_session,
+    safe_distill,
+    _distill_semaphore,
+    _distilling_sessions,
 )
 
 # ── Security helpers (re-exported from core.security) ─────────────────────────

@@ -167,7 +167,7 @@ def build_prompt(
     memory_dir = ws / "memory"
     if memory_dir.exists():
         try:
-            from core.memory import load_recent_facts, load_entities
+            from core.agent_memory import load_recent_facts, load_entities
             recent_facts = load_recent_facts(memory_dir, max_chars=500)
             if recent_facts:
                 parts.append(f"## Recent Memory\n\n{recent_facts}")

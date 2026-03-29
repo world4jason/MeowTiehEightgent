@@ -145,7 +145,7 @@ async def compress_history(
     # Pre-compaction heuristic extraction — save important facts before they get summarized
     if agent_workspaces:
         try:
-            from core.memory import heuristic_extract_facts, flush_facts_to_memory
+            from core.agent_memory import heuristic_extract_facts, flush_facts_to_memory
             heuristic_facts = heuristic_extract_facts(overflow)
             if heuristic_facts:
                 flush_facts_to_memory(heuristic_facts, agent_workspaces)

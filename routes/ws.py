@@ -35,7 +35,7 @@ async def websocket_endpoint(ws: WebSocket):
         load_session_config,
         _format_history_text,
     )
-    from core.memory import safe_distill
+    from core.memory_pipeline import safe_distill
 
     client_ip = ws.client.host if ws.client else "unknown"
     if _active_ws.count(client_ip) >= _WS_LIMIT_PER_IP:
