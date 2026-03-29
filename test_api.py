@@ -4924,3 +4924,161 @@ class TestCrossValidation:
                 with patch("app.load_models", return_value={"haiku": {"name": "haiku", "type": "cli"}}):
                     result = await _cross_validate_facts(facts, msgs, {"name": "_test"})
         assert len(result) == 2  # 0 and 2 kept, 1 rejected
+
+
+# ── Pipeline Stage Tests (individual stage functions with real values) ─────
+
+class TestPipelineStages:
+    """Test each pipeline stage function independently with realistic values."""
+
+    @pytest.mark.asyncio
+    async def test_stage_triage_high_score(self):
+        from core.memory_pipeline import _stage_triage
+        msgs = [
+            {"type": "message", "agent": "Claude", "text": "We decided to use PostgreSQL instead of MongoDB."},
+            {"type": "message", "agent": "Human", "text": "Good. Also fix that bug with the login flow."},
+            {"type": "message", "agent": "Gemini", "text": "I prefer using SQLAlchemy for the ORM."},
+        ] * 5  # 15 messages with decisions, bugs, preferences
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="8"):
+            score = await _stage_triage("sess-1", msgs, {"name": "_test"})
+        assert score == 8
+
+    @pytest.mark.asyncio
+    async def test_stage_triage_low_score_skips(self):
+        from core.memory_pipeline import _stage_triage
+        msgs = [{"type": "message", "agent": "Claude", "text": "Hello! How are you?"}]
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="2"):
+            score = await _stage_triage("sess-2", msgs, {"name": "_test"})
+        assert score == 2  # below threshold, caller should skip
+
+    @pytest.mark.asyncio
+    async def test_stage_global_extract_returns_facts_and_entities(self):
+        from core.memory_pipeline import _stage_global_extract
+        msgs = [
+            {"type": "message", "agent": "Claude", "text": "We decided to use FastAPI. Jason prefers zh-TW."},
+        ]
+        facts_response = json.dumps([
+            {"type": "DECISION", "text": "Use FastAPI for backend", "importance": 7},
+            {"type": "PREFERENCE", "text": "User prefers zh-TW interface", "importance": 6},
+        ])
+        entities_response = json.dumps({"FastAPI": "Python web framework", "Jason": "Project lead"})
+        validate_response = json.dumps([
+            {"index": 0, "valid": True}, {"index": 1, "valid": True},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=[facts_response, entities_response, validate_response]):
+            with patch("app.load_config", return_value={"extraction_rounds": 1, "summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku"}}):
+                    facts, entities = await _stage_global_extract(msgs, {"name": "_test"})
+        assert len(facts) == 2
+        assert facts[0]["type"] == "DECISION"
+        assert "FastAPI" in entities
+
+    @pytest.mark.asyncio
+    async def test_stage_global_extract_rejects_hallucination(self):
+        from core.memory_pipeline import _stage_global_extract
+        msgs = [{"type": "message", "agent": "Claude", "text": "We will NOT use MongoDB."}]
+        facts_response = json.dumps([
+            {"type": "DECISION", "text": "Use MongoDB", "importance": 7},
+        ])
+        entities_response = "{}"
+        validate_response = json.dumps([{"index": 0, "valid": False, "reason": "says NOT MongoDB"}])
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=[facts_response, entities_response, validate_response]):
+            with patch("app.load_config", return_value={"extraction_rounds": 1, "summarization_model": "haiku"}):
+                with patch("app.load_models", return_value={"haiku": {"name": "haiku"}}):
+                    facts, entities = await _stage_global_extract(msgs, {"name": "_test"})
+        assert len(facts) == 0  # hallucinated fact rejected
+
+    def test_stage_persist_session_writes_files(self, tmp_project):
+        from core.memory_pipeline import _stage_persist_session
+        facts = [{"type": "DECISION", "text": "Use Python", "importance": 7}]
+        entities = {"Python": "Backend language"}
+        _stage_persist_session("test-persist-1", facts, entities)
+        import app as a
+        sess_dir = a.HISTORY_DIR / "test-persist-1"
+        assert (sess_dir / "facts.json").exists()
+        assert (sess_dir / "entities.json").exists()
+        saved = json.loads((sess_dir / "facts.json").read_text())
+        assert saved[0]["text"] == "Use Python"
+
+    def test_stage_persist_session_empty_skips(self, tmp_project):
+        from core.memory_pipeline import _stage_persist_session
+        _stage_persist_session("test-persist-2", [], {})
+        import app as a
+        sess_dir = a.HISTORY_DIR / "test-persist-2"
+        assert not (sess_dir / "facts.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_stage_agent_memory_scoped_extraction(self, tmp_path):
+        from core.memory_pipeline import _stage_agent_memory
+        ws = tmp_path / "claude"
+        ws.mkdir()
+        (ws / "AGENT.md").write_text("You are Claude, a coding assistant.")
+        (ws / "memory").mkdir()
+        msgs = [
+            {"type": "message", "agent": "Claude", "text": "I made a mistake with onclick quotes."},
+            {"type": "message", "agent": "Human", "text": "Use single quotes next time."},
+        ]
+        scoped_response = json.dumps([
+            {"type": "SELF_CORRECTION", "text": "Use single quotes for onclick, not double", "importance": 8},
+        ])
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=scoped_response):
+            await _stage_agent_memory("Claude", str(ws), msgs, {"name": "_test"}, [], {})
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        mem_file = ws / "memory" / f"{today}.md"
+        assert mem_file.exists()
+        content = mem_file.read_text()
+        assert "SELF_CORRECTION" in content
+        assert "single quotes" in content
+
+    @pytest.mark.asyncio
+    async def test_stage_agent_memory_fallback_to_global(self, tmp_path):
+        from core.memory_pipeline import _stage_agent_memory
+        ws = tmp_path / "gemini"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        msgs = [{"type": "message", "agent": "Gemini", "text": "Nothing specific."}]
+        global_facts = [{"type": "DECISION", "text": "Global decision X", "importance": 7, "agent": "llm-distill"}]
+        # Agent-scoped returns empty → fallback to global
+        with patch("app.call_agent", new_callable=AsyncMock, return_value="[]"):
+            await _stage_agent_memory("Gemini", str(ws), msgs, {"name": "_test"}, global_facts, {})
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        mem_file = ws / "memory" / f"{today}.md"
+        assert mem_file.exists()
+        assert "Global decision X" in mem_file.read_text()
+
+    @pytest.mark.asyncio
+    async def test_stage_consolidate_updates_memory_md(self, tmp_path):
+        from core.memory_pipeline import _stage_consolidate
+        from core.agent_memory import flush_facts_to_memory
+        ws = tmp_path / "agent1"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        (ws / "MEMORY.md").write_text("# MEMORY.md\n\n_Sessions._\n")
+        flush_facts_to_memory(
+            [{"type": "DECISION", "text": "Use FastAPI", "importance": 7}],
+            {"agent1": str(ws)},
+        )
+        consolidated = "## Decisions\n- Use FastAPI\n\n## Lessons Learned\n- Nothing yet"
+        with patch("app.call_agent", new_callable=AsyncMock, return_value=consolidated):
+            await _stage_consolidate({"agent1": str(ws)}, {"name": "_test"})
+        md = (ws / "MEMORY.md").read_text()
+        assert "Session Memory" in md  # index updated
+
+    @pytest.mark.asyncio
+    async def test_stage_consolidate_silent_on_failure(self, tmp_path):
+        from core.memory_pipeline import _stage_consolidate
+        from core.agent_memory import flush_facts_to_memory
+        ws = tmp_path / "agent2"
+        ws.mkdir()
+        (ws / "memory").mkdir()
+        (ws / "MEMORY.md").write_text("# MEMORY.md\n")
+        flush_facts_to_memory(
+            [{"type": "FINDING", "text": "Something", "importance": 6}],
+            {"agent2": str(ws)},
+        )
+        with patch("app.call_agent", new_callable=AsyncMock, side_effect=Exception("LLM down")):
+            await _stage_consolidate({"agent2": str(ws)}, {"name": "_test"})
+        # Should not crash, MEMORY.md unchanged
+        assert "MEMORY.md" in (ws / "MEMORY.md").read_text()
