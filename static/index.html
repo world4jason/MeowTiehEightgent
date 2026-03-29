@@ -3016,8 +3016,10 @@ function renderModelConfig(id) {
   html += `</div>
     <div class="model-save-bar">
       <button class="model-save-btn" onclick="saveModelConfig('${esc(id)}')">儲存</button>
+      <button class="model-test-btn" id="mcfg-test-btn" onclick="testModel('${esc(id)}')">測試連線</button>
       <button class="model-del-btn" onclick="deleteModel('${esc(id)}')">刪除</button>
-    </div>`;
+    </div>
+    <div id="mcfg-test-result" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;font-size:13px;"></div>`;
   body.innerHTML = html;
   if (!isCli) loadOllamaModelsForCfg();
 }
@@ -3345,10 +3347,8 @@ async function renderPersonaConfig(name) {
     </div>
     <div class="model-save-bar">
       <button class="model-save-btn" onclick="savePersonaConfig('${esc(name)}')">儲存</button>
-      <button class="model-test-btn" id="pcfg-test-btn" onclick="testAgent('${esc(name)}')">測試連線</button>
       <button class="model-del-btn" onclick="deletePersona('${esc(name)}')">停用</button>
-    </div>
-    <div id="pcfg-test-result" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;font-size:13px;"></div>`;
+    </div>`;
 
   renderSkillChips();
   renderSkillChecklist();
@@ -3381,15 +3381,15 @@ async function savePersonaConfig(name) {
   renderAgentChips();
 }
 
-async function testAgent(name) {
-  const btn = document.getElementById('pcfg-test-btn');
-  const result = document.getElementById('pcfg-test-result');
+async function testModel(modelId) {
+  const btn = document.getElementById('mcfg-test-btn');
+  const result = document.getElementById('mcfg-test-result');
   if (!btn || !result) return;
   btn.disabled = true;
   btn.textContent = '測試中…';
   result.style.display = 'none';
   try {
-    const res = await fetch(`/agents/${encodeURIComponent(name)}/test`, { method: 'POST' });
+    const res = await fetch(`/models/${encodeURIComponent(modelId)}/test`, { method: 'POST' });
     const data = await res.json();
     result.style.display = 'block';
     if (data.ok) {

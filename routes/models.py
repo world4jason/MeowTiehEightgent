@@ -1,4 +1,5 @@
 """Models, adapter presets, and config endpoints."""
+import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException
@@ -158,3 +159,38 @@ async def put_config(body: dict):
         config["summary_trigger_threshold"] = v
     _app.CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False))
     return {"ok": True}
+
+
+@router.post("/models/{model_id}/test")
+async def test_model(model_id: str):
+    """Test connectivity for a model by sending a simple prompt."""
+    import app as _app
+
+    models = _app.load_models()
+    if model_id not in models:
+        return {"ok": False, "error": f"Unknown model: {model_id}"}
+
+    m = models[model_id]
+    agent_type = m.get("type", "cli")
+
+    if agent_type == "api" and not m.get("baseUrl"):
+        return {"ok": False, "error": "API model missing baseUrl"}
+    if agent_type != "api" and "cmd" not in m:
+        return {"ok": False, "error": "CLI model missing command"}
+
+    # Build a minimal agent dict for call_agent
+    test_agent = {
+        "name": f"_test_{model_id}",
+        "workspace": str(_app.PROJECT_DIR),
+        **m,
+    }
+    try:
+        response = await asyncio.wait_for(
+            _app.call_agent(test_agent, "Reply with exactly three words: I am ready."),
+            timeout=30,
+        )
+        return {"ok": bool(response), "response": response[:300] if response else "(empty)"}
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "Timeout (30s)"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
