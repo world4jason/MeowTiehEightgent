@@ -35,6 +35,30 @@
 - [x] Protected Paths Workspace（validate_filename() 已完成，與 line 26 重複）
 - [x] 圖片 --add-file 相容性（`supports_image` flag 已完成，與 line 25 重複）
 
+### v0.10.0 (rebirth)
+- [x] 回歸 Python 單後端（JS/Node.js 移至 deprecated/）
+- [x] Scenario 選擇 UX 修正（onclick 引號 bug、綠框選中、解耦 agent）
+- [x] Settings「情境」Tab（CRUD）
+- [x] Mini Kanban 討論看板（drag & drop、agent 感知）
+- [x] app.py 重構 2973 → 418 行（core/ + routes/ 模組化）
+- [x] 踢人時中斷正在回應的 agent subprocess
+
+### v0.11.0 (memory flush)
+- [x] Pre-compaction heuristic extraction（regex，零 LLM 成本）
+- [x] Post-session LLM distillation（3-stage: triage → extract → store）
+- [x] 多輪 fact extraction（GraphRAG 風格，config: extraction_rounds）
+- [x] 交叉驗證幻覺（用不同 model 逐條驗 facts）
+- [x] Agent-scoped extraction（第一人稱記憶，帶 agent identity）
+- [x] Entity extraction + JSON merge
+- [x] Memory injection in build_prompt（500 chars facts + 300 chars entities）
+- [x] Session Record 持久化（history/{id}/facts.json + entities.json）
+- [x] MEMORY.md consolidation（索引更新，不覆蓋）
+- [x] append_memory 路徑分離（memory/raw/）
+- [x] write_daily_summary 降級為 distillation fallback
+- [x] core/memory.py 拆分為 4 個 SOLID 模組（memory_utils + session_memory + agent_memory + memory_pipeline）
+- [x] Pipeline 拆為 5 個獨立 stage function
+- [x] 移除 DEFAULT_*_MD 硬編碼（agents/_default/ 為唯一 source of truth）
+
 ---
 
 ## 待辦
@@ -89,8 +113,8 @@
   - Orchestrator 讀 STATUS：全部 done → session 可標記完成；有 blocked → 路由到 human。
   - 適用場景：任務型 session（如撰寫計畫書、程式碼審查），自由對話不需要。
 
-- [ ] **Changedoc / 決策追蹤（借鑑 MassGen）**
-  讓 agent 在輸出後附上一段結構化的「我為什麼這樣說」，注入下一輪其他 agent 的 context。
+- [~] **Changedoc / 決策追蹤（借鑑 MassGen）**
+  **部分完成（v0.11.0）：** facts 的 `[DECISION]` 類別已覆蓋決策記錄。尚缺 `[RATIONALE]` 即時注入。
   - 最輕量做法：agent 在輸出末尾加可選的 `[RATIONALE]: ...` 區塊，orchestrator 解析並貼入下輪 prompt header。
   - 效果：讓投票/共識不只看表象（誰說了什麼），還看邏輯依據（為什麼這樣說）。
   - 適用場景：任務型 session，自由對話可能太重。
@@ -109,14 +133,15 @@
   - 注意：我們的架構是循序的，天然比 MassGen 更新鮮；但若多 agent 同時 streaming，這個機制更關鍵。
 
 - [ ] **跨 Session 向量記憶（Memory MCP）**
-  目前 agent 記憶是每日 markdown log，只能在當次 session 讀取，無法主動召回過去相關對話。
-  - 借鑑 MassGen 的 Memory MCP 模組：把對話和知識以向量形式跨 session 儲存。
-  - 查詢方式：新 session 開始時，agent 可搜索語意相似的過去對話片段，自動注入 context。
+  **v0.11.0 已鋪路：** facts + entities.json 是向量化的結構化來源。目前用 grep + 最近 3 天。
+  - 候選方案：nano-graphrag（PoC）→ fast-graphrag（生產級）→ LightRAG（進階）
+  - 或 mem0 SDK 做向量搜索
+  - Survey: `docs/specs/memory-flush-survey.md`、`docs/devlog/2026-03-29.md` (Graph RAG 調研)
   - 實作路線：embedding + 本地向量庫（如 chromadb、faiss）+ 在 build_prompt 時查詢並注入。
-  - 優先度：探索中，需要先評估 embedding 成本與延遲。
+  - 優先度：等 file-based 系統證明不足時再加。
 
-- [ ] **多層 Model 路由（Task-Tiered Model Selection）**
-  借鑑 MassGen 的成本優化策略：同一 agent 依任務難度路由到不同層級 model。
+- [~] **多層 Model 路由（Task-Tiered Model Selection）**
+  **部分完成（v0.11.0）：** `distillation_model` config key 是第一個真正的 model routing 用例（distill 用便宜 model）。
   - 簡單驗證 / 判斷（如 Arbiter verdict）→ 用便宜 model（haiku、gemini-flash）
   - 核心推理 / 創作 → 用貴 model（opus、sonnet）
   - 與「Agent 發言傾向（chat / think）」正交：發言傾向控制長度，model 路由控制能力等級。
