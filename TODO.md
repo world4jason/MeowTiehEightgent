@@ -153,6 +153,24 @@
   - 對目前循序 round-robin 影響小，但若改成平行架構這個機制是必要的。
   - 先記錄概念，有直接 API 後一起實作。
 
+### UI 改善（v0.12.0 候選）
+
+- [ ] **Agent Settings 記憶檢視器**
+  用戶目前看不到 agent 記了什麼。在 Agent Settings tab 加 read-only 的記憶面板，顯示 `memory/YYYY-MM-DD.md` + `entities.json` 的內容。
+  - P1 — 最大 UX gap（PM review 指出）
+
+- [ ] **Distillation 完成通知**
+  Session 結束後 distillation 在背景跑完時，送 WS event 通知前端「記憶已儲存」。
+  - P1 — 用戶不知道記憶系統在運作
+
+- [ ] **Settings 加 distillation_model 設定欄**
+  目前 `distillation_model` 和 `distill_min_messages` 需手動編輯 config.json。加到 Settings UI。
+  - P2
+
+- [ ] **記憶修正 UI**
+  讓用戶在 UI 裡編輯/刪除 individual facts 和 entities。目前只能手動改檔案。
+  - P2 — 當 LLM 抽取錯誤時的修正機制
+
 ### 低優先 / 探索中
 
 - [ ] **直接 API 支援（Anthropic / OpenAI）**
