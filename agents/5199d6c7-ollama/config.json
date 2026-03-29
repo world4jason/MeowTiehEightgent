@@ -10,7 +10,7 @@
   "enabled": true,
   "adapter": "ollama_api",
   "adapterConfig": {
-    "model": "deepseek-v3.1:671b-cloud"
+    "model": "qwen3.5:9b"
   },
   "model_tiers": null,
   "skills": [

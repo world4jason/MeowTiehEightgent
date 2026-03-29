@@ -184,6 +184,9 @@ async def test_model(model_id: str):
         "workspace": str(_app.PROJECT_DIR),
         **m,
     }
+    # For API models, ensure "model" key is set (load_models uses "apiModel")
+    if agent_type == "api" and not test_agent.get("model") and test_agent.get("apiModel"):
+        test_agent["model"] = test_agent["apiModel"]
     try:
         response = await asyncio.wait_for(
             _app.call_agent(test_agent, "Reply with exactly three words: I am ready."),
