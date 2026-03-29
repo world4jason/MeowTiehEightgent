@@ -192,6 +192,7 @@ async def test_model(model_id: str):
     _FAST_MODELS = {
         "claude": "claude-haiku-4-5-20251001",
         "gemini": "gemini-2.5-flash",
+        "codex": "gpt-4.1-mini",
     }
     if agent_type == "cli" and test_agent.get("cmd"):
         binary = test_agent["cmd"][0]
