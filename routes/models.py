@@ -180,10 +180,11 @@ async def test_model(model_id: str):
 
     # Build a minimal agent dict for call_agent
     # Use small/fast model for connectivity test only — never mutate real config
+    # CLI-only: use lighter models for fast connectivity test (never touches API model config)
     _FAST_TEST_CMDS = {
-        "claude": ["claude", "--print", "--model", "claude-haiku-4-5-20251001"],
+        "claude": ["claude", "--print", "--model", "claude-sonnet-4-6"],
         "gemini": ["gemini", "-e", "", "--model", "gemini-2.5-flash", "-p"],
-        "codex": ["codex", "exec"],  # codex: use default model (fast models may not be available)
+        "codex": ["codex", "exec"],
     }
 
     test_agent = {
