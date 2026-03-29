@@ -174,9 +174,9 @@ async def test_model(model_id: str):
     agent_type = m.get("type", "cli")
 
     if agent_type == "api" and not m.get("baseUrl"):
-        return {"ok": False, "error": "API model missing baseUrl"}
+        return {"ok": False, "error": "API model missing baseUrl — check adapter preset config"}
     if agent_type != "api" and "cmd" not in m:
-        return {"ok": False, "error": "CLI model missing command"}
+        return {"ok": False, "error": "CLI model missing command — check adapter preset or add command field"}
 
     # Build a minimal agent dict for call_agent
     test_agent = {

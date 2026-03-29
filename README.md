@@ -54,11 +54,31 @@ Agents can hold skills; the prompt builder injects their content automatically.
 | 關於你 | Edit the `_default` templates used when creating new agents |
 | 關於我 | Edit `USER.md` — shared context about the human facilitator |
 
+## CLI 安裝
+
+Agent 透過 CLI subprocess 呼叫 LLM。需要安裝對應的 CLI 工具：
+
+| CLI | 安裝指令 | 官方文件 |
+|-----|---------|---------|
+| **Claude** | `npm install -g @anthropic-ai/claude-code` | [claude.ai/code](https://claude.ai/code) |
+| **Gemini** | `npm install -g @anthropic-ai/gemini-cli` 或 `npx @anthropic-ai/gemini-cli` | [github.com/anthropics/gemini-cli](https://github.com/anthropics/gemini-cli) |
+| **Codex** | `npm install -g @openai/codex` | [github.com/openai/codex](https://github.com/openai/codex) |
+| **Ollama** | `brew install ollama` 或 [ollama.com/download](https://ollama.com/download) | [ollama.com](https://ollama.com) |
+
+安裝後在 Settings「模型」tab 點「測試連線」確認可用。
+
 ## Ollama
 
-For API-type models (Ollama), the settings card lets you:
-- Refresh the list of locally available models
-- Browse cloud-available models (`/api/tags?cloud=true`) and pull them with a live progress bar
+Ollama 走 HTTP API（不是 CLI subprocess），需要先啟動 server：
+
+```bash
+ollama serve          # 啟動 server（預設 http://localhost:11434）
+ollama pull llama3.2  # 下載 model
+```
+
+Settings 的模型 tab 也可以直接 pull model（有進度條）。
+
+Cloud model（如 `deepseek-v3.1:671b-cloud`）有週用量限制，超過會回 quota error。
 
 ## Session Export
 
@@ -70,7 +90,7 @@ Click ⬇ on any session in the sidebar to download it as **Markdown**, **JSON**
 python3 -m pytest test_api.py -v
 ```
 
-49 tests covering models, agents, skills, and Ollama endpoints.
+408 tests covering models, agents, skills, memory system, and pipeline.
 
 ## File Layout
 

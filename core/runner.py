@@ -189,8 +189,12 @@ async def call_api_agent(agent: dict, prompt: str) -> str:
             f"{base}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False},
         )
+        data = r.json()
+        # Surface API-level errors (e.g. ollama quota limit, model not found)
+        if "error" in data:
+            raise RuntimeError(f"API error: {data['error']}")
         r.raise_for_status()
-        return r.json().get("response", "").strip()
+        return data.get("response", "").strip()
 
 
 async def call_agent(agent: dict, prompt: str) -> str:

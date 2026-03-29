@@ -48,7 +48,14 @@ def _merge_v1_agent(agent: dict, agent_dir: Path, presets: dict) -> tuple[str, d
 
     adapter_type = agent.get("adapter", "")
     adapter_config = agent.get("adapterConfig") or {}
+    # Try exact match first, then strip common suffixes (_local, _api)
     preset = presets.get(adapter_type) or {}
+    if not preset:
+        for suffix in ("_local", "_api", "_cloud"):
+            base = adapter_type.removesuffix(suffix)
+            if base != adapter_type and base in presets:
+                preset = presets[base]
+                break
 
     # Determine type: "api" if baseUrl in preset, else "cli"
     if "baseUrl" in preset:
