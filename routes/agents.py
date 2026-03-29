@@ -190,6 +190,11 @@ async def test_agent(name: str):
         return {"ok": False, "error": "Unknown agent"}
     agent = registry[name]
     _app.ensure_workspace(agent)
+    # Check if agent has the necessary connection info
+    if agent.get("type") == "api" and not agent.get("baseUrl"):
+        return {"ok": False, "error": "API agent missing baseUrl configuration"}
+    if agent.get("type") != "api" and "cmd" not in agent:
+        return {"ok": False, "error": "CLI agent missing command — check adapter preset or model config"}
     try:
         response = await asyncio.wait_for(
             _app.call_agent(agent, "Reply with exactly three words: I am ready."),
