@@ -155,6 +155,12 @@
 
 ### UI 改善（v0.12.0 候選）
 
+- [ ] **Token 消耗深度分析面板**
+  聊天室內的 Token 面板加入 prompt 組成分析：多少是 agent identity、多少是 history、多少是 skills、多少是 memory injection。讓使用者看到 token 花在哪，做出調整。
+
+- [ ] **Skill validated tag**
+  每個 skill 可以標記是否經過驗證（validated: true/false）。未驗證的 skill 在列表和注入時標示警告。參考 Claude Code 的 skill 管理做法。
+
 - [ ] **Agent Settings 記憶檢視器**
   用戶目前看不到 agent 記了什麼。在 Agent Settings tab 加 read-only 的記憶面板，顯示 `memory/YYYY-MM-DD.md` + `entities.json` 的內容。
   - P1 — 最大 UX gap（PM review 指出）
