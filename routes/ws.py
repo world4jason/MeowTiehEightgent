@@ -265,10 +265,12 @@ async def websocket_endpoint(ws: WebSocket):
             _trimmed_history = truncate_history(_rebuilt_history, _max_hist)
             _turn_usage: list[TokenUsage] = []
             _current_mode = agent_modes.get(agent["name"], "chat")
+            _prompt_breakdown: dict = {}
 
             async def _produce():
+                nonlocal _prompt_breakdown
                 try:
-                    _prompt = _app.build_prompt(
+                    _prompt, _prompt_breakdown = _app.build_prompt(
                         agent, _trimmed_history, workspace_id, active_agents,
                         mode=_current_mode,
                         scenario_system_prompt=scenario_system_prompt,
@@ -389,7 +391,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "mode": _current_mode,
             }
             _usage_obj = _turn_usage[0] if _turn_usage else None
-            _msg_end: dict = {"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms, "mode": _current_mode}
+            _msg_end: dict = {"type": "message_end", "agent": agent["name"], "color": agent["color"], "timestamp": ts, "duration_ms": duration_ms, "mode": _current_mode, "prompt_breakdown": _prompt_breakdown}
             if _usage_obj:
                 _msg_end["usage"] = {"input": _usage_obj.input_tokens, "output": _usage_obj.output_tokens, "cached": _usage_obj.cached_tokens}
                 accumulate_token_usage(_session_token_totals, agent["name"], _usage_obj.input_tokens, _usage_obj.output_tokens)

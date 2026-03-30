@@ -18,6 +18,9 @@ def parse_skill(skill_file: Path) -> dict:
     source = ""
     source_url = ""
     source_version = ""
+    validated = False
+    validated_by = ""
+    validated_at = ""
     body = raw
     if raw.startswith("---"):
         end = raw.find("---", 3)
@@ -35,6 +38,12 @@ def parse_skill(skill_file: Path) -> dict:
                     source_url = line[11:].strip()
                 elif line.startswith("source_version:"):
                     source_version = line[15:].strip()
+                elif line.startswith("validated:"):
+                    validated = line[10:].strip().lower() == "true"
+                elif line.startswith("validated_by:"):
+                    validated_by = line[13:].strip()
+                elif line.startswith("validated_at:"):
+                    validated_at = line[13:].strip()
     if not description:
         lines = [l for l in body.splitlines() if l.strip() and not l.startswith("#")]
         description = lines[0].strip() if lines else ""
@@ -45,4 +54,7 @@ def parse_skill(skill_file: Path) -> dict:
         "source": source,
         "source_url": source_url,
         "source_version": source_version,
+        "validated": validated,
+        "validated_by": validated_by,
+        "validated_at": validated_at,
     }

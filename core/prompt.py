@@ -96,12 +96,18 @@ def build_prompt(
     scenario_system_prompt: str | None = None,
     blank_mode: bool = False,
     kanban_state: list[dict] | None = None,
-) -> str:
+) -> tuple[str, dict]:
+    """Build the full prompt for an agent turn.
+
+    Returns (prompt_string, breakdown_dict) where breakdown_dict contains
+    character counts per section: identity, history, skills, memory, other, total.
+    """
     import app as _app
     from core.skills import find_skill_file, parse_skill
 
     ws: Path = agent["workspace"]
     parts = []
+    _bd: dict[str, int] = {"identity": 0, "history": 0, "skills": 0, "memory": 0, "other": 0}
     mode_prefix = "Keep your response concise — 2-3 sentences max.\n\n" if mode == "chat" else ""
 
     # Context injection: scenario > workspace > blank
@@ -157,11 +163,15 @@ def build_prompt(
     for fname in ["AGENT.md", "IDENTITY.md", "SOUL.md"]:
         f = ws / fname
         if f.exists():
-            parts.append(f.read_text().strip())
+            content = f.read_text().strip()
+            _bd["identity"] += len(content)
+            parts.append(content)
 
     user_md = _app.PROJECT_DIR / "USER.md"
     if user_md.exists():
-        parts.append(user_md.read_text().strip())
+        content = user_md.read_text().strip()
+        _bd["identity"] += len(content)
+        parts.append(content)
 
     # Long-term memory injection (budget-limited, importance-weighted)
     memory_dir = ws / "memory"
@@ -170,10 +180,14 @@ def build_prompt(
             from core.agent_memory import load_recent_facts, load_entities
             recent_facts = load_recent_facts(memory_dir, max_chars=500)
             if recent_facts:
-                parts.append(f"## Recent Memory\n\n{recent_facts}")
+                section = f"## Recent Memory\n\n{recent_facts}"
+                _bd["memory"] += len(section)
+                parts.append(section)
             entities_text = load_entities(memory_dir, max_chars=300)
             if entities_text:
-                parts.append(f"## Known Entities\n\n{entities_text}")
+                section = f"## Known Entities\n\n{entities_text}"
+                _bd["memory"] += len(section)
+                parts.append(section)
         except Exception:
             pass  # Memory injection must never break prompt building
 
@@ -193,13 +207,16 @@ def build_prompt(
             if sf:
                 s = parse_skill(sf)
                 desc = s.get("description") or s["name"]
-                skill_lines.append(f"- **/{slug_dir.name}** — {desc}")
+                badge = "✅" if s.get("validated") else "⚠️"
+                skill_lines.append(f"- **/{slug_dir.name}** {badge} — {desc}")
         if skill_lines:
-            parts.append(
+            section = (
                 "## Available Skills\n\n"
                 + "\n".join(skill_lines)
                 + "\n\nTo use a skill, the human types /{skill-name} in chat."
             )
+            _bd["skills"] += len(section)
+            parts.append(section)
 
     context = "\n\n---\n\n".join(parts)
 
@@ -224,12 +241,16 @@ def build_prompt(
         )
         agent["pending_continuation"] = False
 
-    return (
+    _bd["history"] = len(history_text)
+    _bd["other"] = len(mode_prefix) + len(participants_header) + len(continuation_hint) + 50  # separators
+    prompt = (
         f"{mode_prefix}{context}\n\n===== DISCUSSION =====\n\n"
         f"{participants_header}\n{history_text}"
         f"{continuation_hint}\n\n"
         "Your turn. Respond as your persona dictates."
     )
+    _bd["total"] = len(prompt)
+    return prompt, _bd
 
 
 def list_skill_slugs() -> list[str]:

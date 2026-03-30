@@ -1213,7 +1213,7 @@ class TestSubprocessRecovery:
         agent_dir.mkdir(parents=True)
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir, "pending_continuation": True}
-        prompt = a.build_prompt(agent, "history here")
+        prompt, _ = a.build_prompt(agent, "history here")
         assert "打斷" in prompt
 
     def test_build_prompt_clears_flag_after_injection(self, tmp_project):
@@ -1231,7 +1231,7 @@ class TestSubprocessRecovery:
         agent_dir.mkdir(parents=True)
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir}
-        prompt = a.build_prompt(agent, "history")
+        prompt, _ = a.build_prompt(agent, "history")
         assert "打斷" not in prompt
 
 
@@ -1475,7 +1475,7 @@ class TestAgentMode:
         agent_dir.mkdir(parents=True)
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir}
-        prompt = a.build_prompt(agent, "history", mode="chat")
+        prompt, _ = a.build_prompt(agent, "history", mode="chat")
         assert "Keep your response concise" in prompt
 
     def test_build_prompt_think_mode_no_concise_prefix(self, tmp_project):
@@ -1484,7 +1484,7 @@ class TestAgentMode:
         agent_dir.mkdir(parents=True)
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir}
-        prompt = a.build_prompt(agent, "history", mode="think")
+        prompt, _ = a.build_prompt(agent, "history", mode="think")
         assert "2-3 sentences" not in prompt
 
     def test_build_prompt_default_mode_is_chat(self, tmp_project):
@@ -1493,8 +1493,8 @@ class TestAgentMode:
         agent_dir.mkdir(parents=True)
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir}
-        prompt_default = a.build_prompt(agent, "history")
-        prompt_chat = a.build_prompt(agent, "history", mode="chat")
+        prompt_default, _ = a.build_prompt(agent, "history")
+        prompt_chat, _ = a.build_prompt(agent, "history", mode="chat")
         assert "Keep your response concise" in prompt_default
 
     @pytest.mark.asyncio
@@ -1842,7 +1842,7 @@ class TestScenarios:
         agent_dir.mkdir(parents=True)
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir}
-        prompt = a.build_prompt(
+        prompt, _ = a.build_prompt(
             agent, "history",
             scenario_system_prompt="Review this code carefully.",
         )
@@ -1860,7 +1860,7 @@ class TestScenarios:
         agent_dir.mkdir(parents=True)
         (agent_dir / "AGENT.md").write_text("You are Claude.")
         agent = {"name": "claude", "workspace": agent_dir}
-        prompt = a.build_prompt(
+        prompt, _ = a.build_prompt(
             agent, "history",
             workspace_id="ws1",
             blank_mode=True,
@@ -2717,7 +2717,7 @@ class TestKanbanPromptInjection:
             {"id": 2, "text": "Implement feature", "status": "wip"},
             {"id": 3, "text": "Write tests", "status": "todo"},
         ]
-        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        prompt, _ = a.build_prompt(agent, "history", kanban_state=kanban)
         assert "## Discussion Board" in prompt
         assert "**In Progress:** Implement feature" in prompt
         assert "**TODO:** Write tests" in prompt
@@ -2727,14 +2727,14 @@ class TestKanbanPromptInjection:
         """Empty kanban list does not inject Discussion Board."""
         import app as a
         agent = self._make_agent(tmp_project)
-        prompt = a.build_prompt(agent, "history", kanban_state=[])
+        prompt, _ = a.build_prompt(agent, "history", kanban_state=[])
         assert "Discussion Board" not in prompt
 
     def test_kanban_none_not_injected(self, tmp_project):
         """None kanban does not inject Discussion Board."""
         import app as a
         agent = self._make_agent(tmp_project)
-        prompt = a.build_prompt(agent, "history", kanban_state=None)
+        prompt, _ = a.build_prompt(agent, "history", kanban_state=None)
         assert "Discussion Board" not in prompt
 
     def test_kanban_multiple_wip_items(self, tmp_project):
@@ -2745,7 +2745,7 @@ class TestKanbanPromptInjection:
             {"id": 1, "text": "Task A", "status": "wip"},
             {"id": 2, "text": "Task B", "status": "wip"},
         ]
-        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        prompt, _ = a.build_prompt(agent, "history", kanban_state=kanban)
         assert "**In Progress:** Task A, Task B" in prompt
 
     def test_kanban_only_done_still_injected(self, tmp_project):
@@ -2753,7 +2753,7 @@ class TestKanbanPromptInjection:
         import app as a
         agent = self._make_agent(tmp_project)
         kanban = [{"id": 1, "text": "Completed task", "status": "done"}]
-        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        prompt, _ = a.build_prompt(agent, "history", kanban_state=kanban)
         assert "## Discussion Board" in prompt
         assert "**Done:** Completed task" in prompt
 
@@ -2762,7 +2762,7 @@ class TestKanbanPromptInjection:
         import app as a
         agent = self._make_agent(tmp_project)
         kanban = [{"id": 1, "text": "Review code", "status": "wip"}]
-        prompt = a.build_prompt(
+        prompt, _ = a.build_prompt(
             agent, "history",
             scenario_system_prompt="This is a code review session.",
             kanban_state=kanban,
@@ -2777,7 +2777,7 @@ class TestKanbanPromptInjection:
         import app as a
         agent = self._make_agent(tmp_project)
         kanban = [{"id": 1, "text": "Current task", "status": "wip"}]
-        prompt = a.build_prompt(agent, "history", kanban_state=kanban)
+        prompt, _ = a.build_prompt(agent, "history", kanban_state=kanban)
         assert "Focus on In Progress items" in prompt
 
 
@@ -2926,7 +2926,7 @@ class TestBuildPromptIntegration:
             "id": "ws1", "name": "WS", "system_prompt": "Workspace guide here"
         }))
         agent = self._make_agent(tmp_project)
-        prompt = a.build_prompt(
+        prompt, _ = a.build_prompt(
             agent, "history",
             workspace_id="ws1",
             scenario_system_prompt="Scenario context here",
@@ -2942,7 +2942,7 @@ class TestBuildPromptIntegration:
             {"name": "claude", "emoji": "🤖"},
             {"name": "gemini", "emoji": "💚"},
         ]
-        prompt = a.build_prompt(agent, "history", all_agents=all_agents)
+        prompt, _ = a.build_prompt(agent, "history", all_agents=all_agents)
         assert "gemini" in prompt
 
     def test_kanban_plus_scenario_plus_workspace(self, tmp_project):
@@ -2955,7 +2955,7 @@ class TestBuildPromptIntegration:
         }))
         agent = self._make_agent(tmp_project)
         kanban = [{"id": 1, "text": "Fix bug", "status": "wip"}]
-        prompt = a.build_prompt(
+        prompt, _ = a.build_prompt(
             agent, "history",
             workspace_id="ws2",
             scenario_system_prompt="Code review mode",
@@ -3171,7 +3171,7 @@ class TestMemoryInjection:
         today = datetime.now().strftime("%Y-%m-%d")
         (mem_dir / f"{today}.md").write_text("- [DECISION] Use FastAPI\n")
         agent = {"name": "mem_agent", "workspace": agent_dir}
-        prompt = a.build_prompt(agent, "history")
+        prompt, _ = a.build_prompt(agent, "history")
         assert "Recent Memory" in prompt
         assert "[DECISION]" in prompt
 
@@ -3182,7 +3182,7 @@ class TestMemoryInjection:
         (agent_dir / "AGENT.md").write_text("You are no_mem.")
         agent = {"name": "no_mem", "workspace": agent_dir}
         # Should not crash even without memory dir
-        prompt = a.build_prompt(agent, "history")
+        prompt, _ = a.build_prompt(agent, "history")
         assert "no_mem" in prompt
 
 
@@ -5101,7 +5101,7 @@ class TestSkillLazyLoad:
             "skills": ["test-skill"], "color": "#fff", "emoji": "🤖",
         }
         a.ensure_workspace(agent)
-        prompt = a.build_prompt(agent, "test history")
+        prompt, _ = a.build_prompt(agent, "test history")
         assert "Available Skills" in prompt
         assert "A test skill for testing" in prompt
         assert "This is a very long skill body" not in prompt
@@ -5120,9 +5120,9 @@ class TestSkillLazyLoad:
             "skills": ["alpha", "beta"], "color": "#fff", "emoji": "🤖",
         }
         a.ensure_workspace(agent)
-        prompt = a.build_prompt(agent, "test history")
-        assert "- **/alpha** — First skill" in prompt
-        assert "- **/beta** — Second skill" in prompt
+        prompt, _ = a.build_prompt(agent, "test history")
+        assert "/alpha" in prompt and "First skill" in prompt
+        assert "/beta" in prompt and "Second skill" in prompt
         assert "/{skill-name}" in prompt  # footer instruction
 
     def test_build_prompt_no_skills_no_section(self, tmp_project):
@@ -5133,7 +5133,7 @@ class TestSkillLazyLoad:
             "skills": [], "color": "#fff", "emoji": "🤖",
         }
         a.ensure_workspace(agent)
-        prompt = a.build_prompt(agent, "test history")
+        prompt, _ = a.build_prompt(agent, "test history")
         assert "Available Skills" not in prompt
 
     def test_build_prompt_skill_missing_description_uses_name(self, tmp_project):
@@ -5148,7 +5148,7 @@ class TestSkillLazyLoad:
             "skills": ["nodesc"], "color": "#fff", "emoji": "🤖",
         }
         a.ensure_workspace(agent)
-        prompt = a.build_prompt(agent, "test history")
+        prompt, _ = a.build_prompt(agent, "test history")
         assert "/nodesc" in prompt
 
     def test_build_prompt_skill_prompt_size_reduction(self, tmp_project):
@@ -5164,5 +5164,91 @@ class TestSkillLazyLoad:
             "skills": ["big1", "big2", "big3"], "color": "#fff", "emoji": "🤖",
         }
         a.ensure_workspace(agent)
-        prompt = a.build_prompt(agent, "test history")
+        prompt, _ = a.build_prompt(agent, "test history")
         assert len(prompt) < 5000  # should be ~3-4K, not 18K+
+
+
+# ── Token breakdown + Skill validated tag ────────────────────────────────
+
+class TestPromptBreakdown:
+    """build_prompt returns (prompt_str, breakdown_dict)."""
+
+    def test_returns_tuple(self, tmp_project):
+        import app as a
+        agent = {"name": "t", "workspace": tmp_project / "agents" / "_default", "skills": [], "color": "#fff", "emoji": "🤖"}
+        a.ensure_workspace(agent)
+        result = a.build_prompt(agent, "test")
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        prompt, breakdown = result
+        assert isinstance(prompt, str)
+        assert isinstance(breakdown, dict)
+
+    def test_breakdown_has_sections(self, tmp_project):
+        import app as a
+        agent = {"name": "t", "workspace": tmp_project / "agents" / "_default", "skills": [], "color": "#fff", "emoji": "🤖"}
+        a.ensure_workspace(agent)
+        _, breakdown = a.build_prompt(agent, "test history text")
+        assert "identity" in breakdown
+        assert "history" in breakdown
+        assert "skills" in breakdown
+        assert "memory" in breakdown
+        assert "total" in breakdown
+        assert breakdown["total"] > 0
+        assert breakdown["history"] > 0
+
+    def test_breakdown_skills_small_after_lazy_load(self, tmp_project):
+        import app as a
+        d = a.PROJECT_DIR / "skills" / "big"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text("---\nname: big\ndescription: Big skill\n---\n\n" + "x" * 5000)
+        agent = {"name": "t", "workspace": tmp_project / "agents" / "_default", "skills": ["big"], "color": "#fff", "emoji": "🤖"}
+        a.ensure_workspace(agent)
+        _, breakdown = a.build_prompt(agent, "test")
+        assert breakdown["skills"] < 500  # lazy-load: summary only, not 5K body
+
+
+class TestSkillValidatedTag:
+    """parse_skill extracts validated boolean from frontmatter."""
+
+    def test_validated_true(self, tmp_path):
+        from core.skills import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: Test\ndescription: Test skill\nvalidated: true\n---\n\nBody.\n")
+        s = parse_skill(f)
+        assert s["validated"] is True
+
+    def test_validated_false(self, tmp_path):
+        from core.skills import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: Test\nvalidated: false\n---\n\nBody.\n")
+        s = parse_skill(f)
+        assert s["validated"] is False
+
+    def test_validated_missing_defaults_false(self, tmp_path):
+        from core.skills import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: Test\n---\n\nBody.\n")
+        s = parse_skill(f)
+        assert s["validated"] is False
+
+    def test_validated_string_true_parsed_as_bool(self, tmp_path):
+        from core.skills import parse_skill
+        f = tmp_path / "SKILL.md"
+        f.write_text("---\nname: Test\nvalidated: True\n---\n\nBody.\n")
+        s = parse_skill(f)
+        assert s["validated"] is True
+
+    def test_skill_summary_shows_validated_badge(self, tmp_project):
+        """build_prompt shows ✅ for validated skills, ⚠️ for unvalidated."""
+        import app as a
+        for slug, validated in [("good", "true"), ("untested", "false")]:
+            d = a.PROJECT_DIR / "skills" / slug
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "SKILL.md").write_text(f"---\nname: {slug}\ndescription: {slug} skill\nvalidated: {validated}\n---\n\nBody.\n")
+        agent = {"name": "t", "workspace": tmp_project / "agents" / "_default", "skills": ["good", "untested"], "color": "#fff", "emoji": "🤖"}
+        a.ensure_workspace(agent)
+        prompt, _ = a.build_prompt(agent, "test")
+        # validated skill should have ✅, unvalidated ⚠️
+        assert "✅" in prompt
+        assert "⚠️" in prompt
