@@ -742,6 +742,14 @@
   <div id="chat-area">
     <div id="chat-header">
       <span class="topic-text" id="chat-topic"></span>
+      <div id="chat-mode-control" style="display:flex;align-items:center;gap:6px;margin-left:auto">
+        <div style="display:flex;gap:2px;background:var(--surface);border-radius:5px;padding:2px">
+          <button class="chat-mode-btn active" id="chat-btn-auto" onclick="switchAutoMode(true)" style="padding:2px 8px;border:none;border-radius:4px;font-size:0.7rem;cursor:pointer;transition:all 0.12s">A</button>
+          <button class="chat-mode-btn" id="chat-btn-manual" onclick="switchAutoMode(false)" style="padding:2px 8px;border:none;border-radius:4px;font-size:0.7rem;cursor:pointer;transition:all 0.12s">M</button>
+        </div>
+        <input id="chat-rounds-input" type="number" min="1" max="20" value="2" style="display:none;width:32px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-size:0.7rem;color:var(--text);text-align:center" onchange="switchAutoMode(false)">
+        <span id="chat-turn-hint" style="font-size:0.68rem;color:var(--text-muted);min-width:60px"></span>
+      </div>
       <div class="agents-pills" id="chat-agents"></div>
       <button id="members-toggle" onclick="toggleMembersPanel()" title="成員">
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -2198,6 +2206,32 @@ function getManualRounds() {
   return parseInt(document.getElementById('rounds-input').value) || 2;
 }
 
+// ── Chat mode controls (in-session Auto/Manual switch) ────────
+function switchAutoMode(isAuto) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const rounds = parseInt(document.getElementById('chat-rounds-input')?.value) || 2;
+  ws.send(JSON.stringify({ type: 'set_auto', auto: isAuto, rounds }));
+  _updateChatModeUI(isAuto, rounds);
+}
+
+function _updateChatModeUI(isAuto, rounds) {
+  const btnAuto = document.getElementById('chat-btn-auto');
+  const btnManual = document.getElementById('chat-btn-manual');
+  const roundsInput = document.getElementById('chat-rounds-input');
+  if (btnAuto) {
+    btnAuto.style.background = isAuto ? 'var(--accent)' : 'transparent';
+    btnAuto.style.color = isAuto ? '#fff' : 'var(--text-muted)';
+  }
+  if (btnManual) {
+    btnManual.style.background = !isAuto ? '#d97706' : 'transparent';
+    btnManual.style.color = !isAuto ? '#fff' : 'var(--text-muted)';
+  }
+  if (roundsInput) {
+    roundsInput.style.display = isAuto ? 'none' : 'block';
+    if (rounds) roundsInput.value = rounds;
+  }
+}
+
 // ── Runs / Token stats panel ──────────────────────────────────
 let runsPanelOpen = false;
 // agentRuns: { agentName: [{n, input, output, cached, duration_ms, color}] }
@@ -2387,6 +2421,10 @@ function startSession() {
   document.getElementById('messages').innerHTML = '';
   document.getElementById('chat-topic').textContent = topic;
   initKanbanFromTopic(topic);
+  // Init chat mode controls from welcome screen settings
+  _updateChatModeUI(currentMode === 'auto', getManualRounds());
+  const chatRoundsInput = document.getElementById('chat-rounds-input');
+  if (chatRoundsInput) chatRoundsInput.value = getManualRounds();
   // Show first input as a Human message bubble, not just the topic header
   addMessage('Human', topicRaw, '#60a5fa', new Date().toISOString());
   document.getElementById('msg-input').focus();
@@ -2511,8 +2549,22 @@ function handleMessage(data) {
     removeThinking(); addSystem(data.text);
     if (data.session_id) activeSessionId = data.session_id;
   } else if (data.type === 'ready') {
+    // Update turn hint in chat header
+    const hint = document.getElementById('chat-turn-hint');
+    if (hint) {
+      if (data.auto) {
+        hint.textContent = 'Auto';
+      } else if (data.pause) {
+        hint.textContent = '已暫停';
+      } else {
+        hint.textContent = `${data.turns_done || 0}/${data.turns_total || '?'} 輪`;
+      }
+    }
+    // Update mode buttons
+    _updateChatModeUI(data.auto, data.rounds);
+
     if (msgQueue.length > 0) {
-      flushMsgQueue();  // auto-send queued message instead of waiting
+      flushMsgQueue();
     } else if (data.pause) {
       document.getElementById('next-btn').classList.add('visible');
     }

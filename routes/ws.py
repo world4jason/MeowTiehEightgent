@@ -332,6 +332,11 @@ async def websocket_endpoint(ws: WebSocket):
                             break
                     elif t == "set_mode":
                         await _handle_set_mode(ws, evt, agent_modes, active_agents)
+                    elif t == "set_auto":
+                        auto_mode = evt.get("auto", auto_mode)
+                        manual_rounds = int(evt.get("rounds", manual_rounds))
+                        batch_turns = 0
+                        await ws.send_json({"type": "system", "text": f"模式切換為 {'Auto' if auto_mode else f'Manual（每 {manual_rounds} 輪暫停）'}"})
                     elif t == "kanban_update":
                         kanban_state = evt.get("items", [])
                     elif t == "human":
@@ -435,8 +440,17 @@ async def websocket_endpoint(ws: WebSocket):
                 pending_humans.clear()
                 batch_turns = 0
 
-            pause_now = (not auto_mode) and (batch_turns >= manual_rounds * len(active_agents))
-            await ws.send_json({"type": "ready", "auto": auto_mode, "pause": pause_now})
+            total_agents = len(active_agents)
+            pause_now = (not auto_mode) and (batch_turns >= manual_rounds * total_agents)
+            # Include turn info in ready message for UI hints
+            ready_msg: dict = {"type": "ready", "auto": auto_mode, "pause": pause_now}
+            if not auto_mode:
+                turns_in_round = batch_turns % (manual_rounds * total_agents) if total_agents else 0
+                turns_total = manual_rounds * total_agents
+                ready_msg["turns_done"] = turns_in_round
+                ready_msg["turns_total"] = turns_total
+                ready_msg["rounds"] = manual_rounds
+            await ws.send_json(ready_msg)
 
             if auto_mode or not pause_now:
                 evt = await next_event(timeout=2.0)
@@ -449,6 +463,11 @@ async def websocket_endpoint(ws: WebSocket):
                         await handle_member_event(evt)
                     elif t == "set_mode":
                         await _handle_set_mode(ws, evt, agent_modes, active_agents)
+                    elif t == "set_auto":
+                        auto_mode = evt.get("auto", auto_mode)
+                        manual_rounds = int(evt.get("rounds", manual_rounds))
+                        batch_turns = 0
+                        await ws.send_json({"type": "system", "text": f"模式切換為 {'Auto' if auto_mode else f'Manual（每 {manual_rounds} 輪暫停）'}"})
                     elif t == "human":
                         text = evt["text"]
                         imgs = evt.get("images") or []
@@ -498,6 +517,11 @@ async def websocket_endpoint(ws: WebSocket):
                         await handle_member_event(evt)
                     elif t == "set_mode":
                         await _handle_set_mode(ws, evt, agent_modes, active_agents)
+                    elif t == "set_auto":
+                        auto_mode = evt.get("auto", auto_mode)
+                        manual_rounds = int(evt.get("rounds", manual_rounds))
+                        batch_turns = 0
+                        await ws.send_json({"type": "system", "text": f"模式切換為 {'Auto' if auto_mode else f'Manual（每 {manual_rounds} 輪暫停）'}"})
                     elif t == "human":
                         text = evt["text"]
                         imgs = evt.get("images") or []
