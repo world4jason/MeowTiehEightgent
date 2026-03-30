@@ -177,6 +177,13 @@
   讓用戶在 UI 裡編輯/刪除 individual facts 和 entities。目前只能手動改檔案。
   - P2 — 當 LLM 抽取錯誤時的修正機制
 
+### 高優先（下一 phase）
+
+- [ ] **Persistent CLI Session（pexpect 持久連線）**
+  用 pexpect 保持 CLI session 活著，不用每次 spawn 新 process。Claude 6s→2s, Gemini 27s→3s。
+  需要大改 build_prompt（啟動時設一次 identity，每輪只送新訊息）。
+  Plan: `docs/plans/persistent-cli-session.md`
+
 ### 低優先 / 探索中
 
 - [ ] **直接 API 支援（Anthropic / OpenAI）**
