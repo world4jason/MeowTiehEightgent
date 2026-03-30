@@ -1,0 +1,31 @@
+{
+  "configVersion": 1,
+  "id": "8f17caf4-c3f6-4aa8-a218-241e9dfe792d",
+  "name": "GPT",
+  "role": "",
+  "title": "",
+  "emoji": "🤖",
+  "color": "#888888",
+  "description": "",
+  "enabled": true,
+  "adapter": "codex",
+  "adapterConfig": {},
+  "model_tiers": null,
+  "skills": [
+    "brainstorming",
+    "discussion",
+    "executing-plans",
+    "mth-create-plugin",
+    "pua-debugging",
+    "systematic-debugging",
+    "using-superpowers",
+    "verification-before-completion",
+    "writing-plans",
+    "para-memory-files"
+  ],
+  "reportsTo": null,
+  "permissions": {},
+  "budget": {},
+  "heartbeat": null,
+  "model": "codex"
+}

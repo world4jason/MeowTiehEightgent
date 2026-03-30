@@ -17,7 +17,9 @@
     "thinking": "gemini-2.5-pro"
   },
   "skills": [
-    "brainstorming"
+    "brainstorming",
+    "writing-plans",
+    "using-superpowers"
   ],
   "reportsTo": null,
   "permissions": {},
@@ -25,5 +27,6 @@
   "heartbeat": {
     "cooldownSec": 10,
     "intervalSec": 3600
-  }
+  },
+  "model": "claude"
 }
