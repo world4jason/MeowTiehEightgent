@@ -2109,8 +2109,10 @@ async function loadSession(id, el) {
   renderHeaderPills();
   renderMembersPanel();
 
-  // Restore kanban from sessionStorage
+  // Restore kanban + token data from sessionStorage
   restoreKanban(id);
+  _restoreAgentRuns(id);
+  if (runsPanelOpen) renderRunsPanel();
 
   msgs.forEach(m => {
     if (m.type === 'system') addSystem(m.text);
@@ -2264,6 +2266,19 @@ function recordRun(agent, color, usage, duration_ms) {
     color,
   });
   if (runsPanelOpen) renderRunsPanel();
+  _saveAgentRuns();
+}
+
+function _saveAgentRuns() {
+  try { sessionStorage.setItem('agentRuns_' + (activeSessionId || ''), JSON.stringify(agentRuns)); } catch(_) {}
+}
+
+function _restoreAgentRuns(sessionId) {
+  try {
+    const saved = sessionStorage.getItem('agentRuns_' + sessionId);
+    if (saved) { agentRuns = JSON.parse(saved); return true; }
+  } catch(_) {}
+  return false;
 }
 
 function renderRunsPanel() {
@@ -2560,7 +2575,10 @@ function handleMessage(data) {
     if (data.agent !== 'Human') { msgCountMap[data.agent] = (msgCountMap[data.agent] || 0) + 1; renderMembersPanel(); }
   } else if (data.type === 'system') {
     removeThinking(); addSystem(data.text);
-    if (data.session_id) activeSessionId = data.session_id;
+    if (data.session_id) {
+      activeSessionId = data.session_id;
+      _restoreAgentRuns(data.session_id);
+    }
   } else if (data.type === 'ready') {
     // Update turn hint in chat header
     const hint = document.getElementById('chat-turn-hint');
