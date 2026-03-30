@@ -2109,10 +2109,19 @@ async function loadSession(id, el) {
   renderHeaderPills();
   renderMembersPanel();
 
-  // Restore kanban + token data from sessionStorage
+  // Restore full session state from sessionStorage
+  restoreSessionState(id);
   restoreKanban(id);
-  _restoreAgentRuns(id);
-  if (runsPanelOpen) renderRunsPanel();
+  if (runsPanelOpen) {
+    renderRunsPanel();
+    document.getElementById('runs-panel').classList.add('open');
+    document.getElementById('runs-toggle').classList.add('active');
+  }
+  if (membersPanelOpen) {
+    document.getElementById('members-panel').classList.add('open');
+    document.getElementById('members-toggle').classList.add('active');
+    document.getElementById('chat-body').classList.add('members-open');
+  }
 
   msgs.forEach(m => {
     if (m.type === 'system') addSystem(m.text);
@@ -2218,11 +2227,12 @@ function getManualRounds() {
 function switchAutoMode(isAuto) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const rounds = parseInt(document.getElementById('chat-rounds-input')?.value) || 2;
+  currentMode = isAuto ? 'auto' : 'manual';
   ws.send(JSON.stringify({ type: 'set_auto', auto: isAuto, rounds }));
   _updateChatModeUI(isAuto, rounds);
-  // Immediately update hint
   const hint = document.getElementById('chat-turn-hint');
   if (hint) hint.textContent = isAuto ? 'Auto' : `0/${rounds} 輪`;
+  saveSessionState();
 }
 
 function _updateChatModeUI(isAuto, rounds) {
@@ -2269,17 +2279,48 @@ function recordRun(agent, color, usage, duration_ms) {
   _saveAgentRuns();
 }
 
-function _saveAgentRuns() {
-  try { sessionStorage.setItem('agentRuns_' + (activeSessionId || ''), JSON.stringify(agentRuns)); } catch(_) {}
+// ── Session state persistence ─────────────────────────────────
+function saveSessionState() {
+  const id = activeSessionId;
+  if (!id) return;
+  try {
+    sessionStorage.setItem('sess_' + id, JSON.stringify({
+      agentRuns,
+      currentMode,
+      activeSessionAgents,
+      msgCountMap,
+      _liveSessionParams,
+      historyTopic,
+      kanbanItems,
+      kanbanNextId,
+      membersPanelOpen,
+      runsPanelOpen,
+    }));
+  } catch(_) {}
 }
 
-function _restoreAgentRuns(sessionId) {
+function restoreSessionState(sessionId) {
   try {
-    const saved = sessionStorage.getItem('agentRuns_' + sessionId);
-    if (saved) { agentRuns = JSON.parse(saved); return true; }
+    const saved = sessionStorage.getItem('sess_' + sessionId);
+    if (!saved) return false;
+    const s = JSON.parse(saved);
+    if (s.agentRuns) agentRuns = s.agentRuns;
+    if (s.currentMode) currentMode = s.currentMode;
+    if (s.activeSessionAgents) activeSessionAgents = s.activeSessionAgents;
+    if (s.msgCountMap) msgCountMap = s.msgCountMap;
+    if (s._liveSessionParams) _liveSessionParams = s._liveSessionParams;
+    if (s.historyTopic) historyTopic = s.historyTopic;
+    if (s.kanbanItems) { kanbanItems = s.kanbanItems; kanbanNextId = s.kanbanNextId || 1; }
+    if (s.membersPanelOpen !== undefined) membersPanelOpen = s.membersPanelOpen;
+    if (s.runsPanelOpen !== undefined) runsPanelOpen = s.runsPanelOpen;
+    return true;
   } catch(_) {}
   return false;
 }
+
+// Compat wrappers (called from existing code)
+function _saveAgentRuns() { saveSessionState(); }
+function _restoreAgentRuns(sessionId) { return restoreSessionState(sessionId); }
 
 function renderRunsPanel() {
   const body = document.getElementById('runs-body');
@@ -2333,6 +2374,7 @@ function toggleMembersPanel() {
   document.getElementById('members-panel').classList.toggle('open', membersPanelOpen);
   document.getElementById('members-toggle').classList.toggle('active', membersPanelOpen);
   document.getElementById('chat-body').classList.toggle('members-open', membersPanelOpen);
+  saveSessionState();
 }
 
 function renderMembersPanel() {
@@ -2407,6 +2449,7 @@ function addMemberToSession(name) {
   activeSessionAgents.push(name);
   renderMembersPanel();
   renderHeaderPills();
+  saveSessionState();
 }
 
 function removeMemberFromSession(name) {
@@ -2418,6 +2461,7 @@ function removeMemberFromSession(name) {
   activeSessionAgents = activeSessionAgents.filter(n => n !== name);
   renderMembersPanel();
   renderHeaderPills();
+  saveSessionState();
 }
 
 function sendSetMode(agentName, mode) {
@@ -2481,6 +2525,7 @@ function startSession() {
   // Agent pills in header
   renderHeaderPills();
 
+  historyTopic = topic;
   _liveSessionParams = {
     topic, agents: selected,
     auto: currentMode === 'auto',
@@ -2538,6 +2583,7 @@ function handleMessage(data) {
     finalizeStreamingMessage(data.agent, data.timestamp, data.duration_ms);
     msgCountMap[data.agent] = (msgCountMap[data.agent] || 0) + 1;
     if (data.usage) recordRun(data.agent, data.color, data.usage, data.duration_ms);
+    else saveSessionState();  // save msgCountMap even without usage data
     renderMembersPanel();
     flushMsgQueue();
   } else if (data.type === 'agent_error') {
@@ -2577,7 +2623,7 @@ function handleMessage(data) {
     removeThinking(); addSystem(data.text);
     if (data.session_id) {
       activeSessionId = data.session_id;
-      _restoreAgentRuns(data.session_id);
+      restoreSessionState(data.session_id);
     }
   } else if (data.type === 'ready') {
     // Update turn hint in chat header
@@ -3927,19 +3973,12 @@ function sendKanbanUpdate() {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'kanban_update', items: kanbanItems }));
   }
-  // Persist to sessionStorage so kanban survives tab switches
-  try { sessionStorage.setItem('kanban_' + (activeSessionId || ''), JSON.stringify(kanbanItems)); } catch(_) {}
+  saveSessionState();
 }
 
 function restoreKanban(sessionId) {
-  try {
-    const saved = sessionStorage.getItem('kanban_' + sessionId);
-    if (saved) {
-      kanbanItems = JSON.parse(saved);
-      kanbanNextId = Math.max(...kanbanItems.map(i => i.id), 0) + 1;
-      if (kanbanItems.length) { showKanban(); renderKanban(); return true; }
-    }
-  } catch(_) {}
+  // kanban is restored via restoreSessionState — just check if items exist
+  if (kanbanItems.length) { showKanban(); renderKanban(); return true; }
   return false;
 }
 
