@@ -2212,6 +2212,9 @@ function switchAutoMode(isAuto) {
   const rounds = parseInt(document.getElementById('chat-rounds-input')?.value) || 2;
   ws.send(JSON.stringify({ type: 'set_auto', auto: isAuto, rounds }));
   _updateChatModeUI(isAuto, rounds);
+  // Immediately update hint
+  const hint = document.getElementById('chat-turn-hint');
+  if (hint) hint.textContent = isAuto ? 'Auto' : `0/${rounds} 輪`;
 }
 
 function _updateChatModeUI(isAuto, rounds) {
