@@ -185,13 +185,21 @@ def build_prompt(
     agent_skills: list[str] = agent.get("skills") or []
     skills_dir = _app.PROJECT_DIR / "skills"
     if skills_dir.exists() and agent_skills:
+        skill_lines: list[str] = []
         for slug_dir in sorted(skills_dir.iterdir()):
             if not slug_dir.is_dir() or slug_dir.name not in agent_skills:
                 continue
             sf = find_skill_file(slug_dir)
             if sf:
                 s = parse_skill(sf)
-                parts.append(f"## Skill: {s['name']}\n\n{s['body']}")
+                desc = s.get("description") or s["name"]
+                skill_lines.append(f"- **/{slug_dir.name}** — {desc}")
+        if skill_lines:
+            parts.append(
+                "## Available Skills\n\n"
+                + "\n".join(skill_lines)
+                + "\n\nTo use a skill, the human types /{skill-name} in chat."
+            )
 
     context = "\n\n---\n\n".join(parts)
 

@@ -5082,3 +5082,87 @@ class TestPipelineStages:
             await _stage_consolidate({"agent2": str(ws)}, {"name": "_test"})
         # Should not crash, MEMORY.md unchanged
         assert "MEMORY.md" in (ws / "MEMORY.md").read_text()
+
+
+# ── B5: Skill lazy-load (prompt bloat fix) ────────────────────────────────
+
+class TestSkillLazyLoad:
+    """Skills should inject name+description only, not full body."""
+
+    def test_build_prompt_skill_summary_not_full_body(self, tmp_project):
+        """Skill body should NOT be in prompt — only name+description."""
+        import app as a
+        skill_dir = a.PROJECT_DIR / "skills" / "test-skill"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text("---\nname: Test Skill\ndescription: A test skill for testing\n---\n\n# Full Body Content\n\nThis is a very long skill body that should NOT appear in the prompt.\n" + "x" * 2000)
+
+        agent = {
+            "name": "tester", "workspace": tmp_project / "agents" / "_default",
+            "skills": ["test-skill"], "color": "#fff", "emoji": "🤖",
+        }
+        a.ensure_workspace(agent)
+        prompt = a.build_prompt(agent, "test history")
+        assert "Available Skills" in prompt
+        assert "A test skill for testing" in prompt
+        assert "This is a very long skill body" not in prompt
+        assert "x" * 100 not in prompt
+
+    def test_build_prompt_skill_summary_format(self, tmp_project):
+        """Each skill shows as '- **/slug** — description'."""
+        import app as a
+        for slug, name, desc in [("alpha", "Alpha", "First skill"), ("beta", "Beta", "Second skill")]:
+            d = a.PROJECT_DIR / "skills" / slug
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\n\nBody text here.\n")
+
+        agent = {
+            "name": "tester", "workspace": tmp_project / "agents" / "_default",
+            "skills": ["alpha", "beta"], "color": "#fff", "emoji": "🤖",
+        }
+        a.ensure_workspace(agent)
+        prompt = a.build_prompt(agent, "test history")
+        assert "- **/alpha** — First skill" in prompt
+        assert "- **/beta** — Second skill" in prompt
+        assert "/{skill-name}" in prompt  # footer instruction
+
+    def test_build_prompt_no_skills_no_section(self, tmp_project):
+        """Agent with empty skills list → no Available Skills section."""
+        import app as a
+        agent = {
+            "name": "tester", "workspace": tmp_project / "agents" / "_default",
+            "skills": [], "color": "#fff", "emoji": "🤖",
+        }
+        a.ensure_workspace(agent)
+        prompt = a.build_prompt(agent, "test history")
+        assert "Available Skills" not in prompt
+
+    def test_build_prompt_skill_missing_description_uses_name(self, tmp_project):
+        """Skill with no description → fallback to skill name."""
+        import app as a
+        d = a.PROJECT_DIR / "skills" / "nodesc"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text("---\nname: No Description Skill\n---\n\n# Heading Only\n")
+
+        agent = {
+            "name": "tester", "workspace": tmp_project / "agents" / "_default",
+            "skills": ["nodesc"], "color": "#fff", "emoji": "🤖",
+        }
+        a.ensure_workspace(agent)
+        prompt = a.build_prompt(agent, "test history")
+        assert "/nodesc" in prompt
+
+    def test_build_prompt_skill_prompt_size_reduction(self, tmp_project):
+        """With 3 large skills, prompt should be under 5K chars (not 24K+)."""
+        import app as a
+        for slug in ["big1", "big2", "big3"]:
+            d = a.PROJECT_DIR / "skills" / slug
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "SKILL.md").write_text(f"---\nname: {slug}\ndescription: A big skill\n---\n\n" + "x" * 5000)
+
+        agent = {
+            "name": "tester", "workspace": tmp_project / "agents" / "_default",
+            "skills": ["big1", "big2", "big3"], "color": "#fff", "emoji": "🤖",
+        }
+        a.ensure_workspace(agent)
+        prompt = a.build_prompt(agent, "test history")
+        assert len(prompt) < 5000  # should be ~3-4K, not 18K+

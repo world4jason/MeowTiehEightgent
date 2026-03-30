@@ -2200,6 +2200,8 @@ function showWelcome() {
     const wsObj = workspaceData.find(w => w.id === selectedWorkspaceId);
     h2.textContent = wsObj ? wsObj.name : 'MeowTiehEightgent';
   }
+  document.getElementById('topic-input').value = '';
+  document.getElementById('topic-input').placeholder = '輸入討論主題...';
   document.getElementById('topic-input').focus();
 }
 
