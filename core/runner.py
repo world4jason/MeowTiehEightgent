@@ -28,13 +28,18 @@ def _get_json_output_flags(agent: dict) -> list[str]:
     """Return extra CLI flags to enable JSON streaming output for token tracking.
 
     Returns [] if the model does not support JSON output, or if explicitly disabled.
+    Uses the CLI binary name (cmd[0]) for detection, not model_id which may have
+    suffixes like _local/_api.
     """
     if agent.get("json_output") is False:
         return []
+    # Detect by binary name (more reliable than model_id for v1 adapter presets)
+    cmd = agent.get("cmd") or []
+    binary = cmd[0] if cmd else ""
     model_id = agent.get("model_id", "")
-    if model_id == "claude":
+    if binary == "claude" or model_id == "claude":
         return ["--output-format", "stream-json", "--verbose"]
-    if model_id == "gemini":
+    if binary == "gemini" or model_id == "gemini":
         return ["--output-format", "stream-json"]
     return []
 
