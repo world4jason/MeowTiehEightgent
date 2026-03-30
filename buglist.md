@@ -2,6 +2,12 @@
 
 ## 修復中
 
+### B5 — Prompt bloat: Skill 全文注入導致每輪 24K chars
+**現象：** Claude 回應變慢，每輪 prompt 24K chars，其中 85%（~21K）是 3 個 skill 的 SKILL.md 全文。Session 越長越慢，接近 context limit。
+**原因：** `build_prompt()` 把 agent 所有 skills 的全文直接塞進 prompt，每輪都送。
+**修法：** Skill lazy-load — 預設只注入 skill 名稱+一句描述（~100 chars），agent 用 `/skill-name` 指令時才載入全文。類似 OpenClaw L0/L1/L2 tiered loading。
+**影響：** 24K → ~4K chars，回應速度和 token 成本大幅改善。
+
 ## 已修復
 
 - **B1** — `@mention` regex 吃掉中文助詞 → 改用已知 agent list 精確匹配
